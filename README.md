@@ -2,7 +2,7 @@
 
 ![](https://res.cloudinary.com/zeit-inc/image/upload/v1509936789/repositories/pkg/pkg-repo-banner-new.png)
 
-[![Build Status](https://github.com/vercel/pkg/actions/workflows/ci.yml/badge.svg)](https://github.com/vercel/pkg/actions/workflows/ci.yml)
+[![Build Status](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml/badge.svg)](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml)
 
 This command line interface enables you to package your Node.js project into an executable that can be run even on devices without Node.js installed.
 
@@ -255,7 +255,7 @@ option to `pkg`. First ensure your computer meets the
 requirements to compile original Node.js:
 [BUILDING.md](https://github.com/nodejs/node/blob/HEAD/BUILDING.md)
 
-See [pkg-fetch](https://github.com/vercel/pkg-fetch) for more info.
+See [pkg-fetch](https://github.com/yao-pkg/pkg-fetch) for more info.
 
 ### Compression
 
