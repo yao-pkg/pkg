@@ -21,7 +21,7 @@ This command line interface enables you to package your Node.js project into an 
 ## Usage
 
 ```sh
-npm install -g pkg
+npm install -g @yao-pkg/pkg
 ```
 
 After installing it, run `pkg --help` without arguments to see list of options:
@@ -271,7 +271,7 @@ This option can reduce the size of the embedded file system by up to 60%.
 
 The startup time of the application might be reduced slightly.
 
-`-C` can be used as a shortcut for `--compress `.
+`-C` can be used as a shortcut for `--compress`.
 
 ### Environment
 
@@ -406,7 +406,7 @@ IDEs, such as **VS Code**, may add this env variable automatically.
 You could check on **Unix systems** (Linux/macOS) in `bash`:
 
 ```bash
-$ printenv | grep NODE
+printenv | grep NODE
 ```
 
 ## Advanced
@@ -421,8 +421,8 @@ This feature can be useful to inspect if symlinks are correctly handled,
 and check that all the required files for your application are properly
 incorporated to the final executable.
 
-    $ pkg --debug app.js -o output
-    $ DEBUG_PKG=1 output
+    pkg --debug app.js -o output
+    DEBUG_PKG=1 output
 
 or
 
