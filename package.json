@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@babel/core": "7.23.0",
+    "@release-it/conventional-changelog": "7.0.2",
     "@types/babel__generator": "7.6.5",
     "@types/fs-extra": "9.0.13",
     "@types/is-core-module": "2.2.0",
@@ -55,6 +56,7 @@
     "lint-staged": "^10.5.4",
     "mkdirp": "^1.0.4",
     "prettier": "3.0.3",
+    "release-it": "16.2.1",
     "rimraf": "^3.0.2",
     "simple-git-hooks": ">=2.8.0",
     "typescript": "4.7.2"
@@ -73,7 +75,58 @@
     "test:18": "node test/test.js node18 no-npm",
     "test:16": "node test/test.js node16 no-npm",
     "test:14": "node test/test.js node14 no-npm",
-    "test:host": "node test/test.js host only-npm"
+    "test:host": "node test/test.js host only-npm",
+    "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
+  },
+  "release-it": {
+    "github": {
+      "release": true
+    },
+    "git": {
+      "tagName": "v${version}"
+    },
+    "hooks": {
+      "before:init": [
+        "yarn lint"
+      ]
+    },
+    "npm": {
+      "publish": true
+    },
+    "plugins": {
+      "@release-it/conventional-changelog": {
+        "infile": "CHANGELOG.md",
+        "preset": {
+          "name": "conventionalcommits",
+          "types": [
+            {
+              "type": "feat",
+              "section": "Features"
+            },
+            {
+              "type": "fix",
+              "section": "Bug Fixes"
+            },
+            {
+              "type": "test",
+              "section": "Test added"
+            },
+            {
+              "type": "refactor",
+              "section": "Code refactoring"
+            },
+            {
+              "type": "chore",
+              "section": "Chores"
+            },
+            {
+              "type": "docs",
+              "section": "Documentation"
+            }
+          ]
+        }
+      }
+    }
   },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"
