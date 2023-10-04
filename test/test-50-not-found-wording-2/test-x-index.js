@@ -21,5 +21,5 @@ console.log(
     error1.code,
     error2.message.split('\n')[0],
     error2.code,
-  ].join('\n')
+  ].join('\n'),
 );

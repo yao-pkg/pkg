@@ -27,10 +27,10 @@ utils.vacuum.sync('./pnpm-lock.yaml');
 const pnpmlog = utils.spawn.sync(
   path.join(
     path.dirname(process.argv[0]),
-    'npx' + (process.platform === 'win32' ? '.cmd' : '')
+    'npx' + (process.platform === 'win32' ? '.cmd' : ''),
   ),
   ['pnpm', 'install'],
-  { cwd: path.dirname(output), expect: 0 }
+  { cwd: path.dirname(output), expect: 0 },
 );
 console.log('pnpm log :', pnpmlog);
 
@@ -39,7 +39,7 @@ assert(fs.lstatSync(path.join(__dirname, 'node_modules/.pnpm')).isDirectory());
 assert(
   fs
     .lstatSync(path.join(__dirname, 'node_modules/better-assert'))
-    .isSymbolicLink()
+    .isSymbolicLink(),
 );
 
 const logPkg = utils.pkg.sync([

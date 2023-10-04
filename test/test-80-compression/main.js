@@ -33,7 +33,7 @@ const logPkg0 = utils.pkg.sync(
     outputRef,
     './test-empty.js',
   ],
-  { expect: 0 }
+  { expect: 0 },
 );
 const sizeReference = fs.statSync(outputRef).size;
 
@@ -41,7 +41,7 @@ function pkgCompress(compressMode, output) {
   console.log(` compiling compression ${compressMode} `);
   const logPkg1 = utils.pkg.sync(
     ['--target', target, '--compress', compressMode, '--output', output, input],
-    { stdio: inspect, expect: 0 }
+    { stdio: inspect, expect: 0 },
   );
   // check that produced executable is running and produce the expected output.
   const log = utils.spawn.sync(path.join(__dirname, output), [], {
@@ -72,7 +72,7 @@ const logPkg4 = utils.pkg.sync(
     outputBrotliDebug,
     input,
   ],
-  { expect: 0 }
+  { expect: 0 },
 );
 
 console.log('node.exe size  =', sizeReference);
@@ -83,14 +83,14 @@ console.log(
   sizeGZip - sizeNone,
   '(',
   (((sizeGZip - sizeNone) / sizeNone) * 100).toFixed(0),
-  '%)'
+  '%)',
 );
 console.log(
   '      Δ Brotli = ',
   sizeBrotli - sizeNone,
   '(',
   (((sizeBrotli - sizeNone) / sizeNone) * 100).toFixed(0),
-  '%)'
+  '%)',
 );
 
 assert(sizeNone > sizeGZip);
@@ -98,7 +98,7 @@ assert(sizeGZip > sizeBrotli);
 
 const logPkg5 = utils.pkg.sync(
   ['--target', target, '--compress', 'Crap', '--output', outputBrotli, input],
-  { expect: 2 }
+  { expect: 2 },
 );
 
 // xx console.log(logPkg4);

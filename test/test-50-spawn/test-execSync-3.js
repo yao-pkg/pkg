@@ -8,5 +8,5 @@ execSync(
   JSON.stringify(process.execPath) +
     ' ' +
     [require.resolve('./test-execSync-child.js'), 'argvx', '--argvy'].join(' '),
-  { stdio: 'inherit' }
+  { stdio: 'inherit' },
 );

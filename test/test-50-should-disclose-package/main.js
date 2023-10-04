@@ -39,9 +39,9 @@ for (const pub of [false, true]) {
 
   right = utils.pkg.sync(
     ['--debug', '--target', target, '--output', output, input].concat(
-      pub ? ['--public'] : []
+      pub ? ['--public'] : [],
     ),
-    inspect
+    inspect,
   );
 
   assert(right.indexOf('\x1B\x5B') < 0, 'colors detected');
@@ -66,7 +66,7 @@ for (const pub of [false, true]) {
       'package.json = DISCLOSED code (with sources)\n' +
       (pub
         ? 'test-x-index.js = DISCLOSED code (with sources)\n'
-        : 'test-x-index.js = bytecode (no sources)\n')
+        : 'test-x-index.js = bytecode (no sources)\n'),
   );
 
   utils.vacuum.sync(output);

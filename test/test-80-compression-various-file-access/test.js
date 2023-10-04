@@ -28,7 +28,7 @@ async function withDirectAccess() {
 
 async function withReadStream() {
   const stream = fs.createReadStream(
-    file /* { start: 10, encoding: "ascii" } */
+    file /* { start: 10, encoding: "ascii" } */,
   );
   stream.on('data', (data) => {
     console.log(data.toString());

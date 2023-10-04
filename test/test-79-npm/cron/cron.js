@@ -11,7 +11,7 @@ new CronJob( // eslint-disable-line no-new
   },
   null,
   true,
-  'America/Los_Angeles'
+  'America/Los_Angeles',
 );
 
 setTimeout(function () {

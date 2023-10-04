@@ -12,7 +12,7 @@ var child = spawn(
     '/c',
     '"node ' + require.resolve('./test-spawn-c-child.js') + ' argvx argvy"',
   ],
-  { stdio: 'inherit', windowsVerbatimArguments: true }
+  { stdio: 'inherit', windowsVerbatimArguments: true },
 );
 
 child.on('exit', function (code) {

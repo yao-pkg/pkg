@@ -25,7 +25,7 @@ right = utils.spawn.sync('./' + path.basename(output), [], {
 assert(
   right
     .split('*****')[0]
-    .indexOf('was not included into executable at compilation stage') >= 0
+    .indexOf('was not included into executable at compilation stage') >= 0,
 );
 
 assert(right.split('*****')[1].indexOf('you want to compile the package') >= 0);

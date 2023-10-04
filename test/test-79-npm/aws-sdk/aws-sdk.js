@@ -17,5 +17,5 @@ s3.listObjects(
         console.log('ok');
       }
     }
-  }
+  },
 );

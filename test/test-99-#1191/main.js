@@ -51,7 +51,7 @@ function doTestWithCompression() {
     ['--compress', 'Brotli', '--target', target, '--output', output1, input],
     {
       //   expect: 0,
-    }
+    },
   );
   const log = utils.spawn.sync(path.join(__dirname, output1), [], {
     cwd: __dirname,

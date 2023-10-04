@@ -8,5 +8,5 @@ jsdom.env(
     if (window.document.body.children[0].tagName === 'P') {
       console.log('ok');
     }
-  }
+  },
 );

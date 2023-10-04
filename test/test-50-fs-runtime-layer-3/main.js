@@ -33,7 +33,7 @@ assert.strictEqual(
     'Cannot write to packaged file\n' +
     'undefined\n' +
     'Cannot write to packaged file\n' +
-    'undefined\n'
+    'undefined\n',
 );
 
 utils.vacuum.sync(output);

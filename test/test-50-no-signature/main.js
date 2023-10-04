@@ -36,7 +36,7 @@ right = utils.spawn.sync('codesign', ['-dv', './' + path.basename(output)], {
 
 assert.strictEqual(
   right.stderr,
-  './test-output: code object is not signed at all\n'
+  './test-output: code object is not signed at all\n',
 );
 
 utils.vacuum.sync(output);

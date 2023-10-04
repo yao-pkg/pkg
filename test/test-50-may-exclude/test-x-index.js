@@ -64,5 +64,5 @@ console.log(
     error4.message.split('\n')[0],
     error4.code,
     JSON.stringify(Object.assign(error4, { requireStack: undefined })),
-  ].join('\n')
+  ].join('\n'),
 );

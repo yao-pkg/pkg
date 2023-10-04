@@ -10,8 +10,8 @@ console.log('Starting sync read');
 
 console.log(
   serializeFiles(
-    fs.readdirSync(path.join(__dirname, 'files'), { withFileTypes: true })
-  )
+    fs.readdirSync(path.join(__dirname, 'files'), { withFileTypes: true }),
+  ),
 );
 
 console.log('Finishing sync read');
@@ -24,7 +24,7 @@ fs.readdir(
   (_err, files) => {
     console.log(serializeFiles(files));
     console.log('Finishing async read');
-  }
+  },
 );
 
 function serializeFiles(files) {

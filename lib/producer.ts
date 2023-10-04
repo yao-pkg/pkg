@@ -36,7 +36,7 @@ type PlaceholderMap = Record<PlaceholderTypes, Placeholder | NotFound>;
 function discoverPlaceholder(
   binaryBuffer: Buffer,
   searchString: string,
-  padder: string
+  padder: string,
 ): Placeholder | NotFound {
   const placeholder = Buffer.from(searchString);
   const position = binaryBuffer.indexOf(placeholder);
@@ -55,8 +55,8 @@ function injectPlaceholder(
   cb: (
     err: NodeJS.ErrnoException | null,
     written: number,
-    buffer: Buffer
-  ) => void
+    buffer: Buffer,
+  ) => void,
 ) {
   if ('notFound' in placeholder) {
     assert(false, 'Placeholder for not found');
@@ -84,18 +84,18 @@ function discoverPlaceholders(binaryBuffer: Buffer) {
     BAKERY: discoverPlaceholder(
       binaryBuffer,
       `\0${'// BAKERY '.repeat(20)}`,
-      '\0'
+      '\0',
     ),
     PAYLOAD_POSITION: discoverPlaceholder(
       binaryBuffer,
       '// PAYLOAD_POSITION //',
-      ' '
+      ' ',
     ),
     PAYLOAD_SIZE: discoverPlaceholder(binaryBuffer, '// PAYLOAD_SIZE //', ' '),
     PRELUDE_POSITION: discoverPlaceholder(
       binaryBuffer,
       '// PRELUDE_POSITION //',
-      ' '
+      ' ',
     ),
     PRELUDE_SIZE: discoverPlaceholder(binaryBuffer, '// PRELUDE_SIZE //', ' '),
   };
@@ -105,7 +105,7 @@ function injectPlaceholders(
   fd: number,
   placeholders: PlaceholderMap,
   values: Record<PlaceholderTypes, number | string | Buffer>,
-  cb: (error?: Error | null) => void
+  cb: (error?: Error | null) => void,
 ) {
   injectPlaceholder(fd, placeholders.BAKERY, values.BAKERY, (error) => {
     if (error) {
@@ -143,13 +143,13 @@ function injectPlaceholders(
                   fd,
                   placeholders.PRELUDE_SIZE,
                   values.PRELUDE_SIZE,
-                  cb
+                  cb,
                 );
-              }
+              },
             );
-          }
+          },
         );
-      }
+      },
     );
   });
 }
@@ -175,7 +175,7 @@ function replaceDollarWise(s: string, sf: string, st: string) {
 
 function makePreludeBufferFromPrelude(prelude: string) {
   return Buffer.from(
-    `(function(process, require, console, EXECPATH_FD, PAYLOAD_POSITION, PAYLOAD_SIZE) { ${prelude}\n})` // dont remove \n
+    `(function(process, require, console, EXECPATH_FD, PAYLOAD_POSITION, PAYLOAD_SIZE) { ${prelude}\n})`, // dont remove \n
   );
 }
 
@@ -200,7 +200,7 @@ function findPackageJson(nodeFile: string) {
 function nativePrebuildInstall(target: Target, nodeFile: string) {
   const prebuildInstall = path.join(
     __dirname,
-    '../node_modules/.bin/prebuild-install'
+    '../node_modules/.bin/prebuild-install',
   );
   const dir = findPackageJson(nodeFile);
   // parse the target node version from the binaryPath
@@ -222,7 +222,7 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
   }
 
   const napiVersions = JSON.parse(
-    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' })
+    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' }),
   )?.binary?.napi_versions;
 
   const options = [
@@ -307,7 +307,7 @@ const separator = '/';
 function makeKey(
   doCompression: CompressType,
   fullpath: string,
-  slash: string
+  slash: string,
 ): string {
   if (doCompression === CompressType.None) return fullpath;
   return fullpath.split(slash).map(getOrCreateHash).join(separator);
@@ -325,7 +325,7 @@ export default function producer({
   return new Promise<void>((resolve, reject) => {
     if (!Buffer.alloc) {
       throw wasReported(
-        'Your node.js does not have Buffer.alloc. Please upgrade!'
+        'Your node.js does not have Buffer.alloc. Please upgrade!',
       );
     }
 
@@ -430,15 +430,15 @@ export default function producer({
                   cb(
                     null,
                     pipeMayCompressToNewMeter(
-                      intoStream(buffer || Buffer.from(''))
-                    )
+                      intoStream(buffer || Buffer.from('')),
+                    ),
                   );
-                }
+                },
               );
             }
             return cb(
               null,
-              pipeMayCompressToNewMeter(intoStream(stripe.buffer))
+              pipeMayCompressToNewMeter(intoStream(stripe.buffer)),
             );
           }
 
@@ -447,9 +447,9 @@ export default function producer({
               return cb(
                 wasReported(
                   'Trying to take executable into executable',
-                  stripe.file
+                  stripe.file,
                 ),
-                null
+                null,
               );
             }
 
@@ -462,19 +462,21 @@ export default function producer({
                 if (fs.existsSync(platformFile)) {
                   return cb(
                     null,
-                    pipeMayCompressToNewMeter(fs.createReadStream(platformFile))
+                    pipeMayCompressToNewMeter(
+                      fs.createReadStream(platformFile),
+                    ),
                   );
                 }
               } catch (err) {
                 log.debug(
                   `prebuild-install failed[${stripe.file}]:`,
-                  (err as Error).message
+                  (err as Error).message,
                 );
               }
             }
             return cb(
               null,
-              pipeMayCompressToNewMeter(fs.createReadStream(stripe.file))
+              pipeMayCompressToNewMeter(fs.createReadStream(stripe.file)),
             );
           }
 
@@ -494,23 +496,23 @@ export default function producer({
                           replaceDollarWise(
                             prelude,
                             '%VIRTUAL_FILESYSTEM%',
-                            JSON.stringify(vfs)
+                            JSON.stringify(vfs),
                           ),
                           '%DEFAULT_ENTRYPOINT%',
-                          JSON.stringify(entrypoint)
+                          JSON.stringify(entrypoint),
                         ),
                         '%SYMLINKS%',
-                        JSON.stringify(snapshotSymLinks)
+                        JSON.stringify(snapshotSymLinks),
                       ),
                       '%DICT%',
-                      JSON.stringify(fileDictionary)
+                      JSON.stringify(fileDictionary),
                     ),
                     '%DOCOMPRESS%',
-                    JSON.stringify(doCompress)
-                  )
-                )
-              )
-            )
+                    JSON.stringify(doCompress),
+                  ),
+                ),
+              ),
+            ),
           );
         }
       } else {
@@ -544,7 +546,7 @@ export default function producer({
                 if (error3) return reject(error3);
                 resolve();
               });
-            }
+            },
           );
         });
       });

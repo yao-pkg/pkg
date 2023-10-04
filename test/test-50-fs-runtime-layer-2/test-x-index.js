@@ -77,7 +77,7 @@ function test01() {
                         fs.realpath(theFile, function (error9, real) {
                           console.log(
                             'fs.realpath.error9 === null',
-                            error9 === null
+                            error9 === null,
                           );
                           console.log('typeof real', typeof real);
                           test01e(fd);
@@ -95,7 +95,7 @@ function test01() {
               console.log('after fs.readFile');
             });
             console.log('after fs.close');
-          }
+          },
         );
         console.log('after fs.read');
       });
@@ -142,7 +142,7 @@ function test01e(badFd) {
                     buffer5,
                     function (error8, wtf2) {
                       assert(
-                        error8.code === 'ENOENT' || error8.code === 'ENOTDIR'
+                        error8.code === 'ENOENT' || error8.code === 'ENOTDIR',
                       );
                       console.log('typeof wtf2', typeof wtf2);
                       fs.readdir(theFile, function (error9, list) {
@@ -157,7 +157,7 @@ function test01e(badFd) {
                             fs.realpath('notExists', function (error11, real) {
                               console.log(
                                 'fs.realpath.error11.code',
-                                error11.code
+                                error11.code,
                               );
                               console.log('typeof real', typeof real);
                               test02();
@@ -169,7 +169,7 @@ function test01e(badFd) {
                         console.log('after fs.readdir(notExists)');
                       });
                       console.log('after fs.readdir(theFile)');
-                    }
+                    },
                   );
                   console.log('after fs.writeFile');
                 });
@@ -178,7 +178,7 @@ function test01e(badFd) {
               console.log('after fs.readFile(theDirectory)');
             });
             console.log('after fs.close');
-          }
+          },
         );
         console.log('after fs.read');
       });

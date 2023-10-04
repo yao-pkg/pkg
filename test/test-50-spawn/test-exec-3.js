@@ -11,7 +11,7 @@ var child = exec(
   function (error) {
     if (error) return console.error(error);
     console.log('exec done');
-  }
+  },
 );
 
 child.stdout.pipe(process.stdout);

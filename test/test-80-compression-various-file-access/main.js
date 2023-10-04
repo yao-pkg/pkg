@@ -20,11 +20,11 @@ async function runTest(input) {
 
   const logPkgNone = utils.pkg.sync(
     ['--target', target, '--compress', 'None', '--output', output_none, input],
-    { expect: 0 }
+    { expect: 0 },
   );
   const logPkgGZip = utils.pkg.sync(
     ['--target', target, '--compress', 'GZIP', '--output', output_gzip, input],
-    { expect: 0 }
+    { expect: 0 },
   );
 
   // -----------------------------------------------------------------------
@@ -46,12 +46,12 @@ async function runTest(input) {
 
   if (logRef !== logNone) {
     console.log(
-      " uncompress pkg doesn't produce same result as running with node"
+      " uncompress pkg doesn't produce same result as running with node",
     );
   }
   if (logRef !== logGZip) {
     console.log(
-      " GZIP compress pkg doesn't produce same result as running with node"
+      " GZIP compress pkg doesn't produce same result as running with node",
     );
   }
 

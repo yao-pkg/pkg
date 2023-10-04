@@ -45,14 +45,14 @@ left.some(function (leftValue, index) {
     nonSnapshot = rightValue.length - 12;
     assert.strictEqual(
       leftValue.slice(-nonSnapshot),
-      rightValue.slice(-nonSnapshot)
+      rightValue.slice(-nonSnapshot),
     );
   } else if (leftValue.slice(0, 1) === '/') {
     assert.strictEqual(rightValue.slice(0, 10), '/snapshot/');
     nonSnapshot = rightValue.length - 10;
     assert.strictEqual(
       leftValue.slice(-nonSnapshot),
-      rightValue.slice(-nonSnapshot)
+      rightValue.slice(-nonSnapshot),
     );
   } else if (leftValue === '') {
     assert.strictEqual(leftValue, rightValue);

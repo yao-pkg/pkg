@@ -60,7 +60,7 @@ async function withPromiseReadDir() {
     const folder = path.join(__dirname, '/');
     const files = await fs_promises.readdir(folder);
     console.log(
-      files.findIndex((x) => x === thisFile) >= 0 ? 'Success' : 'Failure'
+      files.findIndex((x) => x === thisFile) >= 0 ? 'Success' : 'Failure',
     );
   } catch (err) {
     console.log(err.message);

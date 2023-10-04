@@ -92,7 +92,7 @@ module.exports.spawn.sync = function (command, args, opts) {
     if (s === null) s = 'null';
     if (expect === null) expect = 'null';
     throw new Error(
-      'Status ' + s.toString() + ', expected ' + expect.toString()
+      'Status ' + s.toString() + ', expected ' + expect.toString(),
     );
   }
 
@@ -174,7 +174,7 @@ module.exports.shouldSkipPnpm = function () {
   const MAJOR_VERSION = parseInt(process.version.match(/v([0-9]+)/)[1], 10);
   const MINOR_VERSION = parseInt(
     process.version.match(/v[0-9]+\.([0-9]+)/)[1],
-    10
+    10,
   );
 
   const isDisallowedMajor = MAJOR_VERSION < REQUIRED_MAJOR_VERSION;

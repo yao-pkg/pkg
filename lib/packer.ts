@@ -17,7 +17,7 @@ import { log, wasReported } from './log';
 import { FileRecord, FileRecords, SymLinks } from './types';
 
 const { version } = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8')
+  fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
 );
 
 const bootstrapText = fs
@@ -28,10 +28,10 @@ const commonText = fs.readFileSync(require.resolve('./common'), 'utf8');
 
 const diagnosticText = fs.readFileSync(
   require.resolve('../prelude/diagnostic.js'),
-  'utf8'
+  'utf8',
 );
 
-function itemsToText<T extends unknown>(items: T[]) {
+function itemsToText<T>(items: T[]) {
   const len = items.length;
   return len.toString() + (len % 10 === 1 ? ' item' : ' items');
 }
@@ -80,7 +80,7 @@ export default function packer({
         record[STORE_BLOB] ||
           record[STORE_CONTENT] ||
           record[STORE_LINKS] ||
-          record[STORE_STAT]
+          record[STORE_STAT],
       );
 
       if (record[STORE_BLOB] && !bytecode) {
@@ -93,7 +93,7 @@ export default function packer({
               file,
               'Please run with "-d" and without "--no-bytecode" first, and make',
               'sure that debug log does not contain "was included as bytecode".',
-            ]
+            ],
           );
         }
       }
@@ -144,7 +144,7 @@ export default function packer({
             disclosed
               ? 'The file was included as DISCLOSED code (with sources)'
               : 'The file was included as asset content',
-            file
+            file,
           );
         } else if (record[STORE_BLOB]) {
           log.debug('The file was included as bytecode (no sources)', file);
@@ -152,7 +152,7 @@ export default function packer({
           const link = record[STORE_LINKS];
           log.debug(
             `The directory files list was included (${itemsToText(link)})`,
-            file
+            file,
           );
         }
       }
@@ -161,8 +161,8 @@ export default function packer({
   const prelude =
     `return (function (REQUIRE_COMMON, VIRTUAL_FILESYSTEM, DEFAULT_ENTRYPOINT, SYMLINKS, DICT, DOCOMPRESS) {
         ${bootstrapText}${
-      log.debugMode ? diagnosticText : ''
-    }\n})(function (exports) {\n${commonText}\n},\n` +
+          log.debugMode ? diagnosticText : ''
+        }\n})(function (exports) {\n${commonText}\n},\n` +
     `%VIRTUAL_FILESYSTEM%` +
     `\n,\n` +
     `%DEFAULT_ENTRYPOINT%` +

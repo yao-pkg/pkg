@@ -22,7 +22,7 @@ const inspect =
 
 right = utils.pkg.sync(
   ['--target', target, '--output', output, input],
-  inspect
+  inspect,
 );
 
 assert(right.indexOf('\x1B\x5B') < 0, 'colors detected');

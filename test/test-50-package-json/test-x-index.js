@@ -11,5 +11,5 @@ console.log(
     require(theA).toString(),
     require(theB).toString(),
     require(theC).toString(),
-  ].join('\n')
+  ].join('\n'),
 );

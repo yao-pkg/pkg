@@ -28,5 +28,5 @@ console.log(
     require('test-y-fish-P'),
 
     require('test-y-fish-R'),
-  ].join('\n')
+  ].join('\n'),
 );

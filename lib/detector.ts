@@ -42,7 +42,7 @@ function reconstructSpecifiers(
     | babelTypes.ImportDefaultSpecifier
     | babelTypes.ImportNamespaceSpecifier
     | babelTypes.ImportSpecifier
-  )[]
+  )[],
 ) {
   if (!specs || !specs.length) {
     return '';

@@ -113,7 +113,7 @@ function isPublic(config: PackageJson) {
     license.split(' or '),
     license.split(' and '),
     license.split('/'),
-    license.split(',')
+    license.split(','),
   );
   let result = false;
   const foss = [
@@ -227,7 +227,7 @@ function stepStrip(record: FileRecord) {
 function stepDetect(
   record: FileRecord,
   marker: Marker,
-  derivatives: Derivative[]
+  derivatives: Derivative[],
 ) {
   let { body = '' } = record;
 
@@ -377,7 +377,7 @@ class Walker {
 
     if (task.reason) {
       log.debug(
-        `${what} ${task.file} is added to queue. It was required from ${task.reason}`
+        `${what} ${task.file} is added to queue. It was required from ${task.reason}`,
       );
     } else {
       log.debug(`${what} ${task.file} is added to queue.`);
@@ -629,7 +629,7 @@ class Walker {
             `The ${type} must be distributed with executable as %2.`,
             `%1: ${path.relative(
               process.cwd(),
-              path.join(base, deployFile[0])
+              path.join(base, deployFile[0]),
             )}`,
             `%2: path-to-executable/${deployFile[1]}`,
           ]);
@@ -702,10 +702,10 @@ class Walker {
   async stepDerivatives_ALIAS_AS_RELATIVE(
     record: FileRecord,
     marker: Marker,
-    derivative: Derivative
+    derivative: Derivative,
   ) {
     const file = normalizePath(
-      path.join(path.dirname(record.file), derivative.alias)
+      path.join(path.dirname(record.file), derivative.alias),
     );
 
     let stat;
@@ -736,7 +736,7 @@ class Walker {
   async stepDerivatives_ALIAS_AS_RESOLVABLE(
     record: FileRecord,
     marker: Marker,
-    derivative: Derivative
+    derivative: Derivative,
   ) {
     const newPackages: { packageJson: string; marker?: Marker }[] = [];
 
@@ -820,7 +820,7 @@ class Walker {
       if (strictVerify) {
         assert(
           newPackageForNewRecords.packageJson ===
-            normalizePath(newPackageForNewRecords.packageJson)
+            normalizePath(newPackageForNewRecords.packageJson),
         );
       }
       this.appendBlobOrContent({
@@ -842,7 +842,7 @@ class Walker {
   async stepDerivatives(
     record: FileRecord,
     marker: Marker,
-    derivatives: Derivative[]
+    derivatives: Derivative[],
   ) {
     for (const derivative of derivatives) {
       // TODO: actually use the target node version
@@ -853,14 +853,14 @@ class Walker {
           await this.stepDerivatives_ALIAS_AS_RELATIVE(
             record,
             marker,
-            derivative
+            derivative,
           );
           break;
         case ALIAS_AS_RESOLVABLE:
           await this.stepDerivatives_ALIAS_AS_RESOLVABLE(
             record,
             marker,
-            derivative
+            derivative,
           );
           break;
         default:
@@ -928,7 +928,7 @@ class Walker {
     if (strictVerify) {
       assert(
         record.file === toNormalizedRealPath(record.file),
-        ' expecting real file !!!'
+        ' expecting real file !!!',
       );
     }
 
@@ -1047,7 +1047,7 @@ class Walker {
     marker: Marker,
     entrypoint: string,
     addition: string | undefined,
-    params: WalkerParams
+    params: WalkerParams,
   ) {
     this.params = params;
     this.symLinks = {};

@@ -21,15 +21,15 @@ if (process.platform === 'win32') {
   assert.strictEqual('C:\\snapshot', common.normalizePath('c:\\snapshot\\'));
   assert.strictEqual(
     'C:\\snapshoter',
-    common.normalizePath('c:\\snapshoter\\')
+    common.normalizePath('c:\\snapshoter\\'),
   );
   assert.strictEqual(
     'C:\\snapshot\\foo',
-    common.normalizePath('c:\\snapshot\\\\foo')
+    common.normalizePath('c:\\snapshot\\\\foo'),
   );
   assert.strictEqual(
     'C:\\snapshot\\foo\\bar',
-    common.normalizePath('c:\\snapshot\\\\foo\\\\bar\\/\\\\')
+    common.normalizePath('c:\\snapshot\\\\foo\\\\bar\\/\\\\'),
   );
 
   assert.strictEqual(common.insideSnapshot('c:'), false);
@@ -51,22 +51,22 @@ if (process.platform === 'win32') {
   assert.strictEqual('C:\\**\\', common.stripSnapshot('c:\\snapshot\\'));
   assert.strictEqual(
     'c:\\snapshoter\\',
-    common.stripSnapshot('c:\\snapshoter\\')
+    common.stripSnapshot('c:\\snapshoter\\'),
   );
   assert.strictEqual(
     'C:\\**\\foo',
-    common.stripSnapshot('c:\\snapshot\\\\foo')
+    common.stripSnapshot('c:\\snapshot\\\\foo'),
   );
   assert.strictEqual(
     'C:\\**\\foo\\bar',
-    common.stripSnapshot('c:\\snapshot\\\\foo\\\\bar\\/\\\\')
+    common.stripSnapshot('c:\\snapshot\\\\foo\\\\bar\\/\\\\'),
   );
 
   assert.strictEqual('C:\\snapshot', common.snapshotify('C:\\'));
   assert.strictEqual('C:\\snapshot\\foo', common.snapshotify('C:\\foo'));
   assert.strictEqual(
     'C:\\snapshot\\foo\\bar',
-    common.snapshotify('C:\\foo\\bar')
+    common.snapshotify('C:\\foo\\bar'),
   );
 
   assert.strictEqual('foo', common.removeUplevels('..\\foo'));
@@ -81,7 +81,7 @@ if (process.platform === 'win32') {
       'C:\\long\\haired\\freaky\\people',
       'C:\\long\\haired\\aliens',
     ]),
-    ['C:\\freaky\\people', 'C:\\aliens']
+    ['C:\\freaky\\people', 'C:\\aliens'],
   );
 
   assert.deepStrictEqual(
@@ -89,7 +89,7 @@ if (process.platform === 'win32') {
       'C:\\long\\haired\\freaky\\people',
       'C:\\long\\hyphen\\sign',
     ]),
-    ['C:\\haired\\freaky\\people', 'C:\\hyphen\\sign']
+    ['C:\\haired\\freaky\\people', 'C:\\hyphen\\sign'],
   );
 
   assert.deepStrictEqual(
@@ -97,7 +97,7 @@ if (process.platform === 'win32') {
       'C:\\long\\haired\\freaky\\people',
       'D:\\long\\hyphen\\sign',
     ]),
-    ['C:\\long\\haired\\freaky\\people', 'D:\\long\\hyphen\\sign']
+    ['C:\\long\\haired\\freaky\\people', 'D:\\long\\hyphen\\sign'],
   );
 } else {
   assert.strictEqual('/', common.normalizePath('/'));
@@ -109,7 +109,7 @@ if (process.platform === 'win32') {
   assert.strictEqual('/snapshot/foo', common.normalizePath('/snapshot//foo'));
   assert.strictEqual(
     '/snapshot/foo/bar',
-    common.normalizePath('/snapshot//foo//bar/\\//')
+    common.normalizePath('/snapshot//foo//bar/\\//'),
   );
 
   assert.strictEqual(common.insideSnapshot(''), false);
@@ -133,7 +133,7 @@ if (process.platform === 'win32') {
   assert.strictEqual('/**/foo', common.stripSnapshot('/snapshot//foo'));
   assert.strictEqual(
     '/**/foo/bar',
-    common.stripSnapshot('/snapshot//foo//bar/\\//')
+    common.stripSnapshot('/snapshot//foo//bar/\\//'),
   );
 
   assert.strictEqual('/snapshot', common.snapshotify('/'));
@@ -149,11 +149,11 @@ if (process.platform === 'win32') {
 
   assert.deepStrictEqual(
     substituteMany(['/long/haired/freaky/people', '/long/haired/aliens']),
-    ['/freaky/people', '/aliens']
+    ['/freaky/people', '/aliens'],
   );
 
   assert.deepStrictEqual(
     substituteMany(['/long/haired/freaky/people', '/long/hyphen/sign']),
-    ['/haired/freaky/people', '/hyphen/sign']
+    ['/haired/freaky/people', '/hyphen/sign'],
   );
 }

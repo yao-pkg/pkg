@@ -20,7 +20,7 @@ utils.mkdirp.sync(path.join(path.dirname(output), 'plugins-D-ext'));
 
 fs.writeFileSync(
   path.join(path.dirname(output), 'plugins-D-ext/test-y-require-D.js'),
-  fs.readFileSync('./plugins-D-ext/test-y-require-D.js')
+  fs.readFileSync('./plugins-D-ext/test-y-require-D.js'),
 );
 
 utils.pkg.sync(['--target', target, '--output', output, input]);

@@ -25,20 +25,20 @@ fs.readdirSync('./').some(function (file) {
     const nf = path.join(
       path.dirname(file),
       path.basename(path.dirname(output)),
-      path.basename(file)
+      path.basename(file),
     );
     fs.writeFileSync(
       nf,
-      fs.readFileSync(file, 'utf8').replace('compile-time', 'run-time')
+      fs.readFileSync(file, 'utf8').replace('compile-time', 'run-time'),
     );
     const nf3 = path.join(
       path.dirname(file),
       path.basename(path.dirname(output3)),
-      path.basename(file)
+      path.basename(file),
     );
     fs.writeFileSync(
       nf3,
-      fs.readFileSync(file, 'utf8').replace('compile-time', 'run-time-3')
+      fs.readFileSync(file, 'utf8').replace('compile-time', 'run-time-3'),
     );
   }
 });
@@ -52,7 +52,7 @@ right = utils.spawn.sync('./' + path.basename(output), [], {
 right3 = utils.spawn.sync(
   './' + path.join('..', path.dirname(output), path.basename(output)),
   [],
-  { cwd: path.dirname(output3) }
+  { cwd: path.dirname(output3) },
 );
 
 right = right

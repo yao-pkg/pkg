@@ -15,5 +15,5 @@ console.log(
       ? process.pkg.defaultEntrypoint
       : 'undefined',
     'require.main.filename': require.main.filename,
-  })
+  }),
 );

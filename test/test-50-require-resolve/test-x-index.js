@@ -19,10 +19,10 @@ var theReqCode3x = require('./test-z-require-code-3.js' + '');
 var theReqCode4bx = require.resolve('./test-z-require-code-4.js' + '');
 
 var theReqContent = fs.readFileSync(
-  path.join(__dirname, './test-z-require-content.css')
+  path.join(__dirname, './test-z-require-content.css'),
 );
 var theReqContentX = fs.readFileSync(
-  path.join(__dirname, './test-z-require-content.css' + '')
+  path.join(__dirname, './test-z-require-content.css' + ''),
 );
 
 var theReqJson1 = require('./test-z-require-json-1');
@@ -36,10 +36,10 @@ var theReqJson3x = require('./test-z-require-json-3.json' + '');
 var theReqJson4bx = require.resolve('./test-z-require-json-4.json' + '');
 
 var theReqJson5 = fs.readFileSync(
-  path.join(__dirname, './test-z-require-json-5.json')
+  path.join(__dirname, './test-z-require-json-5.json'),
 );
 var theReqJson5s = fs.readFileSync(
-  require.resolve(path.join(__dirname, './test-z-require-json-5.json'))
+  require.resolve(path.join(__dirname, './test-z-require-json-5.json')),
 );
 
 console.log(
@@ -71,5 +71,5 @@ console.log(
 
     theReqJson5.toString().split('"')[3],
     theReqJson5s.toString().split('"')[3],
-  ].join('\n')
+  ].join('\n'),
 );

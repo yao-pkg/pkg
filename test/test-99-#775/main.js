@@ -26,7 +26,7 @@ const inspect = ['ignore', 'ignore', 'pipe'];
 
 const logPkg1 = utils.pkg.sync(
   ['--target', target, '--debug', '--output', output, input],
-  { expect: 0 }
+  { expect: 0 },
 );
 
 const log1 = utils.spawn.sync(path.join(__dirname, output), [], {
@@ -40,12 +40,12 @@ assert.strictEqual(
 Finishing a
 Starting b
 Finishing b
-`
+`,
 );
 
 const logPkg2 = utils.pkg.sync(
   ['--target', target, '--debug', '--output', output, 'a.js'],
-  { expect: 0 }
+  { expect: 0 },
 );
 
 const log2 = utils.spawn.sync(path.join(__dirname, output), [], {
@@ -58,6 +58,6 @@ assert.strictEqual(
 Finishing a
 Starting b
 Finishing b
-`
+`,
 );
 utils.vacuum.sync(output);

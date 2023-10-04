@@ -119,52 +119,52 @@ console.log(
       : '',
 
     fs.existsSync(
-      firstLowerCase(path.join(__dirname, theRequireContentA + '-no-such'))
+      firstLowerCase(path.join(__dirname, theRequireContentA + '-no-such')),
     ),
     fs.existsSync(
-      firstLowerCase(__dirname + path.sep + theRequireContentB + '-no-such')
+      firstLowerCase(__dirname + path.sep + theRequireContentB + '-no-such'),
     ),
     fs.existsSync(
-      firstLowerCase(__dirname + '/' + theRequireContentB + '-no-such')
+      firstLowerCase(__dirname + '/' + theRequireContentB + '-no-such'),
     ),
     windows
       ? fs.existsSync(
-          firstLowerCase(__dirname + '/\\' + theRequireContentB + '-no-such')
+          firstLowerCase(__dirname + '/\\' + theRequireContentB + '-no-such'),
         )
       : '',
     windows
       ? fs.existsSync(
-          firstLowerCase(__dirname + '\\' + theRequireContentB + '-no-such')
+          firstLowerCase(__dirname + '\\' + theRequireContentB + '-no-such'),
         )
       : '',
     windows
       ? fs.existsSync(
-          firstLowerCase(__dirname + '\\/' + theRequireContentB + '-no-such')
+          firstLowerCase(__dirname + '\\/' + theRequireContentB + '-no-such'),
         )
       : '',
 
     fs.existsSync(
-      firstUpperCase(path.join(__dirname, theRequireContentA + '-no-such'))
+      firstUpperCase(path.join(__dirname, theRequireContentA + '-no-such')),
     ),
     fs.existsSync(
-      firstUpperCase(__dirname + path.sep + theRequireContentB + '-no-such')
+      firstUpperCase(__dirname + path.sep + theRequireContentB + '-no-such'),
     ),
     fs.existsSync(
-      firstUpperCase(__dirname + '/' + theRequireContentB + '-no-such')
+      firstUpperCase(__dirname + '/' + theRequireContentB + '-no-such'),
     ),
     windows
       ? fs.existsSync(
-          firstUpperCase(__dirname + '/\\' + theRequireContentB + '-no-such')
+          firstUpperCase(__dirname + '/\\' + theRequireContentB + '-no-such'),
         )
       : '',
     windows
       ? fs.existsSync(
-          firstUpperCase(__dirname + '\\' + theRequireContentB + '-no-such')
+          firstUpperCase(__dirname + '\\' + theRequireContentB + '-no-such'),
         )
       : '',
     windows
       ? fs.existsSync(
-          firstUpperCase(__dirname + '\\/' + theRequireContentB + '-no-such')
+          firstUpperCase(__dirname + '\\/' + theRequireContentB + '-no-such'),
         )
       : '',
 
@@ -443,5 +443,5 @@ console.log(
       ? fs.realpathSync(firstUpperCase(__dirname + '\\/' + theRequireContentB))
           .mode
       : '',
-  ].join('\n')
+  ].join('\n'),
 );

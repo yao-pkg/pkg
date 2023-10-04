@@ -19,7 +19,7 @@ const inspect =
 
 right = utils.pkg.sync(
   ['--target', 'node7-x6', '--output', 'no-output', 'test-x-index.js'],
-  { stdio: inspect, expect: 2 }
+  { stdio: inspect, expect: 2 },
 );
 
 assert(right.indexOf('\x1B\x5B') < 0, 'colors detected');

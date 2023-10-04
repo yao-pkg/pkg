@@ -60,7 +60,7 @@ function denominate(
   records: FileRecords,
   entrypoint: string,
   denominator: number,
-  symLinks: SymLinks
+  symLinks: SymLinks,
 ) {
   const newRecords: FileRecords = {};
 
@@ -102,7 +102,7 @@ function denominate(
 export default function refiner(
   records: FileRecords,
   entrypoint: string,
-  symLinks: SymLinks
+  symLinks: SymLinks,
 ) {
   purgeTopDirectories(records);
   const denominator = retrieveDenominator(Object.keys(records));

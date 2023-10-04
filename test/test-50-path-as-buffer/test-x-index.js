@@ -15,5 +15,5 @@ console.log(fs.readdirSync(d).includes('test-z-asset.css'));
 console.log(fs.readdirSync(Buffer.from(d)).includes('test-z-asset.css'));
 if (hasURL)
   console.log(
-    fs.readdirSync(new URL('file://' + d)).includes('test-z-asset.css')
+    fs.readdirSync(new URL('file://' + d)).includes('test-z-asset.css'),
   );

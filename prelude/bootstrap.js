@@ -163,7 +163,7 @@ function copyInChunks(
   source,
   target,
   chunkSize = DEFAULT_COPY_CHUNK_SIZE,
-  fs_ = fs
+  fs_ = fs,
 ) {
   const sourceFile = fs_.openSync(source, 'r');
   const targetFile = fs_.openSync(target, 'w');
@@ -361,7 +361,7 @@ const maxUplevels = xpdn.split(path.sep).length;
 function projectToFilesystem(f) {
   const relatives = [];
   relatives.push(
-    removeUplevels(path.relative(path.dirname(DEFAULT_ENTRYPOINT), f))
+    removeUplevels(path.relative(path.dirname(DEFAULT_ENTRYPOINT), f)),
   );
 
   if (relatives[0].slice(0, 'node_modules'.length) === 'node_modules') {
@@ -452,7 +452,7 @@ function readPayload(buffer, offset, length, position, callback) {
     offset,
     length,
     PAYLOAD_POSITION + position,
-    callback
+    callback,
   );
 }
 
@@ -462,7 +462,7 @@ function readPayloadSync(buffer, offset, length, position) {
     buffer,
     offset,
     length,
-    PAYLOAD_POSITION + position
+    PAYLOAD_POSITION + position,
   );
 }
 
@@ -472,7 +472,7 @@ function payloadCopyUni(
   targetStart,
   sourceStart,
   sourceEnd,
-  cb
+  cb,
 ) {
   const cb2 = cb || rethrow;
   if (sourceStart >= source[1]) return cb2(null, 0);
@@ -487,7 +487,7 @@ function payloadCopyUni(
       target,
       targetPos,
       targetEnd - targetPos,
-      payloadPos
+      payloadPos,
     );
   }
 }
@@ -510,7 +510,7 @@ function payloadCopyMany(source, target, targetStart, sourceStart, cb) {
       } else {
         return cb();
       }
-    }
+    },
   );
 }
 
@@ -523,7 +523,7 @@ function payloadCopyManySync(source, target, targetStart, sourceStart) {
       target,
       targetPos,
       targetEnd - targetPos,
-      payloadPos
+      payloadPos,
     );
     payloadPos += chunkSize;
     targetPos += chunkSize;
@@ -656,7 +656,7 @@ function payloadFileSync(pointer) {
     const error = new Error(
       `${fileOrDirectory} '${stripSnapshot(path_)}' ` +
         `was not included into executable at compilation stage. ` +
-        `Please recompile adding it as asset or script.`
+        `Please recompile adding it as asset or script.`,
     );
     error.errno = -ENOENT;
     error.code = 'ENOENT';
@@ -781,7 +781,7 @@ function payloadFileSync(pointer) {
     if (insideMountpoint(path_)) {
       return ancestor.createReadStream.apply(
         fs,
-        translateNth(arguments, 0, path_)
+        translateNth(arguments, 0, path_),
       );
     }
     const stream = ancestor.createReadStream.apply(fs, arguments);
@@ -819,7 +819,7 @@ function payloadFileSync(pointer) {
     offset,
     length,
     position,
-    cb
+    cb,
   ) {
     if (DOCOMPRESS) {
       // note: source contains info about a compressed file and source[1] does not reflect
@@ -850,7 +850,7 @@ function payloadFileSync(pointer) {
           if (error) return cb(error);
           dock.position = p + bytesRead;
           cb(null, bytesRead, buffer2);
-        }
+        },
       );
     } else {
       const bytesRead = payloadCopyUni(
@@ -858,7 +858,7 @@ function payloadFileSync(pointer) {
         buffer,
         offset,
         p,
-        p + length
+        p + length,
       );
       dock.position = p + bytesRead;
       return bytesRead;
@@ -876,7 +876,7 @@ function payloadFileSync(pointer) {
           offset,
           length,
           position,
-          cb
+          cb,
         );
       }
       return ancestor.readSync(
@@ -884,21 +884,21 @@ function payloadFileSync(pointer) {
         buffer,
         offset,
         length,
-        position
+        position,
       );
     }
     const cb2 = cb || rethrow;
     if (offset < 0 && NODE_VERSION_MAJOR >= 14)
       return cb2(
         new Error(
-          `The value of "offset" is out of range. It must be >= 0. Received ${offset}`
-        )
+          `The value of "offset" is out of range. It must be >= 0. Received ${offset}`,
+        ),
       );
     if (offset < 0 && NODE_VERSION_MAJOR >= 10)
       return cb2(
         new Error(
-          `The value of "offset" is out of range. It must be >= 0 && <= ${buffer.length.toString()}. Received ${offset}`
-        )
+          `The value of "offset" is out of range. It must be >= 0 && <= ${buffer.length.toString()}. Received ${offset}`,
+        ),
       );
     if (offset < 0) return cb2(new Error('Offset is out of bounds'));
     if (offset >= buffer.length) return cb2(null, 0);
@@ -907,16 +907,16 @@ function payloadFileSync(pointer) {
         new Error(
           `The value of "length" is out of range. It must be <= ${(
             buffer.length - offset
-          ).toString()}. Received ${length.toString()}`
-        )
+          ).toString()}. Received ${length.toString()}`,
+        ),
       );
     if (offset + length > buffer.length && NODE_VERSION_MAJOR >= 10)
       return cb2(
         new Error(
           `The value of "length" is out of range. It must be >= 0 && <= ${(
             buffer.length - offset
-          ).toString()}. Received ${length.toString()}`
-        )
+          ).toString()}. Received ${length.toString()}`,
+        ),
       );
     if (offset + length > buffer.length)
       return cb2(new Error('Length extends beyond buffer'));
@@ -933,7 +933,7 @@ function payloadFileSync(pointer) {
         offset,
         length,
         position,
-        cb
+        cb,
       );
     return cb2(new Error('UNEXPECTED-15'));
   }
@@ -1146,7 +1146,7 @@ function payloadFileSync(pointer) {
           callback(
             Object.assign(new Error('File already exists'), {
               code: 'EEXIST',
-            })
+            }),
           );
           return;
         }
@@ -1629,7 +1629,7 @@ function payloadFileSync(pointer) {
   function mkdirFailInSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
     return cb2(
-      new Error('Cannot mkdir in a snapshot. Try mountpoints instead.')
+      new Error('Cannot mkdir in a snapshot. Try mountpoints instead.'),
     );
   }
 
@@ -1681,7 +1681,7 @@ function payloadFileSync(pointer) {
       if (insideMountpoint(path_)) {
         return ancestor_promises.open.apply(
           this,
-          translateNth(arguments, 0, path_)
+          translateNth(arguments, 0, path_),
         );
       }
       const externalFile = uncompressExternallyPath(path_);
@@ -1699,7 +1699,7 @@ function payloadFileSync(pointer) {
       if (insideMountpoint(path_)) {
         return ancestor_promises.readFile.apply(
           this,
-          translateNth(arguments, 0, path_)
+          translateNth(arguments, 0, path_),
         );
       }
       const externalFile = uncompressExternallyPath(path_);
@@ -1710,7 +1710,7 @@ function payloadFileSync(pointer) {
     fs.promises.write = async function write(fd) {
       if (fd._pkg) {
         throw new Error(
-          `[PKG] Cannot write into Snapshot file : ${fd._pkg.file}`
+          `[PKG] Cannot write into Snapshot file : ${fd._pkg.file}`,
         );
       }
       return ancestor_promises.write.apply(this, arguments);
@@ -2168,7 +2168,7 @@ function payloadFileSync(pointer) {
           } else {
             resolve({ stdout, stderr });
           }
-        })
+        }),
       );
 
       return p;

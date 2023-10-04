@@ -3,7 +3,7 @@
 var sharp = require('sharp');
 
 var source = Buffer.from(
-  '<svg><rect x="0" y="0" width="100" height="100" rx="50" ry="50"/></svg>'
+  '<svg><rect x="0" y="0" width="100" height="100" rx="50" ry="50"/></svg>',
 );
 
 sharp(source)

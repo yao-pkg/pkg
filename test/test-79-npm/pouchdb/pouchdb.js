@@ -20,7 +20,7 @@ var rimraf = require('../../../node_modules/rimraf');
           return cb();
         }
       });
-    }
+    },
   );
 })(function (error) {
   if (error) throw error;

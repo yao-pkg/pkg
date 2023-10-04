@@ -9,7 +9,7 @@ var path = require('path');
 var theResolveA = require.resolve('./test-y-' + 'resolve-A.txt');
 var theResolveB = require.resolve(
   './test-y-' + 'resolve-B.txt',
-  'must-exclude'
+  'must-exclude',
 );
 var theResolvePathC = './test-y-' + 'resolve-C.txt';
 var theResolveC = require.resolve(theResolvePathC);
@@ -18,7 +18,7 @@ var theResolveD = require.resolve(theResolvePathD, 'must-exclude');
 var theResolveE = require.resolve('./test-y-' + 'resolve-E.txt');
 var theResolveF = require.resolve(
   './test-y-' + 'resolve-F.txt',
-  'must-exclude'
+  'must-exclude',
 );
 var theResolvePathG = './test-y-' + 'resolve-G.txt';
 var theResolveG = require.resolve(theResolvePathG);
@@ -30,15 +30,15 @@ var theReqContentK = fs.readFileSync('./test-z-' + 'require-content-K.txt');
 var theReqContentL = fs.readFileSync(
   './test-z-' + 'require-content-L.txt',
   null,
-  'must-exclude'
+  'must-exclude',
 );
 var theReqContentM = fs.readFileSync(
-  path.join(__dirname, './test-z-' + 'require-content-M.txt')
+  path.join(__dirname, './test-z-' + 'require-content-M.txt'),
 );
 var theReqContentN = fs.readFileSync(
   path.join(__dirname, './test-z-' + 'require-content-N.txt'),
   null,
-  'must-exclude'
+  'must-exclude',
 );
 
 console.log(
@@ -57,5 +57,5 @@ console.log(
     theReqContentL.toString(),
     theReqContentM.toString(),
     theReqContentN.toString(),
-  ].join('\n')
+  ].join('\n'),
 );

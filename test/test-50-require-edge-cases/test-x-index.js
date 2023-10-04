@@ -8,5 +8,5 @@ console.log(
     require(content),
     require('./test-x2-require-false.js'),
     typeof require('./test-x3-empty-file.js'),
-  ].join('\n')
+  ].join('\n'),
 );

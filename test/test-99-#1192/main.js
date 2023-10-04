@@ -47,7 +47,7 @@ const logRef = utils.spawn.sync(
     cwd: __dirname,
     expect: 0,
     stdio: ['inherit', 'pipe', 'pipe'],
-  }
+  },
 );
 
 function runTest(doCompress) {

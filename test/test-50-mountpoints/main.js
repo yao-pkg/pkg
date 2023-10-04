@@ -20,7 +20,7 @@ utils.mkdirp.sync(path.join(path.dirname(output), 'plugins-D-ext'));
 
 fs.writeFileSync(
   path.join(path.dirname(output), 'plugins-D-ext/test-y-require-D.js'),
-  fs.readFileSync('./plugins-D-ext/test-y-require-D.js')
+  fs.readFileSync('./plugins-D-ext/test-y-require-D.js'),
 );
 
 utils.pkg.sync(['--target', target, '--output', output, input]);
@@ -36,7 +36,7 @@ assert.strictEqual(
     'test-x-index.js\n' +
     'test-y-common.js\n' +
     'plugins-C-int\n' +
-    'plugins-D-ext\n'
+    'plugins-D-ext\n',
 );
 
 utils.vacuum.sync(path.dirname(output));

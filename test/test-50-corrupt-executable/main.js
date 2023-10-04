@@ -43,7 +43,7 @@ if (process.platform === 'darwin') {
     ['--no-strict', '-fs', '-', './' + path.basename(output)],
     {
       cwd: path.dirname(output),
-    }
+    },
   );
 }
 
@@ -57,6 +57,6 @@ assert.strictEqual(right.stdout, '');
 assert(
   right.stderr.indexOf('Invalid') >= 0 ||
     right.stderr.indexOf('ILLEGAL') >= 0 ||
-    right.stderr.indexOf('SyntaxError') >= 0
+    right.stderr.indexOf('SyntaxError') >= 0,
 );
 utils.vacuum.sync(output);

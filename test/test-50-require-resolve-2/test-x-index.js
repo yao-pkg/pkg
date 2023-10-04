@@ -26,25 +26,25 @@ var theReqContentK = fs.readFileSync('./test-z-require-content-K.txt');
 var theReqContentL = fs.readFileSync(
   './test-z-require-content-L.txt',
   null,
-  'must-exclude'
+  'must-exclude',
 );
 var theReqContentL2 = fs.readFileSync(
   './test-z-require-content-L.txt',
   null,
-  'may-exclude'
+  'may-exclude',
 );
 var theReqContentM = fs.readFileSync(
-  path.join(__dirname, './test-z-require-content-M.txt')
+  path.join(__dirname, './test-z-require-content-M.txt'),
 );
 var theReqContentN = fs.readFileSync(
   path.join(__dirname, './test-z-require-content-N.txt'),
   null,
-  'must-exclude'
+  'must-exclude',
 );
 var theReqContentN2 = fs.readFileSync(
   path.join(__dirname, './test-z-require-content-N.txt'),
   null,
-  'may-exclude'
+  'may-exclude',
 );
 
 console.log(
@@ -66,5 +66,5 @@ console.log(
     theReqContentM.toString(),
     theReqContentN.toString(),
     theReqContentN2.toString(),
-  ].join('\n')
+  ].join('\n'),
 );

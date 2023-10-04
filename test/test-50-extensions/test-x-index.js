@@ -8,7 +8,7 @@ Module._extensions['.js'] = function (module, filename) {
   // emulating babel-register
   content = content.replace(
     "import x from './test-z-sub.js';",
-    "require('./test-z-sub.js');"
+    "require('./test-z-sub.js');",
   );
   module._compile(content, filename);
 };

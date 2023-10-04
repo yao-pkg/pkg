@@ -22,5 +22,5 @@ middleware(
   function () {
     console.log('Error not expected');
   },
-  'directory-name'
+  'directory-name',
 );

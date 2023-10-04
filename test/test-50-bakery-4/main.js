@@ -42,7 +42,7 @@ for (const option of ['v8-options', 'v8_options']) {
 
   assert(left.indexOf('--expose_gc') >= 0 || left.indexOf('--expose-gc') >= 0);
   assert(
-    right.indexOf('--expose_gc') >= 0 || right.indexOf('--expose-gc') >= 0
+    right.indexOf('--expose_gc') >= 0 || right.indexOf('--expose-gc') >= 0,
   );
 }
 

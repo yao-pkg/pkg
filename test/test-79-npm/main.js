@@ -64,7 +64,7 @@ function save() {
       ';\n' +
       'const changes = ' +
       c +
-      ';\n'
+      ';\n',
   );
 }
 
@@ -249,8 +249,8 @@ inputs.some(function (input) {
       packyVersion = JSON.parse(
         fs.readFileSync(
           path.join(foldy, 'node_modules', packy.split('@')[0], 'package.json'),
-          'utf8'
-        )
+          'utf8',
+        ),
       ).version;
     } catch (___) {
       update(wordy, 'bad-npm-i', '', note);

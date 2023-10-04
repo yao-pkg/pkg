@@ -10,7 +10,7 @@ var child = execFile(
   function (error) {
     if (error) return console.error(error);
     console.log('execFile done');
-  }
+  },
 );
 
 child.stdout.pipe(process.stdout);

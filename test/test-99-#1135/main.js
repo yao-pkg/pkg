@@ -18,7 +18,7 @@ const target = /* process.argv[2] || */ 'host';
 const input = './package.json';
 const output = path.join(
   __dirname,
-  './test-output' + (process.platform === 'win32' ? '.exe' : '')
+  './test-output' + (process.platform === 'win32' ? '.exe' : ''),
 );
 
 console.log('target = ', target);
@@ -35,19 +35,19 @@ console.log('npm log :', npmlog);
 
 assert(fs.lstatSync(path.join(__dirname, 'node_modules/canvas')).isDirectory());
 assert(
-  fs.lstatSync(path.join(__dirname, 'node_modules/canvas/build')).isDirectory()
+  fs.lstatSync(path.join(__dirname, 'node_modules/canvas/build')).isDirectory(),
 );
 assert(
   fs
     .lstatSync(path.join(__dirname, 'node_modules/canvas/build/Release'))
-    .isDirectory()
+    .isDirectory(),
 );
 assert(
   fs
     .lstatSync(
-      path.join(__dirname, 'node_modules/canvas/build/Release/canvas.node')
+      path.join(__dirname, 'node_modules/canvas/build/Release/canvas.node'),
     )
-    .isFile()
+    .isFile(),
 );
 
 utils.pkg.sync(['--target', target, '--debug', '--output', output, input]);

@@ -12,5 +12,5 @@ console.log(
     fs ? typeof fs.statSync : 'empty',
     typeof path,
     path ? typeof path.basename : 'empty',
-  ].join('\n')
+  ].join('\n'),
 );

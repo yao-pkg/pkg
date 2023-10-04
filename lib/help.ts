@@ -34,7 +34,7 @@ export default function help() {
   ${chalk.gray('–')} Makes executables for target machines of your choice
     ${chalk.cyan('$ pkg -t node16-linux,node18-linux,node18-win index.js')}
   ${chalk.gray(
-    '–'
+    '–',
   )} Bakes '--expose-gc' and '--max-heap-size=34' into executable
     ${chalk.cyan('$ pkg --options "expose-gc,max-heap-size=34" index.js')}
   ${chalk.gray('–')} Consider packageA and packageB to be public
@@ -44,7 +44,7 @@ export default function help() {
   ${chalk.gray('–')} Bakes '--expose-gc' into executable
     ${chalk.cyan('$ pkg --options expose-gc index.js')}
   ${chalk.gray(
-    '–'
+    '–',
   )} reduce size of the data packed inside the executable with GZip
     ${chalk.cyan('$ pkg --compress GZip index.js')}
 `);

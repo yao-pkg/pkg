@@ -28,17 +28,17 @@ utils.vacuum.sync('./pnpm-lock.yaml');
 const pnpmlog = utils.spawn.sync(
   path.join(
     path.dirname(process.argv[0]),
-    'npx' + (process.platform === 'win32' ? '.cmd' : '')
+    'npx' + (process.platform === 'win32' ? '.cmd' : ''),
   ),
   ['pnpm', 'install'],
-  { cwd: path.dirname(output), expect: 0 }
+  { cwd: path.dirname(output), expect: 0 },
 );
 console.log('pnpm log :', pnpmlog);
 
 // verify that we have the .pnpm folder and a symlinks module in node_modules
 assert(fs.lstatSync(path.join(__dirname, 'node_modules/.pnpm')).isDirectory());
 assert(
-  fs.lstatSync(path.join(__dirname, 'node_modules/bonjour')).isSymbolicLink()
+  fs.lstatSync(path.join(__dirname, 'node_modules/bonjour')).isSymbolicLink(),
 );
 
 const logPkg = utils.pkg.sync([

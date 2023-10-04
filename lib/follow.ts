@@ -110,7 +110,7 @@ export function follow(x: string, opts: FollowOptions) {
           const file2 = toNormalizedRealPath(file);
           return file2;
         },
-      })
+      }),
     );
   });
 }

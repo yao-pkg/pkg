@@ -44,7 +44,7 @@ console.log(
     .concat(require('./sub/test-y-require-C.js'))
     .concat(require('../test-50-require-main-parent/sub/test-y-require-D.js'))
     .concat(
-      require('../test-50-require-main-parent/sub/test-y-require-D.js')
+      require('../test-50-require-main-parent/sub/test-y-require-D.js'),
     ) /**/
-    .join('\n')
+    .join('\n'),
 );

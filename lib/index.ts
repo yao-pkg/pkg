@@ -29,7 +29,7 @@ import { CompressType } from './compress_type';
 import { patchMachOExecutable, signMachOExecutable } from './mach-o';
 
 const { version } = JSON.parse(
-  readFileSync(path.join(__dirname, '../package.json'), 'utf-8')
+  readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
 );
 
 function isConfiguration(file: string) {
@@ -137,7 +137,7 @@ function differentParts(targets: NodeTarget[]): DifferentResult {
 function stringifyTargetForOutput(
   output: string,
   target: NodeTarget,
-  different: DifferentResult
+  different: DifferentResult,
 ) {
   const a = [output];
 
@@ -295,7 +295,7 @@ export async function exec(argv2: string[]) {
       break;
     default:
       throw wasReported(
-        `Invalid compression algorithm ${algo} ( should be None, Brotli or Gzip)`
+        `Invalid compression algorithm ${algo} ( should be None, Brotli or Gzip)`,
       );
   }
   if (doCompress !== CompressType.None) {
@@ -364,7 +364,7 @@ export async function exec(argv2: string[]) {
         throw wasReported(
           'Bin file does not exist (taken from package.json ' +
             "'bin' property)",
-          [inputBin]
+          [inputBin],
         );
       }
     }
@@ -464,7 +464,7 @@ export async function exec(argv2: string[]) {
   }
 
   let targets = parseTargets(
-    sTargets.split(',').filter((t) => t)
+    sTargets.split(',').filter((t) => t),
   ) as unknown as Array<NodeTarget & Partial<Target>>;
 
   if (!targets.length) {
@@ -491,7 +491,7 @@ export async function exec(argv2: string[]) {
 
     log.info(
       'Targets not specified. Assuming:',
-      `${targets.map((t) => stringifyTarget(t)).join(', ')}`
+      `${targets.map((t) => stringifyTarget(t)).join(', ')}`,
     );
   }
 

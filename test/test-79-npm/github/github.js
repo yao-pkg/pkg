@@ -11,5 +11,5 @@ github.users.getForUser(
     if (res.data.name === 'Igor Klopov') {
       console.log('ok');
     }
-  }
+  },
 );

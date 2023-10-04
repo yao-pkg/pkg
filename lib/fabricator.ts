@@ -51,14 +51,14 @@ export function fabricate(
   fabricator: Target,
   snap: string,
   body: Buffer,
-  cb: (error?: Error, buffer?: Buffer) => void
+  cb: (error?: Error, buffer?: Buffer) => void,
 ) {
   const activeBakes = bakes.filter((bake) => {
     // list of bakes that don't influence the bytecode
     const bake2 = bake.replace(/_/g, '-');
 
     return !['--prof', '--v8-options', '--trace-opt', '--trace-deopt'].includes(
-      bake2
+      bake2,
     );
   });
 
@@ -88,8 +88,8 @@ export function fabricate(
     kill();
     cb(
       new Error(
-        `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap} error (${error.message})`
-      )
+        `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap} error (${error.message})`,
+      ),
     );
   }
 
@@ -100,8 +100,8 @@ export function fabricate(
     if (code !== 0) {
       return cb(
         new Error(
-          `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap}`
-        )
+          `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap}`,
+        ),
       );
     }
 
@@ -154,7 +154,7 @@ export function fabricateTwice(
   fabricator: Target,
   snap: string,
   body: Buffer,
-  cb: (error?: Error, buffer?: Buffer) => void
+  cb: (error?: Error, buffer?: Buffer) => void,
 ) {
   fabricate(bakes, fabricator, snap, body, (error, buffer) => {
     // node0 can not produce second time, even if first time produced fine,

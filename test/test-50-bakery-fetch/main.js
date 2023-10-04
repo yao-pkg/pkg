@@ -26,14 +26,14 @@ fetch
       utils.spawn.sync(
         'codesign',
         ['-fds', '-', './' + path.basename(needed)],
-        { cwd: path.dirname(needed) }
+        { cwd: path.dirname(needed) },
       );
     }
 
     right = utils.spawn.sync(
       './' + path.basename(needed),
       ['--expose-gc', '-e', 'if (global.gc) console.log("ok");'],
-      { cwd: path.dirname(needed), env: { PKG_EXECPATH: 'PKG_INVOKE_NODEJS' } }
+      { cwd: path.dirname(needed), env: { PKG_EXECPATH: 'PKG_INVOKE_NODEJS' } },
     );
 
     assert.strictEqual(right, 'ok\n');
