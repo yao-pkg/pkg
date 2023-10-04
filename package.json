@@ -4,7 +4,10 @@
   "description": "Package your Node.js project into an executable",
   "main": "lib-es5/index.js",
   "license": "MIT",
-  "repository": "yao-pkg/pkg",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yao-pkg/pkg.git"
+  },
   "types": "lib-es5/index.d.ts",
   "bin": {
     "pkg": "lib-es5/bin.js"
@@ -133,5 +136,8 @@
   },
   "lint-staged": {
     "*.{js,css,md,json}": "prettier --write"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
