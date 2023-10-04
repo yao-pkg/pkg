@@ -85,7 +85,7 @@ function humanSize(bytes) {
       const args1 = Object.values(args);
       console.log(
         `fs.${name}`,
-        args1.filter((x) => typeof x === 'string')
+        args1.filter((x) => typeof x === 'string'),
       );
       return f.apply(this, args1);
     };

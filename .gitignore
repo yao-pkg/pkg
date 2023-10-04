@@ -18,6 +18,5 @@ examples/express/express-example
 examples/express/node_modules
 
 # Editors
-.vscode/
 yarn-error.log
 tsconfig.tsbuildinfo
