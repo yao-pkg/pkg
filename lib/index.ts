@@ -12,7 +12,7 @@ import {
   copyFileSync,
 } from 'fs-extra';
 import minimist from 'minimist';
-import { need, system } from 'pkg-fetch';
+import { need, system } from '@yao-pkg/pkg-fetch';
 import path from 'path';
 
 import { log, wasReported } from './log';
