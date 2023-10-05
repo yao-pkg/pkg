@@ -1,3 +1,13 @@
+## [5.9.1](https://github.com/yao-pkg/pkg/compare/v5.9.0...v5.9.1) (2023-10-05)
+
+### Bug Fixes
+
+- tests using wrong `pkg-fetch` package ([8466f1d](https://github.com/yao-pkg/pkg/commit/8466f1d32eac15206c88f6c58d80e8179c0a68d5))
+
+### Chores
+
+- bump fetch to fix sha mismatch ([#4](https://github.com/yao-pkg/pkg/issues/4)) ([9d454e0](https://github.com/yao-pkg/pkg/commit/9d454e0078830b6b5e9fa3c118ba5f79f9d52e77))
+
 ## [5.9.0](https://github.com/yao-pkg/pkg/compare/v5.8.1...v5.9.0) (2023-10-04)
 
 ### Features
