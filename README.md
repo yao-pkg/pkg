@@ -275,11 +275,13 @@ The startup time of the application might be reduced slightly.
 
 ### Environment
 
-| Var            | Description                                                                               |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| PKG_CACHE_PATH | Used to specify a custom path for node binaries cache folder. Default is `~/.pkg-cache`   |
-| PKG_IGNORE_TAG | Allows to ignore additional folder created on `PKG_CACHE_PATH` matching pkg-fetch version |
-| MAKE_JOB_COUNT | Allow configuring number of processes used for compiling                                  |
+All pkg-cache [environment vars](https://github.com/yao-pkg/pkg-fetch#environment), plus:
+
+| Var              | Description                                                                                                                                                          |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHDIR`          | Override process `chdir`                                                                                                                                             |
+| `PKG_STRICT_VER` | Turn on some assertion in the walker code to assert that each file content/state that we appending to the virtual file system applies to a real file, not a symlink. |
+| `PKG_EXECPATH`   | Used internally by `pkg`, do not override                                                                                                                            |
 
 Examples
 
