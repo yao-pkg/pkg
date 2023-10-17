@@ -1,3 +1,13 @@
+## [5.9.2](https://github.com/yao-pkg/pkg/compare/v5.9.1...v5.9.2) (2023-10-17)
+
+### Features
+
+- bump pkg-fetch@3.5.5 ([#6](https://github.com/yao-pkg/pkg/issues/6)) ([99d3562](https://github.com/yao-pkg/pkg/commit/99d35621f006f06bc595672752b5b5a521b979a0))
+
+### Documentation
+
+- update env vars ([406c451](https://github.com/yao-pkg/pkg/commit/406c451c325df42334870c3e70db46d8db333d0d))
+
 ## [5.9.1](https://github.com/yao-pkg/pkg/compare/v5.9.0...v5.9.1) (2023-10-05)
 
 ### Bug Fixes
