@@ -1,3 +1,9 @@
+## [5.10.0](https://github.com/yao-pkg/pkg/compare/v5.9.2...v5.10.0) (2023-10-28)
+
+### Features
+
+- bump fetch 3.5.6 with MacOS arm64 support ([#7](https://github.com/yao-pkg/pkg/issues/7)) ([efee79c](https://github.com/yao-pkg/pkg/commit/efee79c6a67418dcdc4874b8851acd1d5d956391))
+
 ## [5.9.2](https://github.com/yao-pkg/pkg/compare/v5.9.1...v5.9.2) (2023-10-17)
 
 ### Features
