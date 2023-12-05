@@ -1,3 +1,17 @@
+## [5.11.0](https://github.com/yao-pkg/pkg/compare/v5.10.0...v5.11.0) (2023-12-05)
+
+### Features
+
+- bump pkg-fetch@3.5.7 with node20 support ([efb585a](https://github.com/yao-pkg/pkg/commit/efb585a6cdd4cc2595e897ca9561997e3552a40e))
+
+### Bug Fixes
+
+- parsing of .cjs files as .js ([#8](https://github.com/yao-pkg/pkg/issues/8)) ([ecd064c](https://github.com/yao-pkg/pkg/commit/ecd064c9ddb15e69c44f09c7a8928d54c95c22f6))
+
+### Chores
+
+- update vscode settings ([bf490a0](https://github.com/yao-pkg/pkg/commit/bf490a08907d0d075548d0feb06135a750c2a365))
+
 ## [5.10.0](https://github.com/yao-pkg/pkg/compare/v5.9.2...v5.10.0) (2023-10-28)
 
 ### Features
