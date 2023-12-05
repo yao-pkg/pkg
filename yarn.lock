@@ -640,10 +640,10 @@
     "@typescript-eslint/types" "6.7.4"
     eslint-visitor-keys "^3.4.1"
 
-"@yao-pkg/pkg-fetch@3.5.6":
-  version "3.5.6"
-  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.5.6.tgz#b790e4374f4c9bbb5f44c1c8b03e48f23a2fb204"
-  integrity sha512-8/RcR0OO44CZbmiwsplcpM3QC/tikpKXaZsoswb9ifIOd9oGM+2ZsffNWzVDfJmRDF1j/wjAu/9EyXvTU1HDgA==
+"@yao-pkg/pkg-fetch@3.5.7":
+  version "3.5.7"
+  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.5.7.tgz#e3b6978303550484f39177776abc8a4b6de196c9"
+  integrity sha512-DhuvjBZsdrUrkXC+eYZljxCxZ8QrjPQRGhJEA8+hUsKhmPyg+FUn6ebOfN6B7ioiJg7GsVpUJt57hALBCj9epA==
   dependencies:
     chalk "^4.1.2"
     fs-extra "^9.1.0"
