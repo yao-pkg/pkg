@@ -210,7 +210,7 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
     throw new Error(`Couldn't find node version, instead got: ${nodeVersion}`);
   }
 
-  const nativeFile = `${nodeFile}.${target.platform}.${nodeVersion}`;
+  const nativeFile = `${nodeFile}.${target.platform}.${target.arch}.${nodeVersion}`;
 
   if (fs.existsSync(nativeFile)) {
     return nativeFile;
