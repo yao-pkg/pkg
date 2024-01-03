@@ -2217,7 +2217,7 @@ function payloadFileSync(pointer) {
 
       // Example: moduleFolder = /snapshot/appname/node_modules/sharp/build/Release
       const parts = moduleFolder.split(path.sep);
-      const mIndex = parts.indexOf('node_modules') + 1;
+      const mIndex = parts.lastIndexOf('node_modules') + 1;
 
       let newPath;
 
