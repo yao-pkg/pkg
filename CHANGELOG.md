@@ -1,3 +1,10 @@
+## [5.11.1](https://github.com/yao-pkg/pkg/compare/v5.11.0...v5.11.1) (2024-01-03)
+
+### Bug Fixes
+
+- add missing arch to nativePrebuildInstall cache ([#9](https://github.com/yao-pkg/pkg/issues/9)) ([cd89e83](https://github.com/yao-pkg/pkg/commit/cd89e83586c301a2a31ff510023ee2667a1aae07))
+- over extracting native modules with pnpm ([#14](https://github.com/yao-pkg/pkg/issues/14)) ([e435796](https://github.com/yao-pkg/pkg/commit/e43579620f3278fae1ac00b8db024912ca61a4c1))
+
 ## [5.11.0](https://github.com/yao-pkg/pkg/compare/v5.10.0...v5.11.0) (2023-12-05)
 
 ### Features
