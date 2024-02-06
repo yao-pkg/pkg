@@ -1,3 +1,9 @@
+## [5.11.2](https://github.com/yao-pkg/pkg/compare/v5.11.1...v5.11.2) (2024-02-06)
+
+### Features
+
+- pkg-fetch@3.5.8 with nodejs 18.19.0 and 20.11.0 support ([da8d530](https://github.com/yao-pkg/pkg/commit/da8d530b85891e18e95df5a93f87c33c2e8246a4))
+
 ## [5.11.1](https://github.com/yao-pkg/pkg/compare/v5.11.0...v5.11.1) (2024-01-03)
 
 ### Bug Fixes
