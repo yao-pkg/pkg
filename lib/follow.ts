@@ -1,7 +1,7 @@
-import { sync, SyncOpts } from 'resolve';
+import async, { AsyncOpts } from 'resolve';
 import fs from 'fs';
 import path from 'path';
-import { toNormalizedRealPath } from './common';
+import { toNormalizedRealPathAsync } from './common';
 
 import type { PackageJson } from './types';
 
@@ -25,20 +25,20 @@ function parentDirectoriesContain(parent: string, directory: string) {
   }
 }
 
-interface FollowOptions extends Pick<SyncOpts, 'basedir' | 'extensions'> {
+interface FollowOptions extends Pick<AsyncOpts, 'basedir' | 'extensions'> {
   ignoreFile?: string;
   catchReadFile?: (file: string) => void;
   catchPackageFilter?: (config: PackageJson, base: string, dir: string) => void;
 }
 
 export function follow(x: string, opts: FollowOptions) {
-  // TODO async version
-  return new Promise<string>((resolve) => {
-    resolve(
-      sync(x, {
+  return new Promise<string>((resolve, reject) => {
+    async(
+      x,
+      {
         basedir: opts.basedir,
         extensions: opts.extensions,
-        isFile: (file) => {
+        isFile: (file: string) => {
           if (
             opts.ignoreFile &&
             path.join(path.dirname(opts.ignoreFile), PROOF) === file
@@ -85,16 +85,16 @@ export function follow(x: string, opts: FollowOptions) {
 
           return stat.isDirectory();
         },
-        readFileSync: (file) => {
+        readFile: (file) => {
           if (opts.ignoreFile && opts.ignoreFile === file) {
-            return Buffer.from(`{"main":"${PROOF}"}`);
+            return Promise.resolve(Buffer.from(`{"main":"${PROOF}"}`));
           }
 
           if (opts.catchReadFile) {
             opts.catchReadFile(file);
           }
 
-          return fs.readFileSync(file);
+          return fs.promises.readFile(file);
         },
         packageFilter: (config, base, dir) => {
           if (opts.catchPackageFilter) {
@@ -106,11 +106,20 @@ export function follow(x: string, opts: FollowOptions) {
 
         /** function to synchronously resolve a potential symlink to its real path */
         // realpathSync?: (file: string) => string;
-        realpathSync: (file) => {
-          const file2 = toNormalizedRealPath(file);
+        realpath: async (file) => {
+          const file2 = await toNormalizedRealPathAsync(file);
           return file2;
         },
-      }),
+      },
+      (err, res) => {
+        if (err) {
+          reject(err);
+        } else if (res === undefined) {
+          reject(new Error(`Cannot find module '${x}'`));
+        } else {
+          resolve(res);
+        }
+      },
     );
   });
 }

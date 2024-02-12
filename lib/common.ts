@@ -1,5 +1,7 @@
 import assert from 'assert';
 import fs from 'fs';
+import { pathExists } from 'fs-extra';
+import { realpath } from 'fs/promises';
 import path from 'path';
 
 export const STORE_BLOB = 0;
@@ -260,6 +262,16 @@ export function toNormalizedRealPath(requestPath: string) {
 
   if (fs.existsSync(file)) {
     return fs.realpathSync(file);
+  }
+
+  return file;
+}
+
+export async function toNormalizedRealPathAsync(requestPath: string) {
+  const file = normalizePath(requestPath);
+
+  if (await pathExists(requestPath)) {
+    return realpath(file);
   }
 
   return file;
