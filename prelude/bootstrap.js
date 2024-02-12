@@ -1879,7 +1879,7 @@ function payloadFileSync(pointer) {
     im = require('internal/module');
     makeRequireFunction = im.makeRequireFunction;
   } else {
-    if (NODE_VERSION_MAJOR <= 18) {
+    if (NODE_VERSION_MAJOR < 18) {
       im = require('internal/modules/cjs/helpers');
     } else {
       im = require('internal/modules/helpers');
