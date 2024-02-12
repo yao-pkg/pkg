@@ -1,3 +1,9 @@
+## [5.11.3](https://github.com/yao-pkg/pkg/compare/v5.11.2...v5.11.3) (2024-02-12)
+
+### Bug Fixes
+
+- node18.19 broken binaries ([2e99185](https://github.com/yao-pkg/pkg/commit/2e99185317bbd6278fadeb9cca4741303c6fbfe0)), closes [#28](https://github.com/yao-pkg/pkg/issues/28)
+
 ## [5.11.2](https://github.com/yao-pkg/pkg/compare/v5.11.1...v5.11.2) (2024-02-06)
 
 ### Features
