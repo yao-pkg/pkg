@@ -12,6 +12,9 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const utils = require('../utils.js');
+const pkgJson = require('./package.json');
+
+const buildDir = 'build';
 
 assert(!module.parent);
 assert(__dirname === process.cwd());
@@ -20,9 +23,14 @@ if (utils.shouldSkipPnpm()) {
   return;
 }
 
+function clean() {
+  utils.vacuum.sync(buildDir);
+  utils.vacuum.sync('node_modules');
+  utils.vacuum.sync('./pnpm-lock.yaml');
+}
+
 // remove any possible left-over
-utils.vacuum.sync('./node_modules');
-utils.vacuum.sync('./pnpm-lock.yaml');
+clean();
 
 // launch `pnpm install`
 const pnpmlog = utils.spawn.sync(
@@ -47,11 +55,11 @@ assert(
 const input = 'package.json';
 const target = process.argv[2] || 'host';
 const ext = process.platform === 'win32' ? '.exe' : '';
-const outputRef = 'test-output-empty' + ext;
-const outputNone = 'test-output-None' + ext;
-const outputGZip = 'test-output-GZip' + ext;
-const outputBrotli = 'test-output-Brotli' + ext;
-const outputBrotliDebug = 'test-output-Brotli-debug' + ext;
+const outputRef = path.join(buildDir, 'test-output-empty' + ext);
+const outputNone = path.join(buildDir, 'test-output-None' + ext);
+const outputGZip = path.join(buildDir, 'test-output-GZip' + ext);
+const outputBrotli = path.join(buildDir, 'test-output-Brotli' + ext);
+const outputBrotliDebug = path.join(buildDir, 'test-output-Brotli-debug' + ext);
 
 const inspect = ['ignore', 'ignore', 'pipe'];
 
@@ -78,12 +86,30 @@ function pkgCompress(compressMode, output) {
   );
   // check that produced executable is running and produce the expected output.
   const log = utils.spawn.sync(path.join(__dirname, output), [], {
-    cwd: __dirname,
+    cwd: path.join(__dirname, buildDir),
     expect: 0,
   });
   assert(log === '42\n');
   return fs.statSync(output).size;
 }
+
+function esbuildBuild(entryPoint) {
+  const log = utils.spawn.sync(
+    path.join(__dirname, 'node_modules/.bin/esbuild'),
+    [entryPoint, '--bundle', '--outfile=' + pkgJson.main, '--platform=node'],
+    { cwd: __dirname, expect: 0 },
+  );
+
+  console.log(log);
+
+  // copy folder 'node_modules/node-opcua-nodesets' to build folder
+  utils.copyRecursiveSync(
+    'node_modules/node-opcua-nodesets/nodesets',
+    path.join(buildDir, 'nodesets'),
+  );
+}
+
+esbuildBuild(pkgJson.main);
 
 const sizeNoneFull = pkgCompress('None', outputNone);
 const sizeGZipFull = pkgCompress('GZip', outputGZip);
@@ -121,15 +147,8 @@ const logPkg5 = utils.pkg.sync(
   { expect: 2 },
 );
 
-// xx console.log(logPkg4);
 assert(logPkg5.match(/Invalid compression algorithm/g));
 
-utils.vacuum.sync(outputRef);
-utils.vacuum.sync(outputNone);
-utils.vacuum.sync(outputBrotli);
-utils.vacuum.sync(outputGZip);
-utils.vacuum.sync(outputBrotliDebug);
-utils.vacuum.sync('node_modules');
-utils.vacuum.sync('./pnpm-lock.yaml');
+clean();
 
 console.log('OK');
