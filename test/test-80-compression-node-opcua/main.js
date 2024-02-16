@@ -95,8 +95,12 @@ function pkgCompress(compressMode, output) {
 
 function esbuildBuild(entryPoint) {
   const log = utils.spawn.sync(
-    path.join(__dirname, 'node_modules/.bin/esbuild'),
+    path.join(
+      path.dirname(process.argv[0]),
+      'npx' + (process.platform === 'win32' ? '.cmd' : ''),
+    ),
     [
+      'esbuild',
       entryPoint,
       '--bundle',
       '--outfile=' + path.join(buildDir, pkgJson.main),
