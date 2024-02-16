@@ -74,10 +74,10 @@
     "fix": "npm run lint:style -- -w && npm run lint:code -- --fix",
     "prepare": "npm run build",
     "prepublishOnly": "npm run lint",
-    "test": "npm run build && npm run test:18 && npm run test:16 && npm run test:14 && npm run test:host",
+    "test": "npm run build && npm run test:18 && npm run test:16 && npm run test:host",
+    "test:20": "node test/test.js node20 no-npm",
     "test:18": "node test/test.js node18 no-npm",
     "test:16": "node test/test.js node16 no-npm",
-    "test:14": "node test/test.js node14 no-npm",
     "test:host": "node test/test.js host only-npm",
     "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
   },
