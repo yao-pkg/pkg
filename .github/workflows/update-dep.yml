@@ -1,0 +1,71 @@
+# Update a dependency On-Demand
+
+name: Update dependency On-Demand
+
+on:
+  workflow_dispatch:
+    inputs:
+      dep:
+        description: 'Dependency'
+        required: true
+        default: '@yao-pkg/pkg-fetch'
+      version:
+        description: 'Version'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v3.6.0
+        with:
+          node-version: 20.x
+          cache: 'yarn'
+
+      - name: Update dependency
+        run: |
+          yarn add ${{github.event.inputs.dep}}@${{github.event.inputs.version || 'latest'}}
+      - name: Check for changes
+        id: check
+        run: |
+          git diff --name-only || true
+          if ! git diff --quiet ; then
+            echo "Has changes"
+            echo "changed=true" >> $GITHUB_OUTPUT
+            VERSION=$(npm info ${{github.event.inputs.dep}} version)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected. Dependency already up to date"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Create Pull Request
+        if: ${{ steps.check.outputs.changed == 'true' }}
+        id: cpr
+        uses: peter-evans/create-pull-request@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "feat: bump ${{github.event.inputs.dep}}@${{ steps.check.outputs.version }}"
+          branch: "${{github.event.inputs.dep}}@${{ steps.check.outputs.version }}"
+          delete-branch: true
+          title: "feat: bump ${{github.event.inputs.dep}}@${{ steps.check.outputs.version }}"
+          body: |
+            Update ${{github.event.inputs.dep}} to version ${{ steps.check.outputs.version }}
+          labels: |
+            dependencies
+            workflow-bump
+          base: main
+          draft: false
+
+      - name: Check outputs
+        if: ${{ steps.check.outputs.changed == 'true' }}
+        run: |
+          echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
+          echo "Pull Request URL - ${{ steps.cpr.outputs.pull-request-url }}"

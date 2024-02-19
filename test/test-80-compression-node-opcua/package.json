@@ -2,6 +2,7 @@
   "name": "test-12-compression",
   "version": "1.0.0",
   "description": "",
+  "bin": "build/test-x.js",
   "main": "test-x.js",
   "scripts": {
     "preinstall": "npx only-allow pnpm",
@@ -15,7 +16,9 @@
     "node-opcua-crypto": "^1.7.1",
     "node-opcua-nodesets": "^2.36.0"
   },
-  "bin": "test-x.js",
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  },
   "pkg": {
     "assets": [
       "./node_modules/node-opcua-nodesets/nodesets/*.xml"
