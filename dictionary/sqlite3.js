@@ -1,3 +1,7 @@
 'use strict';
 
-module.exports = {};
+module.exports = {
+  pkg: {
+    assets: ['build/Release/*.node'],
+  },
+};
