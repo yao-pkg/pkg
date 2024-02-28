@@ -235,6 +235,8 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
   if (napiVersions == null) {
     // TODO: consider target node version and supported n-api version
     options.push('--target', nodeVersion);
+  } else {
+    options.push('--runtime', 'napi');
   }
 
   // run prebuild
