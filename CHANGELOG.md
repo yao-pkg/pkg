@@ -1,3 +1,16 @@
+## [5.11.5](https://github.com/yao-pkg/pkg/compare/v5.11.4...v5.11.5) (2024-03-13)
+
+### Bug Fixes
+
+- add dictionary for thread-stream (Used by pino) ([#36](https://github.com/yao-pkg/pkg/issues/36)) ([b01d1ad](https://github.com/yao-pkg/pkg/commit/b01d1ad44cc1dc6a1f91c2d371e63ea20e49cbc6))
+- dictionary for sqlite3 ([#40](https://github.com/yao-pkg/pkg/issues/40)) ([a3b18f8](https://github.com/yao-pkg/pkg/commit/a3b18f86968670a8f9978e7270ef89c2e7dabed1))
+- pass `--runtime napi` to `prebuild-install` when `binary.napi_versions` is set ([#38](https://github.com/yao-pkg/pkg/issues/38)) ([d47ee03](https://github.com/yao-pkg/pkg/commit/d47ee03f0ae58e53263e0fc8feae27748db4aab9))
+
+### Chores
+
+- add update dep workflow ([12d1872](https://github.com/yao-pkg/pkg/commit/12d18724461cc6d44fac792d164db26c033723bf))
+- fix workflow permissions ([c279732](https://github.com/yao-pkg/pkg/commit/c2797325e2e49d0cab3bf3e20e9f6171f76fd3e6))
+
 ## [5.11.4](https://github.com/yao-pkg/pkg/compare/v5.11.3...v5.11.4) (2024-02-16)
 
 ### Features
