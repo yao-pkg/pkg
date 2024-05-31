@@ -600,12 +600,14 @@ export async function exec(argv2: string[]) {
   if (configJson) {
     marker = {
       config: configJson,
+      toplevelConfig: configJson,
       base: path.dirname(config),
       configPath: config,
     };
   } else {
     marker = {
       config: inputJson || {}, // not `inputBin` because only `input`
+      toplevelConfig: inputJson || {},
       base: path.dirname(input), // is the place for `inputJson`
       configPath: input,
     };

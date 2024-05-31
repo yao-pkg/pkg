@@ -38,6 +38,7 @@ export interface Marker {
   hasDictionary?: boolean;
   activated?: boolean;
   toplevel?: boolean;
+  toplevelConfig: PackageJson;
   public?: boolean;
   hasDeployFiles?: boolean;
   config?: PackageJson;
@@ -450,6 +451,21 @@ class Walker {
     assert(typeof task.file === 'string');
     const realFile = toNormalizedRealPath(task.file);
 
+    const ignore = task.marker?.toplevelConfig.pkg?.ignore;
+    if (ignore) {
+      // check if the file matches one of the ignore regex patterns
+      const match = ignore.some((pattern) =>
+        new RegExp(pattern).test(realFile),
+      );
+
+      if (match) {
+        log.debug(
+          `Ignoring file: ${realFile} due to top level config ignore pattern`,
+        );
+        return;
+      }
+    }
+
     if (realFile === task.file) {
       this.append(task);
       return;
@@ -747,7 +763,12 @@ class Walker {
 
     const catchPackageFilter = (config: PackageJson, base: string) => {
       const newPackage = newPackages[newPackages.length - 1];
-      newPackage.marker = { config, configPath: newPackage.packageJson, base };
+      newPackage.marker = {
+        config,
+        configPath: newPackage.packageJson,
+        base,
+        toplevelConfig: marker.toplevelConfig,
+      };
     };
 
     let newFile = '';
