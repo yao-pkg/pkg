@@ -6,6 +6,7 @@ import isCore from 'is-core-module';
 import globby from 'globby';
 import path from 'path';
 import chalk from 'chalk';
+import { minimatch } from 'minimatch';
 
 import {
   ALIAS_AS_RELATIVE,
@@ -33,12 +34,12 @@ import {
   PackageJson,
   SymLinks,
 } from './types';
+import pkgOptions from './options';
 
 export interface Marker {
   hasDictionary?: boolean;
   activated?: boolean;
   toplevel?: boolean;
-  toplevelConfig: PackageJson;
   public?: boolean;
   hasDeployFiles?: boolean;
   config?: PackageJson;
@@ -451,12 +452,10 @@ class Walker {
     assert(typeof task.file === 'string');
     const realFile = toNormalizedRealPath(task.file);
 
-    const ignore = task.marker?.toplevelConfig.pkg?.ignore;
+    const { ignore } = pkgOptions.get();
     if (ignore) {
       // check if the file matches one of the ignore regex patterns
-      const match = ignore.some((pattern) =>
-        new RegExp(pattern).test(realFile),
-      );
+      const match = ignore.some((pattern) => minimatch(realFile, pattern));
 
       if (match) {
         log.debug(
@@ -767,7 +766,6 @@ class Walker {
         config,
         configPath: newPackage.packageJson,
         base,
-        toplevelConfig: marker.toplevelConfig,
       };
     };
 

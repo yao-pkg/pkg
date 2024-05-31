@@ -6,7 +6,7 @@
   },
   "pkg": {
     "ignore": [
-      "/node_modules/delta/useless.c"
+      "**/*/node_modules/delta/useless.c"
     ]
   }
 }

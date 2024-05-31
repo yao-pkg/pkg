@@ -31,6 +31,7 @@
     "globby": "^11.1.0",
     "into-stream": "^6.0.0",
     "is-core-module": "2.9.0",
+    "minimatch": "9.0.4",
     "minimist": "^1.2.6",
     "multistream": "^4.1.0",
     "prebuild-install": "7.1.1",
