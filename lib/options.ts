@@ -10,7 +10,7 @@ class Options {
   }
 
   public set(options: PkgOptions): void {
-    this.options = { ...this.options, ...options };
+    this.options = { ...this.options, ...(options ?? {}) };
   }
 
   public get(): PkgOptions {
