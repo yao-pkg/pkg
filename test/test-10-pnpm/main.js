@@ -29,7 +29,7 @@ const pnpmlog = utils.spawn.sync(
     path.dirname(process.argv[0]),
     'npx' + (process.platform === 'win32' ? '.cmd' : ''),
   ),
-  ['pnpm', 'install'],
+  ['pnpm@8', 'install'],
   { cwd: path.dirname(output), expect: 0 },
 );
 console.log('pnpm log :', pnpmlog);
