@@ -14,6 +14,7 @@ if (utils.shouldSkipPnpm()) {
 console.log(__dirname, process.cwd());
 assert(__dirname === process.cwd());
 
+const isWindows = process.platform === 'win32';
 const target = process.argv[2] || 'host';
 const input = './test.js';
 const output = './test-output.exe';
@@ -29,12 +30,9 @@ console.log('npm log :', npmlog);
 
 // launch `pnpm install`
 const pnpmlog = utils.spawn.sync(
-  path.join(
-    path.dirname(process.argv[0]),
-    'npx' + (process.platform === 'win32' ? '.cmd' : ''),
-  ),
+  path.join(path.dirname(process.argv[0]), 'npx' + (isWindows ? '.cmd' : '')),
   ['pnpm', 'install'],
-  { cwd: path.dirname(output), expect: 0, shell: true },
+  { cwd: path.dirname(output), expect: 0, shell: isWindows },
 );
 console.log('pnpm log :', pnpmlog);
 
