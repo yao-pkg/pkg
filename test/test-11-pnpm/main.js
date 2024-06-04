@@ -24,13 +24,16 @@ console.log('target = ', target);
 utils.vacuum.sync('./node_modules');
 utils.vacuum.sync('./pnpm-lock.yaml');
 
+const npmlog = utils.exec.sync('npm install -g pnpm@8');
+console.log('npm log :', npmlog);
+
 // launch `pnpm install`
 const pnpmlog = utils.spawn.sync(
   path.join(
     path.dirname(process.argv[0]),
     'npx' + (process.platform === 'win32' ? '.cmd' : ''),
   ),
-  ['pnpm@8', 'install'],
+  ['pnpm', 'install'],
   { cwd: path.dirname(output), expect: 0 },
 );
 console.log('pnpm log :', pnpmlog);
