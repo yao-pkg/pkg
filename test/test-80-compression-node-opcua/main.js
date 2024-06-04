@@ -14,6 +14,7 @@ const assert = require('assert');
 const utils = require('../utils.js');
 const pkgJson = require('./package.json');
 
+const isWindows = process.platform === 'win32';
 const buildDir = 'build';
 
 assert(!module.parent);
@@ -32,14 +33,14 @@ function clean() {
 // remove any possible left-over
 clean();
 
+const npmlog = utils.exec.sync('npm install -g pnpm@8');
+console.log('npm log :', npmlog);
+
 // launch `pnpm install`
 const pnpmlog = utils.spawn.sync(
-  path.join(
-    path.dirname(process.argv[0]),
-    'npx' + (process.platform === 'win32' ? '.cmd' : ''),
-  ),
+  path.join(path.dirname(process.argv[0]), 'npx' + (isWindows ? '.cmd' : '')),
   ['pnpm', 'install'],
-  { cwd: path.dirname(__filename), expect: 0 },
+  { cwd: path.dirname(__filename), expect: 0, shell: isWindows },
 );
 console.log('pnpm log :', pnpmlog);
 
@@ -54,7 +55,7 @@ assert(
 /* eslint-disable no-unused-vars */
 const input = 'package.json';
 const target = process.argv[2] || 'host';
-const ext = process.platform === 'win32' ? '.exe' : '';
+const ext = isWindows ? '.exe' : '';
 const outputRef = path.join(buildDir, 'test-output-empty' + ext);
 const outputNone = path.join(buildDir, 'test-output-None' + ext);
 const outputGZip = path.join(buildDir, 'test-output-GZip' + ext);
@@ -95,10 +96,7 @@ function pkgCompress(compressMode, output) {
 
 function esbuildBuild(entryPoint) {
   const log = utils.spawn.sync(
-    path.join(
-      path.dirname(process.argv[0]),
-      'npx' + (process.platform === 'win32' ? '.cmd' : ''),
-    ),
+    path.join(path.dirname(process.argv[0]), 'npx' + (isWindows ? '.cmd' : '')),
     [
       'esbuild',
       entryPoint,
@@ -106,7 +104,7 @@ function esbuildBuild(entryPoint) {
       '--outfile=' + path.join(buildDir, pkgJson.main),
       '--platform=node',
     ],
-    { cwd: __dirname, expect: 0 },
+    { cwd: __dirname, expect: 0, shell: isWindows },
   );
 
   console.log(log);

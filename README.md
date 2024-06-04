@@ -50,23 +50,23 @@ pkg [options] <input>
 
   Examples:
 
-  – Makes executables for Linux, macOS and Windows
+  - Makes executables for Linux, macOS and Windows
     $ pkg index.js
-  – Takes package.json from cwd and follows 'bin' entry
+  - Takes package.json from cwd and follows 'bin' entry
     $ pkg .
-  – Makes executable for particular target machine
+  - Makes executable for particular target machine
     $ pkg -t node16-win-arm64 index.js
-  – Makes executables for target machines of your choice
+  - Makes executables for target machines of your choice
     $ pkg -t node16-linux,node18-linux,node16-win index.js
-  – Bakes '--expose-gc' and '--max-heap-size=34' into executable
+  - Bakes '--expose-gc' and '--max-heap-size=34' into executable
     $ pkg --options "expose-gc,max-heap-size=34" index.js
-  – Consider packageA and packageB to be public
+  - Consider packageA and packageB to be public
     $ pkg --public-packages "packageA,packageB" index.js
-  – Consider all packages to be public
+  - Consider all packages to be public
     $ pkg --public-packages "*" index.js
-  – Bakes '--expose-gc' into executable
+  - Bakes '--expose-gc' into executable
     $ pkg --options expose-gc index.js
-  – reduce size of the data packed inside the executable with GZip
+  - reduce size of the data packed inside the executable with GZip
     $ pkg --compress GZip index.js
 ```
 
@@ -180,6 +180,22 @@ files and simplifies debugging.
 See also
 [Detecting assets in source code](#detecting-assets-in-source-code) and
 [Snapshot filesystem](#snapshot-filesystem).
+
+### Ignore files
+
+`ignore` is a list of globs. Files matching the paths specified as `ignore`
+will be excluded from the final executable.
+
+This is useful when you want to exclude some files from the final executable,
+like tests, documentation or build files that could have been included by a dependency.
+
+```json
+  "pkg": {
+    "ignore": [ "**/*/dependency-name/build.c" ]
+  }
+```
+
+To see if you have unwanted files in your executable, read the [Exploring virtual file system embedded in debug mode](#exploring-virtual-file-system-embedded-in-debug-mode) section.
 
 ### Options
 
@@ -413,7 +429,7 @@ printenv | grep NODE
 
 ## Advanced
 
-### exploring virtual file system embedded in debug mode
+### Exploring virtual file system embedded in debug mode
 
 When you are using the `--debug` flag when building your executable,
 `pkg` add the ability to display the content of the virtual file system

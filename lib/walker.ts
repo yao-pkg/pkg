@@ -6,6 +6,7 @@ import isCore from 'is-core-module';
 import globby from 'globby';
 import path from 'path';
 import chalk from 'chalk';
+import { minimatch } from 'minimatch';
 
 import {
   ALIAS_AS_RELATIVE,
@@ -33,6 +34,7 @@ import {
   PackageJson,
   SymLinks,
 } from './types';
+import pkgOptions from './options';
 
 export interface Marker {
   hasDictionary?: boolean;
@@ -450,6 +452,19 @@ class Walker {
     assert(typeof task.file === 'string');
     const realFile = toNormalizedRealPath(task.file);
 
+    const { ignore } = pkgOptions.get();
+    if (ignore) {
+      // check if the file matches one of the ignore regex patterns
+      const match = ignore.some((pattern) => minimatch(realFile, pattern));
+
+      if (match) {
+        log.debug(
+          `Ignoring file: ${realFile} due to top level config ignore pattern`,
+        );
+        return;
+      }
+    }
+
     if (realFile === task.file) {
       this.append(task);
       return;
@@ -747,7 +762,11 @@ class Walker {
 
     const catchPackageFilter = (config: PackageJson, base: string) => {
       const newPackage = newPackages[newPackages.length - 1];
-      newPackage.marker = { config, configPath: newPackage.packageJson, base };
+      newPackage.marker = {
+        config,
+        configPath: newPackage.packageJson,
+        base,
+      };
     };
 
     let newFile = '';
