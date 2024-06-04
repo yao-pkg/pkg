@@ -29,14 +29,12 @@ const log = utils.pkg.sync(
 );
 
 assert(
-  log.indexOf(
-    'node_modules/delta/useless.c due to top level config ignore pattern',
-  ) > 0,
+  log.indexOf('useless.c due to top level config ignore pattern') > 0,
   'useless.c file is not ignored',
 );
 assert(
   log.indexOf(
-    'node_modules/delta/needed.c is added to queue',
+    'needed.c is added to queue',
     'needed.c file is not added to queue',
   ),
 );
