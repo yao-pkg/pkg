@@ -1,3 +1,17 @@
+## [5.12.0](https://github.com/yao-pkg/pkg/compare/v5.11.5...v5.12.0) (2024-06-10)
+
+### Features
+
+- add `ignore` option to ignore files from build ([#68](https://github.com/yao-pkg/pkg/issues/68)) ([54ae1ee](https://github.com/yao-pkg/pkg/commit/54ae1eea4a7f227d7a7246c5c3d43cf4b025c921))
+
+### Bug Fixes
+
+- use cache directory in users home instead of system-wide tmp dir ([#55](https://github.com/yao-pkg/pkg/issues/55)) ([a217727](https://github.com/yao-pkg/pkg/commit/a217727d71ba2490c0988077011595fe54d26711))
+
+### Chores
+
+- fix build ([276651a](https://github.com/yao-pkg/pkg/commit/276651aaa38451c4ba67ea2e46c9bdea6547ee2d))
+
 ## [5.11.5](https://github.com/yao-pkg/pkg/compare/v5.11.4...v5.11.5) (2024-03-13)
 
 ### Bug Fixes
