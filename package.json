@@ -30,7 +30,6 @@
     "fs-extra": "^9.1.0",
     "globby": "^11.1.0",
     "into-stream": "^6.0.0",
-    "is-core-module": "2.9.0",
     "minimatch": "9.0.4",
     "minimist": "^1.2.6",
     "multistream": "^4.1.0",
@@ -43,7 +42,6 @@
     "@release-it/conventional-changelog": "7.0.2",
     "@types/babel__generator": "7.6.5",
     "@types/fs-extra": "9.0.13",
-    "@types/is-core-module": "2.2.0",
     "@types/minimatch": "^5.1.2",
     "@types/minimist": "1.2.2",
     "@types/multistream": "4.1.0",
@@ -141,5 +139,6 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "packageManager": "yarn@1.22.22"
 }

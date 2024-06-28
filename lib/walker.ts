@@ -2,11 +2,11 @@
 
 import assert from 'assert';
 import fs from 'fs-extra';
-import isCore from 'is-core-module';
 import globby from 'globby';
 import path from 'path';
 import chalk from 'chalk';
 import { minimatch } from 'minimatch';
+import { builtinModules } from 'module';
 
 import {
   ALIAS_AS_RELATIVE,
@@ -73,6 +73,19 @@ interface Derivative {
 const strictVerify = Boolean(process.env.PKG_STRICT_VER);
 
 const win32 = process.platform === 'win32';
+
+/**
+ * Checks if a module is a core module
+ * module.isBuiltin is available in Node.js 16.17.0 or later. Once we drop support for older
+ * versions of Node.js, we can use module.isBuiltin instead of this function.
+ */
+function isBuiltin(moduleName: string) {
+  const moduleNameWithoutPrefix = moduleName.startsWith('node:')
+    ? moduleName.slice(5)
+    : moduleName;
+
+  return builtinModules.includes(moduleNameWithoutPrefix);
+}
 
 function unlikelyJavascript(file: string) {
   return ['.css', '.html', '.json', '.vue'].includes(path.extname(file));
@@ -865,7 +878,7 @@ class Walker {
   ) {
     for (const derivative of derivatives) {
       // TODO: actually use the target node version
-      if (isCore(derivative.alias, '99.0.0')) continue;
+      if (isBuiltin(derivative.alias)) continue;
 
       switch (derivative.aliasType) {
         case ALIAS_AS_RELATIVE:
