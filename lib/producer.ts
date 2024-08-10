@@ -197,12 +197,29 @@ function findPackageJson(nodeFile: string) {
   return dir;
 }
 
+function getPrebuildEnvPrefix(pkgName: string): string {
+  return `npm_config_${  (pkgName || '').replace(/[^a-zA-Z0-9]/g, '_').replace(/^_/, '')}`
+}
+
 function nativePrebuildInstall(target: Target, nodeFile: string) {
   const prebuildInstall = path.join(
     __dirname,
     '../node_modules/.bin/prebuild-install',
   );
   const dir = findPackageJson(nodeFile);
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' }));
+
+  // only try prebuild-install for packages that actually use it or if
+  // explicitly configured via environment variables
+  const envPrefix = getPrebuildEnvPrefix(packageJson.name);
+  if (packageJson.dependencies?.['prebuild-install'] == null &&
+      !([`${envPrefix}_binary_host`,
+         `${envPrefix}_binary_host_mirror`,
+         `${envPrefix}_local_prebuilds`].some((i) => i in process.env))) {
+    return;
+  }
+
   // parse the target node version from the binaryPath
   const nodeVersion = path.basename(target.binaryPath).split('-')[1];
 
@@ -221,9 +238,7 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
     fs.copyFileSync(nodeFile, `${nodeFile}.bak`);
   }
 
-  const napiVersions = JSON.parse(
-    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' }),
-  )?.binary?.napi_versions;
+  const napiVersions = packageJson?.binary?.napi_versions;
 
   const options = [
     '--platform',
