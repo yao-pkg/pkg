@@ -476,7 +476,7 @@ export default function producer({
               try {
                 const platformFile = nativePrebuildInstall(target, stripe.file);
 
-                if (fs.existsSync(platformFile)) {
+                if (platformFile && fs.existsSync(platformFile)) {
                   return cb(
                     null,
                     pipeMayCompressToNewMeter(
