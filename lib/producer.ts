@@ -198,7 +198,9 @@ function findPackageJson(nodeFile: string) {
 }
 
 function getPrebuildEnvPrefix(pkgName: string): string {
-  return `npm_config_${  (pkgName || '').replace(/[^a-zA-Z0-9]/g, '_').replace(/^_/, '')}`
+  return `npm_config_${(pkgName || '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .replace(/^_/, '')}`;
 }
 
 function nativePrebuildInstall(target: Target, nodeFile: string) {
@@ -208,15 +210,20 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
   );
   const dir = findPackageJson(nodeFile);
   const packageJson = JSON.parse(
-    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' }));
+    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' }),
+  );
 
   // only try prebuild-install for packages that actually use it or if
   // explicitly configured via environment variables
   const envPrefix = getPrebuildEnvPrefix(packageJson.name);
-  if (packageJson.dependencies?.['prebuild-install'] == null &&
-      !([`${envPrefix}_binary_host`,
-         `${envPrefix}_binary_host_mirror`,
-         `${envPrefix}_local_prebuilds`].some((i) => i in process.env))) {
+  if (
+    packageJson.dependencies?.['prebuild-install'] == null &&
+    ![
+      `${envPrefix}_binary_host`,
+      `${envPrefix}_binary_host_mirror`,
+      `${envPrefix}_local_prebuilds`,
+    ].some((i) => i in process.env)
+  ) {
     return;
   }
 
