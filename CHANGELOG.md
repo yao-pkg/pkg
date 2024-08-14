@@ -1,3 +1,14 @@
+## [5.12.1](https://github.com/yao-pkg/pkg/compare/v5.12.0...v5.12.1) (2024-08-14)
+
+### Bug Fixes
+
+- remove `is-core-module` dependency ([#77](https://github.com/yao-pkg/pkg/issues/77)) ([2f27414](https://github.com/yao-pkg/pkg/commit/2f27414d5dfa3e375118cac14932ab0d2ece92d7))
+- run prebuild-install only if actually used by the package ([#83](https://github.com/yao-pkg/pkg/issues/83)) ([2a046e4](https://github.com/yao-pkg/pkg/commit/2a046e4be321e1c564744a161ec65b213baaa6ae))
+
+### Chores
+
+- drop package-lock file uploaded by error ([ba407ef](https://github.com/yao-pkg/pkg/commit/ba407efef1d2e611d4c192b93295dcaa023fea79))
+
 ## [5.12.0](https://github.com/yao-pkg/pkg/compare/v5.11.5...v5.12.0) (2024-06-10)
 
 ### Features
