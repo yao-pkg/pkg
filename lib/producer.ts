@@ -50,12 +50,12 @@ function discoverPlaceholder(
    * the PAYLOAD/PRELUDE placeholders occur twice in the binaries:
    *  - in source text as a string literal
    *  - in bytecode as a raw string
-   * the ordering depends on the platform - we need to make sure that 
+   * the ordering depends on the platform - we need to make sure that
    * the bytecode string is replaced, not the source literal.
    *
    * this rejects the source code literal if it occurs first in the binary
    * also see: https://github.com/yao-pkg/pkg/pull/86
-  */
+   */
   if (binaryBuffer[position - 1] === 39 /* ascii for ' APOSTROPHE */) {
     return discoverPlaceholder(
       binaryBuffer,
