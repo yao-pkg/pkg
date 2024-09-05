@@ -37,12 +37,35 @@ function discoverPlaceholder(
   binaryBuffer: Buffer,
   searchString: string,
   padder: string,
+  searchOffset: number = 0,
 ): Placeholder | NotFound {
   const placeholder = Buffer.from(searchString);
-  const position = binaryBuffer.indexOf(placeholder);
+  const position = binaryBuffer.indexOf(placeholder, searchOffset);
 
   if (position === -1) {
     return { notFound: true };
+  }
+
+  /**
+   * the PAYLOAD/PRELUDE placeholders can occur twice in the binaries:
+   *  - in source text as a string literal
+   *  - in bytecode as a raw string
+   * the ordering depends on the platform - we need to make sure that
+   * the bytecode string is replaced, not the source literal.
+   *
+   * this rejects the source code literal if it occurs first in the binary
+   * also see: https://github.com/yao-pkg/pkg/pull/86
+   */
+  if (binaryBuffer[position - 1] === 39 /* ascii for ' APOSTROPHE */) {
+    const nextPlaceholder = discoverPlaceholder(
+      binaryBuffer,
+      searchString,
+      padder,
+      position + placeholder.length,
+    );
+    if (!('notFound' in nextPlaceholder)) {
+      return nextPlaceholder;
+    }
   }
 
   return { position, size: placeholder.length, padder };
