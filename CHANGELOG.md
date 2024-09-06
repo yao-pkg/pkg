@@ -1,3 +1,13 @@
+## [5.13.0](https://github.com/yao-pkg/pkg/compare/v5.12.1...v5.13.0) (2024-09-06)
+
+### Features
+
+- bump pkg-fetch@3.5.10 with node 20.17.0 and 18.20.4 support ([dda9032](https://github.com/yao-pkg/pkg/commit/dda90320fc05d9caf95124890915b1ff684685fb))
+
+### Bug Fixes
+
+- wrong placeholder replaced in windows binary ([#86](https://github.com/yao-pkg/pkg/issues/86)) ([d9b28c3](https://github.com/yao-pkg/pkg/commit/d9b28c391bc7d94df2b95074b98ee43681c67b5a))
+
 ## [5.12.1](https://github.com/yao-pkg/pkg/compare/v5.12.0...v5.12.1) (2024-08-14)
 
 ### Bug Fixes
