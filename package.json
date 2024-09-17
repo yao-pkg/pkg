@@ -25,7 +25,7 @@
     "@babel/generator": "7.23.0",
     "@babel/parser": "7.23.0",
     "@babel/types": "7.23.0",
-    "@yao-pkg/pkg-fetch": "3.5.11",
+    "@yao-pkg/pkg-fetch": "3.5.12",
     "chalk": "^4.1.2",
     "fs-extra": "^9.1.0",
     "globby": "^11.1.0",
