@@ -402,6 +402,23 @@ await exec(['app.js', '--target', 'host', '--output', 'app.exe']);
 
 ## Troubleshooting
 
+### Error: Cannot find module XXX (when using `child_process`)
+
+When using `child_process` methods to run a new process pkg by default will invoke it using NodeJS runtime that is built into the executable. This means that if you are trying to spawn the packaged app itself you will get above error. In order to avoid this you must set `PKG_EXECPATH` env set to `""`:
+
+```js
+const { spawn } = require('child_process');
+
+const child = spawn(process.execPath, [process.argv[1]], {
+  env: {
+    ...process.env,
+    PKG_EXECPATH: '',
+  },
+});
+```
+
+More info [here](https://github.com/yao-pkg/pkg/pull/90)
+
 ### Error: ENOENT: no such file or directory, uv_chdir
 
 This error can be caused by deleting the directory the application is

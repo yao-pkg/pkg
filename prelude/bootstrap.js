@@ -2006,6 +2006,7 @@ function payloadFileSync(pointer) {
     }
     const opts = args[pos];
     if (!opts.env) opts.env = _extend({}, process.env);
+    // see https://github.com/vercel/pkg/issues/897#issuecomment-1049370335
     if (opts.env.PKG_EXECPATH !== undefined) return;
     opts.env.PKG_EXECPATH = EXECPATH;
   }
