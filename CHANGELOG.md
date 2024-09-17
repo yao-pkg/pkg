@@ -1,3 +1,9 @@
+## [5.14.2](https://github.com/yao-pkg/pkg/compare/v5.14.1...v5.14.2) (2024-09-17)
+
+### Bug Fixes
+
+- child_process commands throw when pkg app try to call itself ([#90](https://github.com/yao-pkg/pkg/issues/90)) ([e88d159](https://github.com/yao-pkg/pkg/commit/e88d15919fa16a8bba7991a165ebbf2336e13dce))
+
 ## [5.14.1](https://github.com/yao-pkg/pkg/compare/v5.14.0...v5.14.1) (2024-09-17)
 
 ### Bug Fixes
