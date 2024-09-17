@@ -1,3 +1,9 @@
+## [5.14.1](https://github.com/yao-pkg/pkg/compare/v5.14.0...v5.14.1) (2024-09-17)
+
+### Bug Fixes
+
+- bump pkg-fetch@3.5.12 with missing node22 macOS arm64 support ([4eea80c](https://github.com/yao-pkg/pkg/commit/4eea80c26d6eec8b7962392a7938048612f41673))
+
 ## [5.14.0](https://github.com/yao-pkg/pkg/compare/v5.13.0...v5.14.0) (2024-09-10)
 
 ### Features
