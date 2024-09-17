@@ -2,6 +2,6 @@
 
 module.exports = {
   pkg: {
-    assets: ['build/Release/*.node'],
+    scripts: ['lib/worker.js'],
   },
 };

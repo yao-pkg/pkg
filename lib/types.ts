@@ -36,6 +36,7 @@ export interface PkgOptions {
   scripts?: string[];
   log?: (logger: typeof log, context: Record<string, string>) => void;
   assets?: string[];
+  ignore?: string[];
   deployFiles?: string[];
   patches?: Patches;
   dictionary: ConfigDictionary;

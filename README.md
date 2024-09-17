@@ -50,23 +50,23 @@ pkg [options] <input>
 
   Examples:
 
-  – Makes executables for Linux, macOS and Windows
+  - Makes executables for Linux, macOS and Windows
     $ pkg index.js
-  – Takes package.json from cwd and follows 'bin' entry
+  - Takes package.json from cwd and follows 'bin' entry
     $ pkg .
-  – Makes executable for particular target machine
+  - Makes executable for particular target machine
     $ pkg -t node16-win-arm64 index.js
-  – Makes executables for target machines of your choice
+  - Makes executables for target machines of your choice
     $ pkg -t node16-linux,node18-linux,node16-win index.js
-  – Bakes '--expose-gc' and '--max-heap-size=34' into executable
+  - Bakes '--expose-gc' and '--max-heap-size=34' into executable
     $ pkg --options "expose-gc,max-heap-size=34" index.js
-  – Consider packageA and packageB to be public
+  - Consider packageA and packageB to be public
     $ pkg --public-packages "packageA,packageB" index.js
-  – Consider all packages to be public
+  - Consider all packages to be public
     $ pkg --public-packages "*" index.js
-  – Bakes '--expose-gc' into executable
+  - Bakes '--expose-gc' into executable
     $ pkg --options expose-gc index.js
-  – reduce size of the data packed inside the executable with GZip
+  - reduce size of the data packed inside the executable with GZip
     $ pkg --compress GZip index.js
 ```
 
@@ -181,6 +181,22 @@ See also
 [Detecting assets in source code](#detecting-assets-in-source-code) and
 [Snapshot filesystem](#snapshot-filesystem).
 
+### Ignore files
+
+`ignore` is a list of globs. Files matching the paths specified as `ignore`
+will be excluded from the final executable.
+
+This is useful when you want to exclude some files from the final executable,
+like tests, documentation or build files that could have been included by a dependency.
+
+```json
+  "pkg": {
+    "ignore": [ "**/*/dependency-name/build.c" ]
+  }
+```
+
+To see if you have unwanted files in your executable, read the [Exploring virtual file system embedded in debug mode](#exploring-virtual-file-system-embedded-in-debug-mode) section.
+
 ### Options
 
 Node.js application can be called with runtime options
@@ -275,11 +291,13 @@ The startup time of the application might be reduced slightly.
 
 ### Environment
 
-| Var            | Description                                                                               |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| PKG_CACHE_PATH | Used to specify a custom path for node binaries cache folder. Default is `~/.pkg-cache`   |
-| PKG_IGNORE_TAG | Allows to ignore additional folder created on `PKG_CACHE_PATH` matching pkg-fetch version |
-| MAKE_JOB_COUNT | Allow configuring number of processes used for compiling                                  |
+All pkg-cache [environment vars](https://github.com/yao-pkg/pkg-fetch#environment), plus:
+
+| Var              | Description                                                                                                                                                          |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHDIR`          | Override process `chdir`                                                                                                                                             |
+| `PKG_STRICT_VER` | Turn on some assertion in the walker code to assert that each file content/state that we appending to the virtual file system applies to a real file, not a symlink. |
+| `PKG_EXECPATH`   | Used internally by `pkg`, do not override                                                                                                                            |
 
 Examples
 
@@ -351,14 +369,14 @@ This way you may even avoid creating `pkg` config for your project.
 Native addons (`.node` files) use is supported. When `pkg` encounters
 a `.node` file in a `require` call, it will package this like an asset.
 In some cases (like with the `bindings` package), the module path is generated
-dynamicaly and `pkg` won't be able to detect it. In this case, you should
+dynamically and `pkg` won't be able to detect it. In this case, you should
 add the `.node` file directly in the `assets` field in `package.json`.
 
 The way Node.js requires native addon is different from a classic JS
 file. It needs to have a file on disk to load it, but `pkg` only generates
-one file. To circumvent this, `pkg` will create a temporary file on the
-disk. These files will stay on the disk after the process has exited
-and will be used again on the next process launch.
+one file. To circumvent this, `pkg` will extract native addon files to
+`$HOME/.cache/pkg/`. These files will stay on the disk after the process has
+exited and will be used again on the next process launch.
 
 When a package, that contains a native module, is being installed,
 the native module is compiled against current system-wide Node.js
@@ -411,7 +429,7 @@ printenv | grep NODE
 
 ## Advanced
 
-### exploring virtual file system embedded in debug mode
+### Exploring virtual file system embedded in debug mode
 
 When you are using the `--debug` flag when building your executable,
 `pkg` add the ability to display the content of the virtual file system

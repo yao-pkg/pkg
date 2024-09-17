@@ -27,6 +27,7 @@ import walk, { Marker, WalkerParams } from './walker';
 import { Target, NodeTarget, SymLinks } from './types';
 import { CompressType } from './compress_type';
 import { patchMachOExecutable, signMachOExecutable } from './mach-o';
+import pkgOptions from './options';
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
@@ -598,12 +599,14 @@ export async function exec(argv2: string[]) {
   let marker: Marker;
 
   if (configJson) {
+    pkgOptions.set(configJson?.pkg);
     marker = {
       config: configJson,
       base: path.dirname(config),
       configPath: config,
     };
   } else {
+    pkgOptions.set(inputJson?.pkg);
     marker = {
       config: inputJson || {}, // not `inputBin` because only `input`
       base: path.dirname(input), // is the place for `inputJson`

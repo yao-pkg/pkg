@@ -2,10 +2,11 @@
 
 import assert from 'assert';
 import fs from 'fs-extra';
-import isCore from 'is-core-module';
 import globby from 'globby';
 import path from 'path';
 import chalk from 'chalk';
+import { minimatch } from 'minimatch';
+import { builtinModules } from 'module';
 
 import {
   ALIAS_AS_RELATIVE,
@@ -33,6 +34,7 @@ import {
   PackageJson,
   SymLinks,
 } from './types';
+import pkgOptions from './options';
 
 export interface Marker {
   hasDictionary?: boolean;
@@ -71,6 +73,19 @@ interface Derivative {
 const strictVerify = Boolean(process.env.PKG_STRICT_VER);
 
 const win32 = process.platform === 'win32';
+
+/**
+ * Checks if a module is a core module
+ * module.isBuiltin is available in Node.js 16.17.0 or later. Once we drop support for older
+ * versions of Node.js, we can use module.isBuiltin instead of this function.
+ */
+function isBuiltin(moduleName: string) {
+  const moduleNameWithoutPrefix = moduleName.startsWith('node:')
+    ? moduleName.slice(5)
+    : moduleName;
+
+  return builtinModules.includes(moduleNameWithoutPrefix);
+}
 
 function unlikelyJavascript(file: string) {
   return ['.css', '.html', '.json', '.vue'].includes(path.extname(file));
@@ -450,6 +465,19 @@ class Walker {
     assert(typeof task.file === 'string');
     const realFile = toNormalizedRealPath(task.file);
 
+    const { ignore } = pkgOptions.get();
+    if (ignore) {
+      // check if the file matches one of the ignore regex patterns
+      const match = ignore.some((pattern) => minimatch(realFile, pattern));
+
+      if (match) {
+        log.debug(
+          `Ignoring file: ${realFile} due to top level config ignore pattern`,
+        );
+        return;
+      }
+    }
+
     if (realFile === task.file) {
       this.append(task);
       return;
@@ -747,7 +775,11 @@ class Walker {
 
     const catchPackageFilter = (config: PackageJson, base: string) => {
       const newPackage = newPackages[newPackages.length - 1];
-      newPackage.marker = { config, configPath: newPackage.packageJson, base };
+      newPackage.marker = {
+        config,
+        configPath: newPackage.packageJson,
+        base,
+      };
     };
 
     let newFile = '';
@@ -846,7 +878,7 @@ class Walker {
   ) {
     for (const derivative of derivatives) {
       // TODO: actually use the target node version
-      if (isCore(derivative.alias, '99.0.0')) continue;
+      if (isBuiltin(derivative.alias)) continue;
 
       switch (derivative.aliasType) {
         case ALIAS_AS_RELATIVE:

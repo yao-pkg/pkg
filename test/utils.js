@@ -7,7 +7,7 @@ const rimraf = require('rimraf');
 const globby = require('globby');
 const { execSync } = require('child_process');
 const { spawnSync } = require('child_process');
-const { existsSync } = require('fs');
+const { existsSync, statSync, copyFileSync, readdirSync } = require('fs');
 const stableStringify = require('json-stable-stringify');
 
 module.exports.mkdirp = mkdirp;
@@ -18,6 +18,22 @@ module.exports.pause = function (seconds) {
     process.platform === 'win32' ? '-n' : '-c',
     (seconds + 1).toString(),
   ]);
+};
+
+module.exports.copyRecursiveSync = function (origin, dest) {
+  const stats = statSync(origin);
+  if (stats.isDirectory()) {
+    mkdirp.sync(dest);
+    const files = readdirSync(origin);
+    for (const file of files) {
+      module.exports.copyRecursiveSync(
+        path.join(origin, file),
+        path.join(dest, file),
+      );
+    }
+  } else {
+    copyFileSync(origin, dest);
+  }
 };
 
 module.exports.vacuum = function () {

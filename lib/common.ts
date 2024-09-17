@@ -89,7 +89,7 @@ export function isPackageJson(file: string) {
 }
 
 export function isDotJS(file: string) {
-  return path.extname(file) === '.js';
+  return ['.js', '.cjs'].includes(path.extname(file));
 }
 
 export function isDotJSON(file: string) {

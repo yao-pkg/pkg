@@ -37,12 +37,35 @@ function discoverPlaceholder(
   binaryBuffer: Buffer,
   searchString: string,
   padder: string,
+  searchOffset: number = 0,
 ): Placeholder | NotFound {
   const placeholder = Buffer.from(searchString);
-  const position = binaryBuffer.indexOf(placeholder);
+  const position = binaryBuffer.indexOf(placeholder, searchOffset);
 
   if (position === -1) {
     return { notFound: true };
+  }
+
+  /**
+   * the PAYLOAD/PRELUDE placeholders can occur twice in the binaries:
+   *  - in source text as a string literal
+   *  - in bytecode as a raw string
+   * the ordering depends on the platform - we need to make sure that
+   * the bytecode string is replaced, not the source literal.
+   *
+   * this rejects the source code literal if it occurs first in the binary
+   * also see: https://github.com/yao-pkg/pkg/pull/86
+   */
+  if (binaryBuffer[position - 1] === 39 /* ascii for ' APOSTROPHE */) {
+    const nextPlaceholder = discoverPlaceholder(
+      binaryBuffer,
+      searchString,
+      padder,
+      position + placeholder.length,
+    );
+    if (!('notFound' in nextPlaceholder)) {
+      return nextPlaceholder;
+    }
   }
 
   return { position, size: placeholder.length, padder };
@@ -197,12 +220,36 @@ function findPackageJson(nodeFile: string) {
   return dir;
 }
 
+function getPrebuildEnvPrefix(pkgName: string): string {
+  return `npm_config_${(pkgName || '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .replace(/^_/, '')}`;
+}
+
 function nativePrebuildInstall(target: Target, nodeFile: string) {
   const prebuildInstall = path.join(
     __dirname,
     '../node_modules/.bin/prebuild-install',
   );
   const dir = findPackageJson(nodeFile);
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' }),
+  );
+
+  // only try prebuild-install for packages that actually use it or if
+  // explicitly configured via environment variables
+  const envPrefix = getPrebuildEnvPrefix(packageJson.name);
+  if (
+    packageJson.dependencies?.['prebuild-install'] == null &&
+    ![
+      `${envPrefix}_binary_host`,
+      `${envPrefix}_binary_host_mirror`,
+      `${envPrefix}_local_prebuilds`,
+    ].some((i) => i in process.env)
+  ) {
+    return;
+  }
+
   // parse the target node version from the binaryPath
   const nodeVersion = path.basename(target.binaryPath).split('-')[1];
 
@@ -210,7 +257,7 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
     throw new Error(`Couldn't find node version, instead got: ${nodeVersion}`);
   }
 
-  const nativeFile = `${nodeFile}.${target.platform}.${nodeVersion}`;
+  const nativeFile = `${nodeFile}.${target.platform}.${target.arch}.${nodeVersion}`;
 
   if (fs.existsSync(nativeFile)) {
     return nativeFile;
@@ -221,9 +268,7 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
     fs.copyFileSync(nodeFile, `${nodeFile}.bak`);
   }
 
-  const napiVersions = JSON.parse(
-    fs.readFileSync(path.join(dir, 'package.json'), { encoding: 'utf-8' }),
-  )?.binary?.napi_versions;
+  const napiVersions = packageJson?.binary?.napi_versions;
 
   const options = [
     '--platform',
@@ -235,6 +280,8 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
   if (napiVersions == null) {
     // TODO: consider target node version and supported n-api version
     options.push('--target', nodeVersion);
+  } else {
+    options.push('--runtime', 'napi');
   }
 
   // run prebuild
@@ -459,7 +506,7 @@ export default function producer({
               try {
                 const platformFile = nativePrebuildInstall(target, stripe.file);
 
-                if (fs.existsSync(platformFile)) {
+                if (platformFile && fs.existsSync(platformFile)) {
                   return cb(
                     null,
                     pipeMayCompressToNewMeter(

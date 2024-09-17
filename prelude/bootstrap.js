@@ -24,7 +24,7 @@ const Module = require('module');
 const path = require('path');
 const { promisify, _extend } = require('util');
 const { Script } = require('vm');
-const { tmpdir } = require('os');
+const { homedir } = require('os');
 const util = require('util');
 const {
   brotliDecompress,
@@ -1879,7 +1879,7 @@ function payloadFileSync(pointer) {
     im = require('internal/module');
     makeRequireFunction = im.makeRequireFunction;
   } else {
-    if (NODE_VERSION_MAJOR <= 18) {
+    if (NODE_VERSION_MAJOR < 18) {
       im = require('internal/modules/cjs/helpers');
     } else {
       im = require('internal/modules/helpers');
@@ -2210,14 +2210,14 @@ function payloadFileSync(pointer) {
       // the hash is needed to be sure we reload the module in case it changes
       const hash = createHash('sha256').update(moduleContent).digest('hex');
 
-      // Example: /tmp/pkg/<hash>
-      const tmpFolder = path.join(tmpdir(), 'pkg', hash);
+      // Example: /home/john/.cache/pkg/<hash>
+      const tmpFolder = path.join(homedir(), '.cache/pkg', hash);
 
       createDirRecursively(tmpFolder);
 
       // Example: moduleFolder = /snapshot/appname/node_modules/sharp/build/Release
       const parts = moduleFolder.split(path.sep);
-      const mIndex = parts.indexOf('node_modules') + 1;
+      const mIndex = parts.lastIndexOf('node_modules') + 1;
 
       let newPath;
 
