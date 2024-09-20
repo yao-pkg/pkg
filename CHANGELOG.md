@@ -1,3 +1,9 @@
+## [5.15.0](https://github.com/yao-pkg/pkg/compare/v5.14.2...v5.15.0) (2024-09-20)
+
+### Features
+
+- bump @yao-pkg/pkg-fetch@3.5.13 with nodejs 22.9.0 ([#91](https://github.com/yao-pkg/pkg/issues/91)) ([6ed5665](https://github.com/yao-pkg/pkg/commit/6ed566564f87867812557ec453002c50a3dc6045))
+
 ## [5.14.2](https://github.com/yao-pkg/pkg/compare/v5.14.1...v5.14.2) (2024-09-17)
 
 ### Bug Fixes
