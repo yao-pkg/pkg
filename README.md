@@ -419,6 +419,34 @@ const child = spawn(process.execPath, [process.argv[1]], {
 
 More info [here](https://github.com/yao-pkg/pkg/pull/90)
 
+### Error: Cannot execute binaray from snapshot
+
+Binaries must be extracted from snapshot in order to be executed. In order to do this you can use this approach:
+
+```js
+const cp = require('child_process');
+const fs = require('fs');
+const { pipeline } = require('stream/promises');
+
+let ffmpeg = require('@ffmpeg-installer/ffmpeg').path;
+
+const loadPlugin = async () => {
+  if (process.pkg) {
+    // copy ffmpeg to the current directory
+    const file = fs.createWriteStream('ffmpeg');
+    await pipeline(fs.createReadStream(ffmpeg), file);
+
+    fs.chmodSync('ffmpeg', 0o755);
+    console.log('ffmpeg copied to the current directory');
+    ffmpeg = './ffmpeg';
+  }
+
+  cp.execSync(ffmpeg);
+};
+
+loadPlugin();
+```
+
 ### Error: ENOENT: no such file or directory, uv_chdir
 
 This error can be caused by deleting the directory the application is
