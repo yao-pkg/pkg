@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { sync, SyncOpts } from 'resolve';
 import fs from 'fs';
 import path from 'path';
+import { exports as resolveExports } from 'resolve.exports';
 import { toNormalizedRealPath } from './common';
 
 import type { PackageJson } from './types';
@@ -97,6 +99,16 @@ export function follow(x: string, opts: FollowOptions) {
           return fs.readFileSync(file);
         },
         packageFilter: (config, base, dir) => {
+          if (config.exports) {
+            delete config.exports;
+            delete config.type;
+            delete config.browser;
+            config.main =
+              resolveExports(config, '.', {
+                conditions: ['node', 'require'],
+              }) || config.main;
+          }
+
           if (opts.catchPackageFilter) {
             opts.catchPackageFilter(config, base, dir);
           }
