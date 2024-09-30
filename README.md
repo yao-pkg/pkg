@@ -400,6 +400,14 @@ await exec(['app.js', '--target', 'host', '--output', 'app.exe']);
 // do something with app.exe, run, test, upload, deploy, etc
 ```
 
+## Use custom Node.js binary
+
+In case you want to use custom node binary, you can set `PKG_NODE_PATH` environment variable to the path of the node binary you want to use and `pkg` will use it instead of the default one.
+
+```bash
+PKG_NODE_PATH=/path/to/node pkg app.js
+```
+
 ## Troubleshooting
 
 ### Error: Cannot find module XXX (when using `child_process`)
