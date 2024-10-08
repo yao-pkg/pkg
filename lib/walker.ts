@@ -4,8 +4,8 @@ import assert from 'assert';
 import fs from 'fs/promises';
 import path from 'path';
 import chalk from 'chalk';
-import { minimatch } from 'minimatch';
 import { builtinModules } from 'module';
+import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
 
 import {
@@ -468,7 +468,7 @@ class Walker {
     const { ignore } = pkgOptions.get();
     if (ignore) {
       // check if the file matches one of the ignore regex patterns
-      const match = ignore.some((pattern) => minimatch(realFile, pattern));
+      const match = ignore.some((pattern) => picomatch.isMatch(realFile, pattern));
 
       if (match) {
         log.debug(
