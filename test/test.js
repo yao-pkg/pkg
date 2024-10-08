@@ -3,8 +3,8 @@
 'use strict';
 
 const chalk = require('chalk');
-const globby = require('globby');
 const path = require('path');
+const globSync = require('tinyglobby');
 const utils = require('./utils.js');
 const host = 'node' + process.version.match(/^v(\d+)/)[1];
 let target = process.argv[2] || 'host';
@@ -62,7 +62,7 @@ if (flavor.match(/^test/)) {
   }
 }
 
-const files = globby.sync(list);
+const files = globSync(list);
 
 files.sort().some(function (file) {
   file = path.resolve(file);
