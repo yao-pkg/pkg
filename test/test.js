@@ -2,8 +2,8 @@
 
 'use strict';
 
-const chalk = require('chalk');
 const path = require('path');
+const pc = require('picocolors');
 const globSync = require('tinyglobby');
 const utils = require('./utils.js');
 const host = 'node' + process.version.match(/^v(\d+)/)[1];
@@ -73,8 +73,8 @@ files.sort().some(function (file) {
     });
   } catch (error) {
     console.log();
-    console.log(`> ${chalk.red('Error!')} ${error.message}`);
-    console.log(`> ${chalk.red('Error!')} ${file} FAILED (in ${target})`);
+    console.log(`> ${pc.red('Error!')} ${error.message}`);
+    console.log(`> ${pc.red('Error!')} ${file} FAILED (in ${target})`);
     process.exit(2);
   }
   console.log(file, 'ok');

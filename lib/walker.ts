@@ -3,8 +3,8 @@
 import assert from 'assert';
 import fs from 'fs/promises';
 import path from 'path';
-import chalk from 'chalk';
 import { builtinModules } from 'module';
+import pc from 'picocolors';
 import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
 
@@ -468,7 +468,9 @@ class Walker {
     const { ignore } = pkgOptions.get();
     if (ignore) {
       // check if the file matches one of the ignore regex patterns
-      const match = ignore.some((pattern) => picomatch.isMatch(realFile, pattern));
+      const match = ignore.some((pattern) =>
+        picomatch.isMatch(realFile, pattern),
+      );
 
       if (match) {
         log.debug(
@@ -818,7 +820,7 @@ class Walker {
           `%2: ${record.file}`,
         ]);
       } else {
-        log[level](`${chalk.yellow(failure.message)}  in ${record.file}`);
+        log[level](`${pc.yellow(failure.message)}  in ${record.file}`);
       }
 
       return;

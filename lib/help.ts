@@ -1,11 +1,11 @@
-import chalk from 'chalk';
+import pc from 'picocolors';
 
 export default function help() {
   // eslint-disable-next-line no-console
   console.log(`
-  ${chalk.bold('pkg')} [options] <input>
+  ${pc.bold('pkg')} [options] <input>
 
-  ${chalk.dim('Options:')}
+  ${pc.dim('Options:')}
 
     -h, --help           output usage information
     -v, --version        output pkg version
@@ -23,29 +23,25 @@ export default function help() {
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli or GZip
 
-  ${chalk.dim('Examples:')}
+  ${pc.dim('Examples:')}
 
-  ${chalk.gray('–')} Makes executables for Linux, macOS and Windows
-    ${chalk.cyan('$ pkg index.js')}
-  ${chalk.gray('–')} Takes package.json from cwd and follows 'bin' entry
-    ${chalk.cyan('$ pkg .')}
-  ${chalk.gray('–')} Makes executable for particular target machine
-    ${chalk.cyan('$ pkg -t node14-win-arm64 index.js')}
-  ${chalk.gray('–')} Makes executables for target machines of your choice
-    ${chalk.cyan('$ pkg -t node16-linux,node18-linux,node18-win index.js')}
-  ${chalk.gray(
-    '–',
-  )} Bakes '--expose-gc' and '--max-heap-size=34' into executable
-    ${chalk.cyan('$ pkg --options "expose-gc,max-heap-size=34" index.js')}
-  ${chalk.gray('–')} Consider packageA and packageB to be public
-    ${chalk.cyan('$ pkg --public-packages "packageA,packageB" index.js')}
-  ${chalk.gray('–')} Consider all packages to be public
-    ${chalk.cyan('$ pkg --public-packages "*" index.js')}
-  ${chalk.gray('–')} Bakes '--expose-gc' into executable
-    ${chalk.cyan('$ pkg --options expose-gc index.js')}
-  ${chalk.gray(
-    '–',
-  )} reduce size of the data packed inside the executable with GZip
-    ${chalk.cyan('$ pkg --compress GZip index.js')}
+  ${pc.gray('–')} Makes executables for Linux, macOS and Windows
+    ${pc.cyan('$ pkg index.js')}
+  ${pc.gray('–')} Takes package.json from cwd and follows 'bin' entry
+    ${pc.cyan('$ pkg .')}
+  ${pc.gray('–')} Makes executable for particular target machine
+    ${pc.cyan('$ pkg -t node14-win-arm64 index.js')}
+  ${pc.gray('–')} Makes executables for target machines of your choice
+    ${pc.cyan('$ pkg -t node16-linux,node18-linux,node18-win index.js')}
+  ${pc.gray('–')} Bakes '--expose-gc' and '--max-heap-size=34' into executable
+    ${pc.cyan('$ pkg --options "expose-gc,max-heap-size=34" index.js')}
+  ${pc.gray('–')} Consider packageA and packageB to be public
+    ${pc.cyan('$ pkg --public-packages "packageA,packageB" index.js')}
+  ${pc.gray('–')} Consider all packages to be public
+    ${pc.cyan('$ pkg --public-packages "*" index.js')}
+  ${pc.gray('–')} Bakes '--expose-gc' into executable
+    ${pc.cyan('$ pkg --options expose-gc index.js')}
+  ${pc.gray('–')} reduce size of the data packed inside the executable with GZip
+    ${pc.cyan('$ pkg --compress GZip index.js')}
 `);
 }

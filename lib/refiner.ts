@@ -1,5 +1,5 @@
 import path from 'path';
-import chalk from 'chalk';
+import pc from 'picocolors';
 import {
   STORE_LINKS,
   retrieveDenominator,
@@ -43,7 +43,7 @@ function purgeTopDirectories(records: FileRecords) {
 
               if (links3) {
                 delete records[file];
-                log.debug(chalk.cyan('Deleting record file :', file));
+                log.debug(pc.cyan(`Deleting record file: ${file}`));
                 found = true;
               }
             }
