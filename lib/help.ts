@@ -1,4 +1,4 @@
-import pc from 'picocolors';
+import { pc } from './common';
 
 export default function help() {
   // eslint-disable-next-line no-console

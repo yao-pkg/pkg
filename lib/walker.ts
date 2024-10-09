@@ -4,11 +4,10 @@ import assert from 'assert';
 import fs from 'fs/promises';
 import path from 'path';
 import { builtinModules } from 'module';
-import pc from 'picocolors';
 import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
-
 import {
+  pc,
   ALIAS_AS_RELATIVE,
   ALIAS_AS_RESOLVABLE,
   STORE_BLOB,

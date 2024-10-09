@@ -1,7 +1,7 @@
 import path from 'path';
-import pc from 'picocolors';
 import {
   STORE_LINKS,
+  pc,
   retrieveDenominator,
   substituteDenominator,
 } from './common';
