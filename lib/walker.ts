@@ -1,14 +1,13 @@
 /* eslint-disable require-atomic-updates */
 
 import assert from 'assert';
-import fs from 'fs-extra';
-import globby from 'globby';
+import fs from 'fs/promises';
 import path from 'path';
-import chalk from 'chalk';
-import { minimatch } from 'minimatch';
 import { builtinModules } from 'module';
-
+import picomatch from 'picomatch';
+import { globSync } from 'tinyglobby';
 import {
+  pc,
   ALIAS_AS_RELATIVE,
   ALIAS_AS_RESOLVABLE,
   STORE_BLOB,
@@ -194,7 +193,7 @@ function upon(p: string, base: string) {
 }
 
 function collect(ps: string[]) {
-  return globby.sync(ps, { dot: true });
+  return globSync(ps, { dot: true });
 }
 
 function expandFiles(efs: string | string[], base: string) {
@@ -468,7 +467,9 @@ class Walker {
     const { ignore } = pkgOptions.get();
     if (ignore) {
       // check if the file matches one of the ignore regex patterns
-      const match = ignore.some((pattern) => minimatch(realFile, pattern));
+      const match = ignore.some((pattern) =>
+        picomatch.isMatch(realFile, pattern),
+      );
 
       if (match) {
         log.debug(
@@ -818,7 +819,7 @@ class Walker {
           `%2: ${record.file}`,
         ]);
       } else {
-        log[level](`${chalk.yellow(failure.message)}  in ${record.file}`);
+        log[level](`${pc.yellow(failure.message)}  in ${record.file}`);
       }
 
       return;

@@ -1,16 +1,8 @@
 /* eslint-disable require-atomic-updates */
 
 import assert from 'assert';
-import {
-  existsSync,
-  mkdirp,
-  readFile,
-  remove,
-  stat,
-  readFileSync,
-  writeFileSync,
-  copyFileSync,
-} from 'fs-extra';
+import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { mkdir, readFile, rm, stat } from 'fs/promises';
 import minimist from 'minimist';
 import { need, system } from '@yao-pkg/pkg-fetch';
 import path from 'path';
@@ -574,7 +566,7 @@ export async function exec(argv2: string[]) {
         // ad-hoc sign the base binary temporarily to generate bytecode
         // due to the new mandatory signing requirement
         const signedBinaryPath = `${f.binaryPath}-signed`;
-        await remove(signedBinaryPath);
+        await rm(signedBinaryPath, { recursive: true, force: true });
         copyFileSync(f.binaryPath, signedBinaryPath);
         try {
           signMachOExecutable(signedBinaryPath);
@@ -665,14 +657,14 @@ export async function exec(argv2: string[]) {
   for (const target of targets) {
     if (target.output && existsSync(target.output)) {
       if ((await stat(target.output)).isFile()) {
-        await remove(target.output);
+        await rm(target.output, { recursive: true, force: true });
       } else {
         throw wasReported('Refusing to overwrite non-file output', [
           target.output,
         ]);
       }
     } else if (target.output) {
-      await mkdirp(path.dirname(target.output));
+      await mkdir(path.dirname(target.output), { recursive: true });
     }
 
     await producer({
