@@ -139,6 +139,9 @@ module.exports.pkg.sync = function (args, opts) {
   args.unshift(binPath);
   assert(es5, 'RUN BABEL FIRST!'); // args.unshift('-r', 'babel-register');
   if (Array.isArray(opts)) opts = { stdio: opts };
+  // spawn uses process.env if no opts.env is provided, we need to manually add it if set
+  if (!opts.env || !opts.env.NO_COLOR)
+    opts.env = { NO_COLOR: '1', ...process.env, ...opts.env };
   try {
     const ss = module.exports.spawn.sync;
     return ss('node', args, opts);
