@@ -1,4 +1,4 @@
-import { pc } from './common';
+import { pc } from './colors';
 
 export default function help() {
   // eslint-disable-next-line no-console

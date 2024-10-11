@@ -1,8 +1,6 @@
 import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
-import picocolors from 'picocolors';
-import { WriteStream } from 'tty';
 
 export const STORE_BLOB = 0;
 export const STORE_CONTENT = 1;
@@ -266,6 +264,3 @@ export function toNormalizedRealPath(requestPath: string) {
 
   return file;
 }
-
-// makes color detection more accurate using node's own API for it
-export const pc = picocolors.createColors(WriteStream.prototype.hasColors());

@@ -7,7 +7,6 @@ import { builtinModules } from 'module';
 import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
 import {
-  pc,
   ALIAS_AS_RELATIVE,
   ALIAS_AS_RESOLVABLE,
   STORE_BLOB,
@@ -22,6 +21,7 @@ import {
   toNormalizedRealPath,
 } from './common';
 
+import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
