@@ -1,6 +1,6 @@
 {
   "private": true,
   "peerOptionalDependencies": {
-    "chalk": "*"
+    "chalk": "^4.1.2"
   }
 }
