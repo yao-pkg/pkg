@@ -5,8 +5,8 @@ import fs from 'fs-extra';
 import globby from 'globby';
 import path from 'path';
 import chalk from 'chalk';
-import { minimatch } from 'minimatch';
 import { builtinModules } from 'module';
+import picomatch from 'picomatch';
 
 import {
   ALIAS_AS_RELATIVE,
@@ -468,7 +468,7 @@ class Walker {
     const { ignore } = pkgOptions.get();
     if (ignore) {
       // check if the file matches one of the ignore regex patterns
-      const match = ignore.some((pattern) => minimatch(realFile, pattern));
+      const match = picomatch.isMatch(realFile, ignore);
 
       if (match) {
         log.debug(
