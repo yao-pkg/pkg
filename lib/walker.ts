@@ -4,7 +4,6 @@ import assert from 'assert';
 import fs from 'fs-extra';
 import globby from 'globby';
 import path from 'path';
-import chalk from 'chalk';
 import { builtinModules } from 'module';
 import picomatch from 'picomatch';
 
@@ -23,6 +22,7 @@ import {
   toNormalizedRealPath,
 } from './common';
 
+import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
@@ -468,7 +468,9 @@ class Walker {
     const { ignore } = pkgOptions.get();
     if (ignore) {
       // check if the file matches one of the ignore regex patterns
-      const match = picomatch.isMatch(realFile, ignore);
+      const match = picomatch.isMatch(realFile, ignore, {
+        windows: win32,
+      });
 
       if (match) {
         log.debug(
@@ -818,7 +820,7 @@ class Walker {
           `%2: ${record.file}`,
         ]);
       } else {
-        log[level](`${chalk.yellow(failure.message)}  in ${record.file}`);
+        log[level](`${pc.yellow(failure.message)}  in ${record.file}`);
       }
 
       return;

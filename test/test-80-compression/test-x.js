@@ -3,7 +3,7 @@
 /* eslint-disable no-unused-vars */
 
 const m = require('minimist');
-const c = require('chalk');
+const pc = require('picocolors');
 
 const loremIpsum =
   'Unus audio pluribus sibi quibusdam amicitias habere qua satis molestum sapientes molestum est vel frui non pluribus nimias possit quam esse sollicitum adducas persequantur esse audio nihil sollicitum laxissimas enim rerum vel non ad tamquam habitos implicari placuisse quibusdam nihil.';
