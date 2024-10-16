@@ -1,7 +1,7 @@
 /* eslint-disable complexity */
 
 import assert from 'assert';
-import fs from 'fs-extra';
+import { readFileSync } from 'fs';
 import path from 'path';
 
 import {
@@ -17,16 +17,17 @@ import { log, wasReported } from './log';
 import { FileRecord, FileRecords, SymLinks } from './types';
 
 const { version } = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
+  readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
 );
 
-const bootstrapText = fs
-  .readFileSync(require.resolve('../prelude/bootstrap.js'), 'utf8')
-  .replace('%VERSION%', version);
+const bootstrapText = readFileSync(
+  require.resolve('../prelude/bootstrap.js'),
+  'utf8',
+).replace('%VERSION%', version);
 
-const commonText = fs.readFileSync(require.resolve('./common'), 'utf8');
+const commonText = readFileSync(require.resolve('./common'), 'utf8');
 
-const diagnosticText = fs.readFileSync(
+const diagnosticText = readFileSync(
   require.resolve('../prelude/diagnostic.js'),
   'utf8',
 );
