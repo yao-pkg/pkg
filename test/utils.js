@@ -4,9 +4,8 @@ const assert = require('assert');
 const path = require('path');
 const mkdirp = require('mkdirp');
 const rimraf = require('rimraf');
-const globby = require('globby');
-const { execSync } = require('child_process');
-const { spawnSync } = require('child_process');
+const { globSync } = require('tinyglobby');
+const { execSync, spawnSync } = require('child_process');
 const { existsSync, statSync, copyFileSync, readdirSync } = require('fs');
 const stableStringify = require('json-stable-stringify');
 
@@ -161,11 +160,11 @@ module.exports.filesBefore = function (n) {
   for (const ni of n) {
     module.exports.vacuum.sync(ni);
   }
-  return globby.sync('**/*', { nodir: true }).sort();
+  return globSync('**/*').sort();
 };
 
 module.exports.filesAfter = function (b, n) {
-  const a = globby.sync('**/*', { nodir: true }).sort();
+  const a = globSync('**/*').sort();
   for (const bi of b) {
     if (a.indexOf(bi) < 0) {
       assert(false, `${bi} disappeared!?`);
