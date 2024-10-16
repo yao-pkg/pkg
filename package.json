@@ -34,6 +34,7 @@
     "picocolors": "^1.1.0",
     "prebuild-install": "7.1.1",
     "resolve": "^1.22.0",
+    "resolve.exports": "2.0.2",
     "stream-meter": "^1.0.4"
   },
   "devDependencies": {
