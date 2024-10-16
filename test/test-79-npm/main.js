@@ -131,7 +131,7 @@ if (!UPM) {
 const inputs = globSync([process.env.FILTER || '*/*.js'], {
   absolute: true,
   ignore: ['*/*.config.js', '*/*.meta.js', '*/gulpfile.js', '*/*fixture*'],
-});
+}).map((p) => path.normalize(p));
 
 let times = {};
 const ci = process.env.CI;
