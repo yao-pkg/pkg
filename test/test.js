@@ -2,9 +2,9 @@
 
 'use strict';
 
-const globby = require('globby');
 const path = require('path');
 const pc = require('picocolors');
+const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
 const host = 'node' + process.version.match(/^v(\d+)/)[1];
 let target = process.argv[2] || 'host';
@@ -47,6 +47,7 @@ function joinAndForward(d) {
 }
 
 const list = [];
+const ignore = [];
 
 if (flavor.match(/^test/)) {
   list.push(joinAndForward(`${flavor}/main.js`));
@@ -55,14 +56,14 @@ if (flavor.match(/^test/)) {
 } else {
   list.push(joinAndForward('**/main.js'));
   if (flavor === 'no-npm') {
-    list.push('!' + joinAndForward('test-42-fetch-all'));
-    list.push('!' + joinAndForward('test-46-multi-arch'));
-    list.push('!' + joinAndForward('test-46-multi-arch-2'));
-    list.push('!' + joinAndForward('test-79-npm'));
+    ignore.push(joinAndForward('test-42-fetch-all'));
+    ignore.push(joinAndForward('test-46-multi-arch'));
+    ignore.push(joinAndForward('test-46-multi-arch-2'));
+    ignore.push(joinAndForward('test-79-npm'));
   }
 }
 
-const files = globby.sync(list);
+const files = globSync(list, { ignore });
 
 files.sort().some(function (file) {
   file = path.resolve(file);
