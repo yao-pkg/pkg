@@ -2,14 +2,23 @@
 
 const assert = require('assert');
 const path = require('path');
-const mkdirp = require('mkdirp');
 const rimraf = require('rimraf');
 const { globSync } = require('tinyglobby');
 const { execSync, spawnSync } = require('child_process');
-const { existsSync, statSync, copyFileSync, readdirSync } = require('fs');
+const {
+  existsSync,
+  statSync,
+  copyFileSync,
+  mkdirSync,
+  readdirSync,
+} = require('fs');
 const stableStringify = require('json-stable-stringify');
 
-module.exports.mkdirp = mkdirp;
+module.exports.mkdirp = {
+  sync(p) {
+    return mkdirSync(p, { recursive: true });
+  },
+};
 
 module.exports.pause = function (seconds) {
   spawnSync('ping', [
@@ -22,7 +31,7 @@ module.exports.pause = function (seconds) {
 module.exports.copyRecursiveSync = function (origin, dest) {
   const stats = statSync(origin);
   if (stats.isDirectory()) {
-    mkdirp.sync(dest);
+    mkdirSync(dest, { recursive: true });
     const files = readdirSync(origin);
     for (const file of files) {
       module.exports.copyRecursiveSync(
