@@ -1,3 +1,25 @@
+## [5.16.0](https://github.com/yao-pkg/pkg/compare/v5.15.0...v5.16.0) (2024-10-20)
+
+### Features
+
+- bump fetch with node 22.10.0 and 20.18.0 support ([86d5f57](https://github.com/yao-pkg/pkg/commit/86d5f5797a2d579e79a6f1f185dac20515d7ca9b))
+
+### Code refactoring
+
+- remove `fs-extra` ([#102](https://github.com/yao-pkg/pkg/issues/102)) ([c726221](https://github.com/yao-pkg/pkg/commit/c726221de31843f3100f455c2402f394c9e8963d))
+- replace `chalk` with `picocolors` ([#105](https://github.com/yao-pkg/pkg/issues/105)) ([cba291e](https://github.com/yao-pkg/pkg/commit/cba291e246bd9bc8c990a1da5f3652ebd38e2363))
+- replace `globby` with `tinyglobby` ([#103](https://github.com/yao-pkg/pkg/issues/103)) ([99a2632](https://github.com/yao-pkg/pkg/commit/99a26329cbe408fd08f2a53cd49cf4744573aaa9))
+- replace `minimatch` with `picomatch` ([#104](https://github.com/yao-pkg/pkg/issues/104)) ([1838100](https://github.com/yao-pkg/pkg/commit/183810066d308366729414d4138e6f7d85ee1b71))
+
+### Chores
+
+- unpin dependencies ([#106](https://github.com/yao-pkg/pkg/issues/106)) ([ea94b03](https://github.com/yao-pkg/pkg/commit/ea94b03bad08254e741d028617e5581d6a34f48b))
+
+### Documentation
+
+- explain how to execute binary from snapshot ([db7f2c5](https://github.com/yao-pkg/pkg/commit/db7f2c5ede385db7c29b7d17cf7fa605b44e9a9e))
+- explain how to use custom binaries ([18ed3cf](https://github.com/yao-pkg/pkg/commit/18ed3cfd1e79108de534d0c10e7172c9d9a89765))
+
 ## [5.15.0](https://github.com/yao-pkg/pkg/compare/v5.14.2...v5.15.0) (2024-09-20)
 
 ### Features
