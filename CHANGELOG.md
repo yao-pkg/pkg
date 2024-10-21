@@ -1,3 +1,9 @@
+## [5.16.1](https://github.com/yao-pkg/pkg/compare/v5.16.0...v5.16.1) (2024-10-21)
+
+### Bug Fixes
+
+- wrong shas in pkg-fetch ([8c783f7](https://github.com/yao-pkg/pkg/commit/8c783f75a5c439cc96a82497cb5afad9e2c31b04))
+
 ## [5.16.0](https://github.com/yao-pkg/pkg/compare/v5.15.0...v5.16.0) (2024-10-20)
 
 ### Features
