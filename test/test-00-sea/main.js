@@ -15,4 +15,13 @@ const before = utils.filesBefore(newcomers);
 
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
+// try to spawn one file based on the platform
+if (process.platform === 'linux') {
+  assert(utils.spawn.sync('./test-sea-linux', []), 'Hello world');
+} else if (process.platform === 'darwin') {
+  assert(utils.spawn.sync('./test-sea-macos', []), 'Hello world');
+} else if (process.platform === 'win32') {
+  assert(utils.spawn.sync('./test-sea-win.exe', []), 'Hello world');
+}
+
 utils.filesAfter(before, newcomers);
