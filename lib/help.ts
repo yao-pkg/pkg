@@ -22,6 +22,7 @@ export default function help() {
     --no-native-build    skip native addons build
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli or GZip
+    --sea                (Experimental) compile give file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
 
   ${pc.dim('Examples:')}
 
@@ -43,5 +44,7 @@ export default function help() {
     ${pc.cyan('$ pkg --options expose-gc index.js')}
   ${pc.gray('–')} reduce size of the data packed inside the executable with GZip
     ${pc.cyan('$ pkg --compress GZip index.js')}
+  ${pc.gray('–')} compile the file using node's SEA feature. Creates executables for Linux, macOS and Windows
+    ${pc.cyan('$ pkg --sea index.js')}
 `);
 }
