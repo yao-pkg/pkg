@@ -53,8 +53,11 @@ if (flavor.match(/^test/)) {
   list.push(joinAndForward(`${flavor}/main.js`));
 } else if (flavor === 'only-npm') {
   list.push(joinAndForward('test-79-npm/main.js'));
+} else if (target === 'node20') {
+  list.push(joinAndForward('test-00-sea/main.js'));
 } else {
   list.push(joinAndForward('**/main.js'));
+  ignore.push(joinAndForward('test-00-sea'));
   if (flavor === 'no-npm') {
     ignore.push(joinAndForward('test-42-fetch-all'));
     ignore.push(joinAndForward('test-46-multi-arch'));
