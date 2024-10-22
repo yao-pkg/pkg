@@ -241,29 +241,33 @@ async function getNodejsExecutable(
   return nodePath;
 }
 
-export async function bake(nodePath: string, target: NodeTarget & Partial<Target>, blobPath: string) {
-    const outPath = resolve(process.cwd(), target.output as string);
+export async function bake(
+  nodePath: string,
+  target: NodeTarget & Partial<Target>,
+  blobPath: string,
+) {
+  const outPath = resolve(process.cwd(), target.output as string);
 
-      log.info(
-        `Creating executable for ${target.nodeRange}-${target.platform}-${target.arch}....`,
-      );
+  log.info(
+    `Creating executable for ${target.nodeRange}-${target.platform}-${target.arch}....`,
+  );
 
-      if (!(await exists(dirname(outPath)))) {
-        log.error(`Output directory "${dirname(outPath)}" does not exist`);
-        return
-      }
-      // check if executable_path exists
-      if (await exists(outPath)) {
-        log.warn(`Executable ${outPath} already exists, will be overwritten`);
-      }
+  if (!(await exists(dirname(outPath)))) {
+    log.error(`Output directory "${dirname(outPath)}" does not exist`);
+    return;
+  }
+  // check if executable_path exists
+  if (await exists(outPath)) {
+    log.warn(`Executable ${outPath} already exists, will be overwritten`);
+  }
 
-      // copy the executable as the output executable
-      await copyFile(nodePath, outPath);
+  // copy the executable as the output executable
+  await copyFile(nodePath, outPath);
 
-      log.info(`Injecting the blob into ${outPath}...`);
-      await exec(
-        `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
-      );
+  log.info(`Injecting the blob into ${outPath}...`);
+  await exec(
+    `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
+  );
 }
 
 export default async function sea(entryPoint: string, opts: SeaOptions) {
@@ -312,8 +316,9 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     log.info('Generating the blob...');
     await exec(`node --experimental-sea-config "${seaConfigFilePath}"`);
 
-    await Promise.allSettled(nodePaths.map((nodePath, i) => bake(nodePath, opts.targets[i], blobPath)));
-    
+    await Promise.allSettled(
+      nodePaths.map((nodePath, i) => bake(nodePath, opts.targets[i], blobPath)),
+    );
   } catch (error) {
     throw new Error(`Error while creating the executable: ${error}`);
   } finally {
