@@ -24,7 +24,12 @@ jobs:
           path: ~/.pkg-cache/
           key: ${{ matrix.os }}-${{ matrix.node-version }}
 
-      - run: yarn install
+      - if: matrix['node-version'] == '16.x'
+        # some modules like tar require node 18
+        run: yarn install --ignore-engines
+      - if: matrix['node-version'] != '16.x'
+        run: yarn install
+
       - if: matrix['node-version'] == '18.x' && matrix['os'] == 'ubuntu-latest'
         run: yarn lint
       - run: yarn build
