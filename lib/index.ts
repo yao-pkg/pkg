@@ -20,6 +20,7 @@ import { Target, NodeTarget, SymLinks } from './types';
 import { CompressType } from './compress_type';
 import { patchMachOExecutable, signMachOExecutable } from './mach-o';
 import pkgOptions from './options';
+import sea from './sea';
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
@@ -226,6 +227,7 @@ export async function exec(argv2: string[]) {
       'v',
       'version',
       'signature',
+      'sea',
     ],
     string: [
       '_',
@@ -528,6 +530,11 @@ export async function exec(argv2: string[]) {
         throw wasReported('Refusing to overwrite input file', [inputFin]);
       }
     }
+  }
+
+  if (argv.sea) {
+    await sea(inputFin, { targets });
+    return;
   }
 
   // fetch targets

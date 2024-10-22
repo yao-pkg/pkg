@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false # prevent test to stop if one fails
       matrix:
-        node-version: [16.x, 18.x]
+        node-version: [18.x, 20.x]
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -25,6 +25,7 @@ jobs:
           key: ${{ matrix.os }}-${{ matrix.node-version }}
 
       - run: yarn install
+
       - if: matrix['node-version'] == '18.x' && matrix['os'] == 'ubuntu-latest'
         run: yarn lint
       - run: yarn build

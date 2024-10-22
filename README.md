@@ -1,7 +1,3 @@
-**Disclaimer: `pkg` was created for use within containers and is not intended for use in serverless environments. For those using Vercel, this means that there is no requirement to use `pkg` in your projects as the benefits it provides are not applicable to the platform.**
-
-![](https://res.cloudinary.com/zeit-inc/image/upload/v1509936789/repositories/pkg/pkg-repo-banner-new.png)
-
 [![Build Status](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml/badge.svg)](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml)
 
 This command line interface enables you to package your Node.js project into an executable that can be run even on devices without Node.js installed.
@@ -27,7 +23,7 @@ npm install -g @yao-pkg/pkg
 After installing it, run `pkg --help` without arguments to see list of options:
 
 ```console
-pkg [options] <input>
+  pkg [options] <input>
 
   Options:
 
@@ -44,30 +40,32 @@ pkg [options] <input>
     --public-packages    force specified packages to be considered public
     --no-bytecode        skip bytecode generation and include source files as plain js
     --no-native-build    skip native addons build
-    --no-signature       skip signature of the final executable on macos
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli or GZip
+    --sea                (Experimental) compile give file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
 
   Examples:
 
-  - Makes executables for Linux, macOS and Windows
+  – Makes executables for Linux, macOS and Windows
     $ pkg index.js
-  - Takes package.json from cwd and follows 'bin' entry
+  – Takes package.json from cwd and follows 'bin' entry
     $ pkg .
-  - Makes executable for particular target machine
-    $ pkg -t node16-win-arm64 index.js
-  - Makes executables for target machines of your choice
-    $ pkg -t node16-linux,node18-linux,node16-win index.js
-  - Bakes '--expose-gc' and '--max-heap-size=34' into executable
+  – Makes executable for particular target machine
+    $ pkg -t node14-win-arm64 index.js
+  – Makes executables for target machines of your choice
+    $ pkg -t node16-linux,node18-linux,node18-win index.js
+  – Bakes '--expose-gc' and '--max-heap-size=34' into executable
     $ pkg --options "expose-gc,max-heap-size=34" index.js
-  - Consider packageA and packageB to be public
+  – Consider packageA and packageB to be public
     $ pkg --public-packages "packageA,packageB" index.js
-  - Consider all packages to be public
+  – Consider all packages to be public
     $ pkg --public-packages "*" index.js
-  - Bakes '--expose-gc' into executable
+  – Bakes '--expose-gc' into executable
     $ pkg --options expose-gc index.js
-  - reduce size of the data packed inside the executable with GZip
+  – reduce size of the data packed inside the executable with GZip
     $ pkg --compress GZip index.js
+  – compile the file using node's SEA feature. Creates executables for Linux, macOS and Windows
+    $ pkg --sea index.js
 ```
 
 The entrypoint of your project is a mandatory CLI argument. It may be:
