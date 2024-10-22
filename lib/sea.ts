@@ -273,6 +273,7 @@ export default async function sea(
   await mkdir(tmpDir, { recursive: true });
 
   try {
+    // change working directory to the temp directory
     process.chdir(tmpDir);
 
     // docs: https://nodejs.org/api/single-executable-applications.html
@@ -287,7 +288,7 @@ export default async function sea(
       },
     };
 
-    log.info('Preparing the executable');
+    log.info('Creating config file...');
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
     log.info('Generating the blob...');
