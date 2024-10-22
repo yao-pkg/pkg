@@ -56,11 +56,11 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
 }
 
 async function extract(os: string, archivePath: string): Promise<string> {
-  const nodeDir = basename(archivePath, os === 'win32' ? '.zip' : '.tar.gz');
+  const nodeDir = basename(archivePath, os === 'win' ? '.zip' : '.tar.gz');
   const archiveDir = dirname(archivePath);
   let nodePath = '';
 
-  if (os === 'win32') {
+  if (os === 'win') {
     // use unzipper to extract the archive
     const { files } = await unzipper.Open.file(archivePath);
     const nodeBinPath = `${nodeDir}/node.exe`;
@@ -128,12 +128,11 @@ async function verifyChecksum(
 }
 
 const allowedArchs = ['x64', 'arm64', 'armv7l', 'ppc64', 's390x'];
-const allowedOSs = ['darwin', 'linux', 'win32'];
+const allowedOSs = ['darwin', 'linux', 'win'];
 
 function getNodeOs(platform: string) {
   const platformsMap: Record<string, string> = {
     macos: 'darwin',
-    win: 'win32',
   };
 
   const validatedPlatform = platformsMap[platform] || platform;
@@ -215,7 +214,7 @@ async function getNodejsExecutable(
   const os = getNodeOs(target.platform);
   const arch = getNodeArch(target.arch);
 
-  const fileName = `node-${nodeVersion}-${os}-${arch}.${os === 'win32' ? 'zip' : 'tar.gz'}`;
+  const fileName = `node-${nodeVersion}-${os}-${arch}.${os === 'win' ? 'zip' : 'tar.gz'}`;
   const url = `https://nodejs.org/dist/${nodeVersion}/${fileName}`;
   const checksumUrl = `https://nodejs.org/dist/${nodeVersion}/SHASUMS256.txt`;
   const downloadDir = join(homedir(), '.pkg-cache', 'sea');
@@ -309,7 +308,7 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
 
       // copy the executable as the output executable
       await copyFile(nodePath, outPath);
-      
+
       log.info('Injecting the blob...');
       await exec(
         `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
