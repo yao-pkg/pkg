@@ -1,12 +1,14 @@
 import { exec as cExec } from 'child_process';
 import util from 'util';
-import { dirname, join, resolve } from 'path';
+import { basename, dirname, join, resolve } from 'path';
 import { copyFile, writeFile, rm, mkdir, stat, readFile } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { ReadableStream } from 'stream/web';
 import { createHash } from 'crypto';
 import { homedir, tmpdir } from 'os';
+import unzipper from 'unzipper';
+import { extract as tarExtract } from 'tar';
 import { log } from './log';
 import { NodeTarget } from './types';
 
@@ -51,6 +53,48 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
 
   const fileStream = createWriteStream(filePath);
   return pipeline(response.body as unknown as ReadableStream, fileStream);
+}
+
+async function extract(os: string, archivePath: string): Promise<string> {
+    const nodeDir = basename(archivePath, os === 'win32' ? '.zip' : '.tar.gz')
+    const archiveDir = dirname(archivePath)
+    let nodePath = ''
+
+    if (os === 'win32') {
+        // use unzipper to extract the archive
+        const { files } = await unzipper.Open.file(archivePath)
+        const nodeBinPath = `${nodeDir}/node.exe`
+
+        const nodeBin = files.find((file) => file.path === nodeBinPath)
+
+        if (!nodeBin) {
+            throw new Error('Node executable not found in the archive')
+        }
+
+        nodePath = join(archiveDir, `${nodeDir}.exe`)
+
+        // extract the node executable
+        await pipeline(nodeBin.stream(), createWriteStream(nodePath))
+    } else {
+        const nodeBinPath = `${nodeDir}/bin/node`
+
+        // use tar to extract the archive
+        await tarExtract({
+            file: archivePath,
+            cwd: archiveDir,
+            filter: (path) => path === nodeBinPath
+        })
+
+        // check if the node executable exists
+        nodePath = join(archiveDir, nodeBinPath)
+    }
+
+     // check if the node executable exists
+    if (!await exists(nodePath)) {
+        throw new Error('Node executable not found in the archive')
+    }
+    
+    return nodePath
 }
 
 async function verifyChecksum(
@@ -136,7 +180,7 @@ async function getNodeVersion(nodeVersion: string) {
 
   const latestVersion = versions
     .map((v: { version: string }) => v.version)
-    .find((v: string) => v.startsWith(nodeVersion));
+    .find((v: string) => v.startsWith(`v${nodeVersion}`));
 
   if (!latestVersion) {
     throw new Error(`Node version ${nodeVersion} not found`);
@@ -162,15 +206,15 @@ async function getNodejsExecutable(opts: GetNodejsExecutableOptions) {
   }
 
   const nodeVersion = await getNodeVersion(
-    opts.target.nodeRange.replace('nodev', ''),
+    opts.target.nodeRange.replace('node', ''),
   );
 
   const os = getNodeOs(opts.target.platform);
   const arch = getNodeArch(opts.target.arch);
 
-  const fileName = `node-v${nodeVersion}-${os}-${arch}.tar.gz`;
-  const url = `https://nodejs.org/dist/v${nodeVersion}/${fileName}`;
-  const checksumUrl = `https://nodejs.org/dist/v${nodeVersion}/SHASUMS256.txt`;
+  const fileName = `node-${nodeVersion}-${os}-${arch}.${os === 'win32' ? 'zip' : 'tar.gz'}`;
+  const url = `https://nodejs.org/dist/${nodeVersion}/${fileName}`;
+  const checksumUrl = `https://nodejs.org/dist/${nodeVersion}/SHASUMS256.txt`;
   const downloadDir = join(homedir(), '.pkg-cache', 'sea');
 
   // Ensure the download directory exists
@@ -180,10 +224,14 @@ async function getNodejsExecutable(opts: GetNodejsExecutableOptions) {
 
   const filePath = join(downloadDir, fileName);
 
-  await downloadFile(url, filePath);
+  // skip download if file exists
+  if (!(await exists(filePath))) {
+    await downloadFile(url, filePath);
+  }
+
   await verifyChecksum(filePath, checksumUrl, fileName);
 
-  return filePath;
+  return extract(os, filePath);
 }
 
 export default async function sea(
@@ -236,7 +284,7 @@ export default async function sea(
       ...{
         ...defaultSeaConfig,
         ...(opts.seaConfig || {}),
-      }
+      },
     };
 
     log.info('Preparing the executable');
