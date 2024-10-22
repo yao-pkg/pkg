@@ -293,12 +293,12 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
       const target = opts.targets[i];
       const outPath = resolve(process.cwd(), target.output as string);
 
-      log.info(`Creating executable for ${target.nodeRange}-${target.platform}-${target.arch}....`);
+      log.info(
+        `Creating executable for ${target.nodeRange}-${target.platform}-${target.arch}....`,
+      );
 
       if (!(await exists(dirname(outPath)))) {
-        log.error(
-          `Output directory "${dirname(outPath)}" does not exist`,
-        );
+        log.error(`Output directory "${dirname(outPath)}" does not exist`);
         break;
       }
       //  check if executable_path exists

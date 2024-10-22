@@ -227,7 +227,7 @@ export async function exec(argv2: string[]) {
       'v',
       'version',
       'signature',
-      'sea'
+      'sea',
     ],
     string: [
       '_',
@@ -532,9 +532,9 @@ export async function exec(argv2: string[]) {
     }
   }
 
-  if(argv.sea) {
+  if (argv.sea) {
     await sea(inputFin, { targets });
-    return 
+    return;
   }
 
   // fetch targets
