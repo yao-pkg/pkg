@@ -45,6 +45,7 @@ const defaultSeaConfig: SeaConfig = {
   useCodeCache: false,
 };
 
+/** Download a file from a given URL and save it to `filePath` */
 async function downloadFile(url: string, filePath: string): Promise<void> {
   const response = await fetch(url);
   if (!response.ok || !response.body) {
@@ -55,6 +56,7 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
   return pipeline(response.body as unknown as ReadableStream, fileStream);
 }
 
+/** Extract node executable from the archive */
 async function extract(os: string, archivePath: string): Promise<string> {
   const nodeDir = basename(archivePath, os === 'win' ? '.zip' : '.tar.gz');
   const archiveDir = dirname(archivePath);
@@ -97,6 +99,7 @@ async function extract(os: string, archivePath: string): Promise<string> {
   return nodePath;
 }
 
+/** Verify the checksum of downloaded NodeJS archive */
 async function verifyChecksum(
   filePath: string,
   checksumUrl: string,
@@ -127,10 +130,9 @@ async function verifyChecksum(
   }
 }
 
-const allowedArchs = ['x64', 'arm64', 'armv7l', 'ppc64', 's390x'];
-const allowedOSs = ['darwin', 'linux', 'win'];
-
+/** Get the node os based on target platform */
 function getNodeOs(platform: string) {
+  const allowedOSs = ['darwin', 'linux', 'win'];
   const platformsMap: Record<string, string> = {
     macos: 'darwin',
   };
@@ -144,7 +146,10 @@ function getNodeOs(platform: string) {
   return validatedPlatform;
 }
 
+/** Get the node arch based on target arch */
 function getNodeArch(arch: string) {
+  const allowedArchs = ['x64', 'arm64', 'armv7l', 'ppc64', 's390x'];
+
   if (!allowedArchs.includes(arch)) {
     throw new Error(`Unsupported architecture: ${arch}`);
   }
@@ -152,6 +157,7 @@ function getNodeArch(arch: string) {
   return arch;
 }
 
+/** Get latest node version based on the provided partial version */
 async function getNodeVersion(nodeVersion: string) {
   // validate nodeVersion using regex. Allowed formats: 16, 16.0, 16.0.0
   const regex = /^\d{1,2}(\.\d{1,2}){0,2}$/;
@@ -188,6 +194,7 @@ async function getNodeVersion(nodeVersion: string) {
   return latestVersion;
 }
 
+/** Fetch, validate and extract nodejs binary. Returns a path to it */
 async function getNodejsExecutable(
   target: NodeTarget,
   opts: GetNodejsExecutableOptions,
@@ -241,7 +248,8 @@ async function getNodejsExecutable(
   return nodePath;
 }
 
-export async function bake(
+/** Bake the blob into the executable */
+async function bake(
   nodePath: string,
   target: NodeTarget & Partial<Target>,
   blobPath: string,
@@ -270,6 +278,7 @@ export async function bake(
   );
 }
 
+/** Create NodeJS executable using sea */
 export default async function sea(entryPoint: string, opts: SeaOptions) {
   entryPoint = resolve(process.cwd(), entryPoint);
 
@@ -278,6 +287,7 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
   }
 
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
+
   // check node version, needs to be at least 20.0.0
   if (nodeMajor < 20) {
     throw new Error(
