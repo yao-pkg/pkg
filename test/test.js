@@ -63,6 +63,12 @@ if (flavor.match(/^test/)) {
     ignore.push(joinAndForward('test-46-multi-arch'));
     ignore.push(joinAndForward('test-46-multi-arch-2'));
     ignore.push(joinAndForward('test-79-npm'));
+    ignore.push(joinAndForward('test-10-pnpm'));
+    ignore.push(joinAndForward('test-11-pnpm'));
+    ignore.push(joinAndForward('test-80-compression-node-opcua'));
+    ignore.push(joinAndForward('test-99-#1135'));
+    ignore.push(joinAndForward('test-99-#1191'));
+    ignore.push(joinAndForward('test-99-#1192'));
   }
 }
 

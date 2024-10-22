@@ -29,6 +29,7 @@ const npm = {
   16: 7,
   18: 8,
   20: 10,
+  22: 10,
 }[hostVersion];
 
 assert(npm !== undefined);
