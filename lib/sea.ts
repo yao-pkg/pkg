@@ -10,7 +10,7 @@ import { homedir, tmpdir } from 'os';
 import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
 import { log } from './log';
-import { NodeTarget } from './types';
+import { NodeTarget, Target } from './types';
 
 const exec = util.promisify(cExec);
 
@@ -26,7 +26,6 @@ const exists = async (path: string) => {
 export type GetNodejsExecutableOptions = {
   useLocalNode?: boolean;
   nodePath?: string;
-  target: NodeTarget;
 };
 
 export type SeaConfig = {
@@ -37,6 +36,7 @@ export type SeaConfig = {
 
 export type SeaOptions = {
   seaConfig?: SeaConfig;
+  targets: (NodeTarget & Partial<Target>)[];
 } & GetNodejsExecutableOptions;
 
 const defaultSeaConfig: SeaConfig = {
@@ -56,45 +56,45 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
 }
 
 async function extract(os: string, archivePath: string): Promise<string> {
-    const nodeDir = basename(archivePath, os === 'win32' ? '.zip' : '.tar.gz')
-    const archiveDir = dirname(archivePath)
-    let nodePath = ''
+  const nodeDir = basename(archivePath, os === 'win32' ? '.zip' : '.tar.gz');
+  const archiveDir = dirname(archivePath);
+  let nodePath = '';
 
-    if (os === 'win32') {
-        // use unzipper to extract the archive
-        const { files } = await unzipper.Open.file(archivePath)
-        const nodeBinPath = `${nodeDir}/node.exe`
+  if (os === 'win32') {
+    // use unzipper to extract the archive
+    const { files } = await unzipper.Open.file(archivePath);
+    const nodeBinPath = `${nodeDir}/node.exe`;
 
-        const nodeBin = files.find((file) => file.path === nodeBinPath)
+    const nodeBin = files.find((file) => file.path === nodeBinPath);
 
-        if (!nodeBin) {
-            throw new Error('Node executable not found in the archive')
-        }
-
-        nodePath = join(archiveDir, `${nodeDir}.exe`)
-
-        // extract the node executable
-        await pipeline(nodeBin.stream(), createWriteStream(nodePath))
-    } else {
-        const nodeBinPath = `${nodeDir}/bin/node`
-
-        // use tar to extract the archive
-        await tarExtract({
-            file: archivePath,
-            cwd: archiveDir,
-            filter: (path) => path === nodeBinPath
-        })
-
-        // check if the node executable exists
-        nodePath = join(archiveDir, nodeBinPath)
+    if (!nodeBin) {
+      throw new Error('Node executable not found in the archive');
     }
 
-     // check if the node executable exists
-    if (!await exists(nodePath)) {
-        throw new Error('Node executable not found in the archive')
-    }
-    
-    return nodePath
+    nodePath = join(archiveDir, `${nodeDir}.exe`);
+
+    // extract the node executable
+    await pipeline(nodeBin.stream(), createWriteStream(nodePath));
+  } else {
+    const nodeBinPath = `${nodeDir}/bin/node`;
+
+    // use tar to extract the archive
+    await tarExtract({
+      file: archivePath,
+      cwd: archiveDir,
+      filter: (path) => path === nodeBinPath,
+    });
+
+    // check if the node executable exists
+    nodePath = join(archiveDir, nodeBinPath);
+  }
+
+  // check if the node executable exists
+  if (!(await exists(nodePath))) {
+    throw new Error('Node executable not found in the archive');
+  }
+
+  return nodePath;
 }
 
 async function verifyChecksum(
@@ -189,7 +189,10 @@ async function getNodeVersion(nodeVersion: string) {
   return latestVersion;
 }
 
-async function getNodejsExecutable(opts: GetNodejsExecutableOptions) {
+async function getNodejsExecutable(
+  target: NodeTarget,
+  opts: GetNodejsExecutableOptions,
+) {
   if (opts.nodePath) {
     // check if the nodePath exists
     if (!(await exists(opts.nodePath))) {
@@ -206,11 +209,11 @@ async function getNodejsExecutable(opts: GetNodejsExecutableOptions) {
   }
 
   const nodeVersion = await getNodeVersion(
-    opts.target.nodeRange.replace('node', ''),
+    target.nodeRange.replace('node', ''),
   );
 
-  const os = getNodeOs(opts.target.platform);
-  const arch = getNodeArch(opts.target.arch);
+  const os = getNodeOs(target.platform);
+  const arch = getNodeArch(target.arch);
 
   const fileName = `node-${nodeVersion}-${os}-${arch}.${os === 'win32' ? 'zip' : 'tar.gz'}`;
   const url = `https://nodejs.org/dist/${nodeVersion}/${fileName}`;
@@ -226,31 +229,24 @@ async function getNodejsExecutable(opts: GetNodejsExecutableOptions) {
 
   // skip download if file exists
   if (!(await exists(filePath))) {
+    log.info(`Downloading nodejs executable from ${url}...`);
     await downloadFile(url, filePath);
   }
 
+  log.info('Verifying checksum...');
   await verifyChecksum(filePath, checksumUrl, fileName);
 
-  return extract(os, filePath);
+  log.info('Extracting the archive...');
+  const nodePath = await extract(os, filePath);
+
+  return nodePath;
 }
 
-export default async function sea(
-  entryPoint: string,
-  outPath: string,
-  opts: SeaOptions,
-) {
+export default async function sea(entryPoint: string, opts: SeaOptions) {
   entryPoint = resolve(process.cwd(), entryPoint);
-  outPath = resolve(process.cwd(), outPath);
 
   if (!(await exists(entryPoint))) {
     throw new Error(`Entrypoint path "${entryPoint}" does not exist`);
-  }
-  if (!(await exists(dirname(outPath)))) {
-    throw new Error(`Output directory "${dirname(outPath)}" does not exist`);
-  }
-  // check if executable_path exists
-  if (await exists(outPath)) {
-    log.warn(`Executable ${outPath} already exists, will be overwritten`);
   }
 
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
@@ -261,11 +257,9 @@ export default async function sea(
     );
   }
 
-  // get the node executable
-  const nodePath = await getNodejsExecutable(opts);
-
-  // copy the executable as the output executable
-  await copyFile(nodePath, outPath);
+  const nodePaths = await Promise.all(
+    opts.targets.map((target) => getNodejsExecutable(target, opts)),
+  );
 
   // create a temporary directory for the processing work
   const tmpDir = join(tmpdir(), 'pkg-sea', `${Date.now()}`);
@@ -288,16 +282,39 @@ export default async function sea(
       },
     };
 
-    log.info('Creating config file...');
+    log.info('Creating sea-config.json file...');
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
     log.info('Generating the blob...');
     await exec(`node --experimental-sea-config "${seaConfigFilePath}"`);
 
-    log.info('Injecting the blob...');
-    await exec(
-      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
-    );
+    // eslint-disable-next-line no-plusplus
+    for (let i = 0; i < nodePaths.length; i++) {
+      const nodePath = nodePaths[i];
+      const target = opts.targets[i];
+      const outPath = resolve(process.cwd(), target.output as string);
+
+      log.info(`Creating executable for ${target.nodeRange}-${target.platform}-${target.arch}....`);
+
+      if (!(await exists(dirname(outPath)))) {
+        log.error(
+          `Output directory "${dirname(outPath)}" does not exist`,
+        );
+        break;
+      }
+      //  check if executable_path exists
+      if (await exists(outPath)) {
+        log.warn(`Executable ${outPath} already exists, will be overwritten`);
+      }
+
+      // copy the executable as the output executable
+      await copyFile(nodePath, outPath);
+      
+      log.info('Injecting the blob...');
+      await exec(
+        `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
+      );
+    }
   } catch (error) {
     throw new Error(`Error while creating the executable: ${error}`);
   } finally {

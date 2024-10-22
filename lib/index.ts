@@ -533,10 +533,7 @@ export async function exec(argv2: string[]) {
   }
 
   if(argv.sea) {
-    for (const t of targets) {
-      // TODO: add support for sea config options
-      await sea(inputFin, t.output as string, { target: t });
-    }
+    await sea(inputFin, { targets });
     return 
   }
 
