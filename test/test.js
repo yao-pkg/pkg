@@ -6,6 +6,8 @@ const path = require('path');
 const pc = require('picocolors');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
+const { cpus } = require('os');
+const { spawn } = require('child_process');
 const host = 'node' + utils.getNodeMajorVersion();
 let target = process.argv[2] || 'host';
 if (target === 'host') target = host;
@@ -86,18 +88,43 @@ if (flavor.match(/^test/)) {
 
 const files = globSync(list, { ignore });
 
-files.sort().some(function (file) {
-  file = path.resolve(file);
-  try {
-    utils.spawn.sync('node', [path.basename(file), target], {
+const maxConcurrency = Math.min(cpus().length, 4);
+
+function runTest(file) {
+  return new Promise((resolve, reject) => {
+    const process = spawn('node', [path.basename(file), target], {
       cwd: path.dirname(file),
       stdio: 'inherit',
     });
-  } catch (error) {
-    console.log();
-    console.log(`> ${pc.red('Error!')} ${error.message}`);
-    console.log(`> ${pc.red('Error!')} ${file} FAILED (in ${target})`);
-    process.exit(2);
+    process.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Process exited with code ${code}`));
+      } else {
+        resolve();
+      }
+    });
+
+    process.on('error', reject);
+  });
+}
+
+async function run() {
+  const promises = files.sort().map(async (file) => {
+    file = path.resolve(file);
+    try {
+      await runTest(file);
+    } catch (error) {
+      console.log();
+      console.log(`> ${pc.red('Error!')} ${error.message}`);
+      console.log(`> ${pc.red('Error!')} ${file} FAILED (in ${target})`);
+      process.exit(2);
+    }
+    console.log(file, 'ok');
+  });
+
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    await Promise.all(promises.slice(i, i + maxConcurrency));
   }
-  console.log(file, 'ok');
-});
+}
+
+run();
