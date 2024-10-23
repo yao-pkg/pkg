@@ -61,6 +61,7 @@ const npmTests = [
   'test-99-#1135',
   'test-99-#1191',
   'test-99-#1192',
+  'test-00-sea',
 ];
 
 if (flavor.match(/^test/)) {
@@ -69,11 +70,8 @@ if (flavor.match(/^test/)) {
   npmTests.forEach((t) => {
     list.push(joinAndForward(`${t}/main.js`));
   });
-} else if (target === 'node20') {
-  list.push(joinAndForward('test-00-sea/main.js'));
 } else {
   list.push(joinAndForward('**/main.js'));
-  ignore.push(joinAndForward('test-00-sea'));
   if (flavor === 'no-npm') {
     npmTests.forEach((t) => {
       ignore.push(joinAndForward(t));
