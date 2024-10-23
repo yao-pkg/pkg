@@ -6,7 +6,7 @@ const path = require('path');
 const pc = require('picocolors');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
-const host = 'node' + process.version.match(/^v(\d+)/)[1];
+const host = 'node' + utils.getNodeMajorVersion();
 let target = process.argv[2] || 'host';
 if (target === 'host') target = host;
 

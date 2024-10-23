@@ -17,7 +17,7 @@ const utils = require('../utils.js');
 assert(!module.parent);
 assert(__dirname === process.cwd());
 
-const hostVersion = process.version.match(/^v(\d+)/)[1];
+const hostVersion = utils.getNodeMajorVersion();
 const host = 'node' + hostVersion;
 const target = process.argv[2] || host;
 const windows = process.platform === 'win32';

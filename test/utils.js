@@ -194,16 +194,21 @@ module.exports.filesAfter = function (b, n) {
   }
 };
 
+module.exports.getNodeMajorVersion = function () {
+  return parseInt(process.version.match(/v([0-9]+)/)[1], 10);
+};
+
+module.exports.getNodeMinorVersion = function () {
+  return parseInt(process.version.match(/v[0-9]+\.([0-9]+)/)[1], 10);
+};
+
 module.exports.shouldSkipPnpm = function () {
   // pnpm 8 requires at least Node.js v16.14
   const REQUIRED_MAJOR_VERSION = 16;
   const REQUIRED_MINOR_VERSION = 14;
 
-  const MAJOR_VERSION = parseInt(process.version.match(/v([0-9]+)/)[1], 10);
-  const MINOR_VERSION = parseInt(
-    process.version.match(/v[0-9]+\.([0-9]+)/)[1],
-    10,
-  );
+  const MAJOR_VERSION = module.exports.getNodeMajorVersion();
+  const MINOR_VERSION = module.exports.getNodeMinorVersion();
 
   const isDisallowedMajor = MAJOR_VERSION < REQUIRED_MAJOR_VERSION;
   const isDisallowedMinor =

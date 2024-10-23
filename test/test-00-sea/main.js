@@ -5,6 +5,11 @@
 const assert = require('assert');
 const utils = require('../utils.js');
 
+// sea is not supported on Node.js < 20
+if (utils.getNodeMajorVersion() < 20) {
+  return;
+}
+
 assert(__dirname === process.cwd());
 
 const input = './test-sea.js';
