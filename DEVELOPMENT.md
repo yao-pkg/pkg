@@ -29,9 +29,9 @@ Than you can use the following command to run tests:
 node test/test.js <target> [no-npm | only-npm | all] [<flavor>]
 ```
 
-- `<target>` is the node target the test will use when creating executables, can be `nodeXX` (like `node20`) or `host` (use host node version as target).
+- `<target>` is the node target the test will use when creating executables, can be `nodeXX` (like `node20`) or `host` (uses host node version as target).
 - `[no-npm | only-npm | all]` to specify which tests to run. `no-npm` will run tests that don't require npm, `only-npm` will run against some specific npm modules, and `all` will run all tests.
-- `<flavor>` to use when you want to test matching a specific pattern. Example: `node test/test.js all test-99-*`. You can also set this by using `FLAVOR` environment variable.
+- `<flavor>` to use when you want to run only tests matching a specific pattern. Example: `node test/test.js all test-99-*`. You can also set this by using `FLAVOR` environment variable.
 
 Each test is located inside `test` directory into a dedicated folder named following the pattern `test-XX-*`. The `XX` is a number that represents the order the tests will run.
 

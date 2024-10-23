@@ -49,26 +49,35 @@ function joinAndForward(d) {
 const list = [];
 const ignore = [];
 
+// test that should be run on `host` target only
+const npmTests = [
+  'test-42-fetch-all',
+  'test-46-multi-arch',
+  'test-46-multi-arch-2',
+  'test-79-npm',
+  'test-10-pnpm',
+  'test-11-pnpm',
+  'test-80-compression-node-opcua',
+  'test-99-#1135',
+  'test-99-#1191',
+  'test-99-#1192',
+];
+
 if (flavor.match(/^test/)) {
   list.push(joinAndForward(`${flavor}/main.js`));
 } else if (flavor === 'only-npm') {
-  list.push(joinAndForward('test-79-npm/main.js'));
+  npmTests.forEach((t) => {
+    list.push(joinAndForward(`${t}/main.js`));
+  });
 } else if (target === 'node20') {
   list.push(joinAndForward('test-00-sea/main.js'));
 } else {
   list.push(joinAndForward('**/main.js'));
   ignore.push(joinAndForward('test-00-sea'));
   if (flavor === 'no-npm') {
-    ignore.push(joinAndForward('test-42-fetch-all'));
-    ignore.push(joinAndForward('test-46-multi-arch'));
-    ignore.push(joinAndForward('test-46-multi-arch-2'));
-    ignore.push(joinAndForward('test-79-npm'));
-    ignore.push(joinAndForward('test-10-pnpm'));
-    ignore.push(joinAndForward('test-11-pnpm'));
-    ignore.push(joinAndForward('test-80-compression-node-opcua'));
-    ignore.push(joinAndForward('test-99-#1135'));
-    ignore.push(joinAndForward('test-99-#1191'));
-    ignore.push(joinAndForward('test-99-#1192'));
+    npmTests.forEach((t) => {
+      ignore.push(joinAndForward(t));
+    });
   }
 }
 
