@@ -363,6 +363,8 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     throw new Error(`Error while creating the executable: ${error}`);
   } finally {
     // cleanup the temp directory
-    await rm(tmpDir, { recursive: true });
+    await rm(tmpDir, { recursive: true }).catch(() => {
+      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
+    });
   }
 }
