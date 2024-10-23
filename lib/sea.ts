@@ -30,8 +30,10 @@ export type GetNodejsExecutableOptions = {
 
 export type SeaConfig = {
   disableExperimentalSEAWarning: boolean;
-  useSnapshot: boolean;
-  useCodeCache: boolean;
+  useSnapshot: boolean; // must be set to false when cross-compiling
+  useCodeCache: boolean; // must be set to false when cross-compiling
+  // TODO: add support for assets: https://nodejs.org/api/single-executable-applications.html#single_executable_applications_assets
+  assets?: Record<string, string>;
 };
 
 export type SeaOptions = {
