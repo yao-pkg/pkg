@@ -6,7 +6,7 @@ const path = require('path');
 const pc = require('picocolors');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
-const host = 'node' + process.version.match(/^v(\d+)/)[1];
+const host = 'node' + utils.getNodeMajorVersion();
 let target = process.argv[2] || 'host';
 if (target === 'host') target = host;
 
@@ -20,6 +20,9 @@ const flavor = process.env.FLAVOR || process.argv[3] || 'all';
 console.log('');
 console.log('*************************************');
 console.log(target + ' ' + flavor);
+console.log(
+  `Host Info: ${process.version} ${process.platform} ${process.arch}`,
+);
 console.log('*************************************');
 console.log('');
 
@@ -49,20 +52,35 @@ function joinAndForward(d) {
 const list = [];
 const ignore = [];
 
+// test that should be run on `host` target only
+const npmTests = [
+  'test-42-fetch-all',
+  'test-46-multi-arch',
+  'test-46-multi-arch-2',
+  // 'test-79-npm', // TODO: fix this test
+  'test-10-pnpm',
+  'test-11-pnpm',
+  'test-80-compression-node-opcua',
+  'test-99-#1135',
+  'test-99-#1191',
+  'test-99-#1192',
+  'test-00-sea',
+];
+
 if (flavor.match(/^test/)) {
   list.push(joinAndForward(`${flavor}/main.js`));
 } else if (flavor === 'only-npm') {
-  list.push(joinAndForward('test-79-npm/main.js'));
-} else if (target === 'node20') {
-  list.push(joinAndForward('test-00-sea/main.js'));
+  npmTests.forEach((t) => {
+    list.push(joinAndForward(`${t}/main.js`));
+  });
 } else {
   list.push(joinAndForward('**/main.js'));
-  ignore.push(joinAndForward('test-00-sea'));
   if (flavor === 'no-npm') {
-    ignore.push(joinAndForward('test-42-fetch-all'));
-    ignore.push(joinAndForward('test-46-multi-arch'));
-    ignore.push(joinAndForward('test-46-multi-arch-2'));
+    // TODO: fix this test
     ignore.push(joinAndForward('test-79-npm'));
+    npmTests.forEach((t) => {
+      ignore.push(joinAndForward(t));
+    });
   }
 }
 

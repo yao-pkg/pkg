@@ -11,6 +11,7 @@ import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
 import { log } from './log';
 import { NodeTarget, Target } from './types';
+import { patchMachOExecutable, signMachOExecutable } from './mach-o';
 
 const exec = util.promisify(cExec);
 
@@ -30,12 +31,15 @@ export type GetNodejsExecutableOptions = {
 
 export type SeaConfig = {
   disableExperimentalSEAWarning: boolean;
-  useSnapshot: boolean;
-  useCodeCache: boolean;
+  useSnapshot: boolean; // must be set to false when cross-compiling
+  useCodeCache: boolean; // must be set to false when cross-compiling
+  // TODO: add support for assets: https://nodejs.org/api/single-executable-applications.html#single_executable_applications_assets
+  assets?: Record<string, string>;
 };
 
 export type SeaOptions = {
   seaConfig?: SeaConfig;
+  signature?: boolean;
   targets: (NodeTarget & Partial<Target>)[];
 } & GetNodejsExecutableOptions;
 
@@ -327,12 +331,40 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     await exec(`node --experimental-sea-config "${seaConfigFilePath}"`);
 
     await Promise.allSettled(
-      nodePaths.map((nodePath, i) => bake(nodePath, opts.targets[i], blobPath)),
+      nodePaths.map(async (nodePath, i) => {
+        const target = opts.targets[i];
+        await bake(nodePath, target, blobPath);
+        const output = target.output!;
+        if (opts.signature && target.platform === 'macos') {
+          const buf = patchMachOExecutable(await readFile(output));
+          await writeFile(output, buf);
+
+          try {
+            // sign executable ad-hoc to workaround the new mandatory signing requirement
+            // users can always replace the signature if necessary
+            signMachOExecutable(output);
+          } catch {
+            if (target.arch === 'arm64') {
+              log.warn('Unable to sign the macOS executable', [
+                'Due to the mandatory code signing requirement, before the',
+                'executable is distributed to end users, it must be signed.',
+                'Otherwise, it will be immediately killed by kernel on launch.',
+                'An ad-hoc signature is sufficient.',
+                'To do that, run pkg on a Mac, or transfer the executable to a Mac',
+                'and run "codesign --sign - <executable>", or (if you use Linux)',
+                'install "ldid" utility to PATH and then run pkg again',
+              ]);
+            }
+          }
+        }
+      }),
     );
   } catch (error) {
     throw new Error(`Error while creating the executable: ${error}`);
   } finally {
     // cleanup the temp directory
-    await rm(tmpDir, { recursive: true });
+    await rm(tmpDir, { recursive: true }).catch(() => {
+      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
+    });
   }
 }

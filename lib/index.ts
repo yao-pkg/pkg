@@ -533,7 +533,10 @@ export async function exec(argv2: string[]) {
   }
 
   if (argv.sea) {
-    await sea(inputFin, { targets });
+    await sea(inputFin, {
+      targets,
+      signature: argv.signature,
+    });
     return;
   }
 
