@@ -21,7 +21,7 @@ right = utils.spawn.sync('./' + path.basename(output), [], {
   cwd: path.dirname(output),
 });
 
-// FIXME: Undesrtand why this isn't working with node20 and above
+// FIXME: Understand why this isn't working with node20 and above
 const errorPath =
   process.platform === 'win32'
     ? 'C:\\snapshot\\test-50-fs-runtime-layer-3\\test-z-asset.css'
