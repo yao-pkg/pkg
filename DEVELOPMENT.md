@@ -21,7 +21,7 @@ npm run build
 ```
 
 > [!NOTE]
-> Remember to run again `npm run build` after changing the code.
+> Remember to run again `npm run build` after changing source code (everything inside `lib` folder).
 
 Than you can use the following command to run tests:
 
@@ -36,6 +36,44 @@ node test/test.js <target> [no-npm | only-npm | all] [<flavor>]
 Each test is located inside `test` directory into a dedicated folder named following the pattern `test-XX-*`. The `XX` is a number that represents the order the tests will run.
 
 When running `node test/test.js all`, based on the options, each test will be run consecutively by running `main.js` file inside the test folder.
+
+### Example test
+
+Create a directory named `test-XX-<name>` and inside it create a `main.js` file with the following content:
+
+```javascript
+#!/usr/bin/env node
+
+'use strict';
+
+const assert = require('assert');
+const utils = require('../utils.js');
+
+assert(!module.parent);
+assert(__dirname === process.cwd());
+
+const input = './test-x-index';
+
+const newcomers = [
+  'test-x-index-linux',
+  'test-x-index-macos',
+  'test-x-index-win.exe',
+];
+
+const before = utils.filesBefore(newcomers);
+
+utils.pkg.sync([input], { stdio: 'inherit' });
+
+utils.filesAfter(before, newcomers);
+```
+
+Explaining the code above:
+
+- `assert(!module.parent);` ensures the script is being run directly.
+- `assert(__dirname === process.cwd());` ensures the script is being run from the correct directory.
+- `utils.filesBefore(newcomers);` get current files in the directory.
+- `utils.pkg.sync([input], { stdio: 'inherit' });` runs `pkg` passing input file as only argument.
+- `utils.filesAfter(before, newcomers);` checks if the output files were created correctly and cleans up the directory to the original state.
 
 ### Special tests
 
