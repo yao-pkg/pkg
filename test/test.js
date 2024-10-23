@@ -20,6 +20,9 @@ const flavor = process.env.FLAVOR || process.argv[3] || 'all';
 console.log('');
 console.log('*************************************');
 console.log(target + ' ' + flavor);
+console.log(
+  `Host Info: ${process.version} ${process.platform} ${process.arch}`,
+);
 console.log('*************************************');
 console.log('');
 
