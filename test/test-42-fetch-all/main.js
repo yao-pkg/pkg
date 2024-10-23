@@ -18,11 +18,7 @@ for (const platform of platformsToTest) {
   const nodeRanges = ['node18', 'node20', 'node22'];
   for (const nodeRange of nodeRanges) {
     const archs = ['x64'];
-    if (platform === 'linux') archs.push('arm64');
-    // linux-arm64 is needed in multi-arch tests,
-    // so keeping it here as obligatory. but let's
-    // leave compiling for freebsd to end users
-    if (platform === 'freebsd') continue;
+    if (platform === 'linux' || platform === 'macos') archs.push('arm64');
     for (const arch of archs) {
       items.push({ nodeRange, platform, arch });
     }
