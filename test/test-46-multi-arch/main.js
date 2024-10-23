@@ -8,10 +8,10 @@ const utils = require('../utils.js');
 assert(!module.parent);
 assert(__dirname === process.cwd());
 
-// only linux has linux-arm64 counterpart
-if (process.platform !== 'linux') return;
+// only linux adn macos has arm64 counterpart
+if (!['linux', 'darwin'].includes(process.platform)) return;
 
-const opposite = { x64: 'arm64', arm: 'x64' };
+const opposite = { x64: 'arm64', arm64: 'x64' };
 
 const target = opposite[process.arch];
 const input = './test-x-index.js';
