@@ -22,10 +22,14 @@ right = utils.spawn.sync('./' + path.basename(output), [], {
 });
 
 // FIXME: Undesrtand why this isn't working with node20 and above
+const errorPath =
+  process.platform === 'win32'
+    ? 'C:\\\\snapshot\\\\test-50-fs-runtime-layer-3\\\\test-z-asset.css'
+    : '/snapshot/test-50-fs-runtime-layer-3/test-z-asset.css';
 const exception =
   target === 'node18'
     ? 'Cannot write to packaged file\n'
-    : "ENOENT: no such file or directory, open '/snapshot/test-50-fs-runtime-layer-3/test-z-asset.css'\n";
+    : `ENOENT: no such file or directory, open '${errorPath}'\n`;
 
 assert.strictEqual(
   right,
