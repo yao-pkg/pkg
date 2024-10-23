@@ -22,11 +22,26 @@ utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
 // try to spawn one file based on the platform
 if (process.platform === 'linux') {
-  assert(utils.spawn.sync('./test-sea-linux', []), 'Hello world');
+  assert.equal(
+    utils.spawn.sync('./test-sea-linux', []),
+    'Hello world\n',
+    'Output matches',
+  );
 } else if (process.platform === 'darwin') {
-  assert(utils.spawn.sync('./test-sea-macos', []), 'Hello world');
+  // FIXME: not working, needs investigation
+  assert.equal(
+    utils.spawn.sync('./test-sea-macos', []),
+    'Hello world\n',
+    'Output matches',
+  );
 } else if (process.platform === 'win32') {
-  assert(utils.spawn.sync('./test-sea-win.exe', []), 'Hello world');
+  assert.equal(
+    utils.spawn.sync('./test-sea-win.exe', []),
+    'Hello world\n',
+    'Output matches',
+  );
+  // fix Error: EBUSY: resource busy or locked
+  utils.pause(1000);
 }
 
 utils.filesAfter(before, newcomers);
