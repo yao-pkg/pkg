@@ -21,7 +21,9 @@ const flavor = process.env.FLAVOR || process.argv[3] || 'all';
 
 // const isCI = process.env.CI === 'true';
 
-const maxConcurrency = flavor === 'only-npm' ? 1 : Math.max(cpus().length, 4);
+// based on tests using too high concurrency make tests slower
+const maxConcurrency =
+  flavor === 'only-npm' ? 1 : Math.max(cpus().length - 1, 2);
 
 console.log('');
 console.log('*************************************');
