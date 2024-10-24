@@ -92,6 +92,7 @@ if (flavor.match(/^test/)) {
 const files = globSync(list, { ignore });
 
 function msToHumanDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
@@ -174,17 +175,27 @@ async function run() {
 
   const promises = files.sort().map(async (file) => {
     file = path.resolve(file);
+    const startTest = Date.now();
     try {
       await runTest(file);
       ok++;
-      addLog(pc.green(`✔ ${file} ok`));
+      addLog(
+        pc.green(
+          `✔ ${file} ok - ${msToHumanDuration(Date.now() - startTest)}`,
+        ),
+      );
     } catch (error) {
       failed.push({
         file,
         error: error.message,
         output: error.logOutput,
       });
-      addLog(pc.red(`✖ ${file} FAILED (in ${target})`), true);
+      addLog(
+        pc.red(
+          `✖ ${file} FAILED (in ${target}) - ${msToHumanDuration(Date.now() - startTest)}`,
+        ),
+        true,
+      );
       addLog(pc.red(error.message), true);
     }
 
