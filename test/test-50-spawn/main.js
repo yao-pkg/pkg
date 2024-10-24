@@ -10,7 +10,7 @@ const utils = require('../utils.js');
 assert(!module.parent);
 assert(__dirname === process.cwd());
 
-const host = 'node' + process.version.match(/^v(\d+)/)[1];
+const host = 'node' + utils.getNodeMajorVersion();
 const target = process.argv[2] || host;
 
 function rnd() {
