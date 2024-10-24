@@ -89,8 +89,6 @@ if (flavor.match(/^test/)) {
 
 const files = globSync(list, { ignore });
 
-const maxConcurrency = flavor === 'only-npm' ? 1 : 1;
-
 function msToHumanDuration(ms) {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
