@@ -122,6 +122,10 @@ function runTest(file) {
       output.push(data.toString());
     });
 
+    process.stderr.on('data', (data) => {
+      output.push(data.toString());
+    });
+
     process.on('error', (error) => {
       error.logOutput = `${error.message}\n${output.join('')}`;
       reject(error);
