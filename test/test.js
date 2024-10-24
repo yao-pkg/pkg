@@ -203,6 +203,10 @@ async function run() {
     console.log(pc.red(output));
   }
   console.log(`Time: ${msToHumanDuration(end - start)}`);
+
+  if (failed.length > 0) {
+    process.exit(2);
+  }
 }
 
 run();
