@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        type: string
+        required: true
+        default: '18.x'
+      os:
+        description: 'Operating system'
+        type: string
+        required: true
+        default: 'ubuntu-latest'
+      npm_command:
+        description: 'NPM command to run'
+        type: string
+        required: true
+        default: 'install'
+
+
+jobs:
+  test:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ inputs.node_version }}
+      - uses: actions/cache@v3
+        with:
+          path: ~/.pkg-cache/
+          key: ${{ inputs.os }}-${{ inputs.node_version }}
+
+      - run: yarn install
+
+      - run: yarn build
+      - run: yarn ${{ inputs.npm_command }}
+        env:
+          CI: true
+        timeout-minutes: 30
