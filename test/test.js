@@ -102,13 +102,27 @@ function msToHumanDuration(ms) {
   return human.join(' ');
 }
 
+/** @type {Array<import('child_process').ChildProcessWithoutNullStreams>} */
+const activeProcesses = [];
+
 function runTest(file) {
   return new Promise((resolve, reject) => {
     const process = spawn('node', [path.basename(file), target], {
       cwd: path.dirname(file),
       stdio: 'pipe',
     });
+
+    activeProcesses.push(process);
+
+    const removeProcess = () => {
+      const index = activeProcesses.indexOf(process);
+      if (index !== -1) {
+        activeProcesses.splice(index, 1);
+      }
+    };
+
     process.on('close', (code) => {
+      removeProcess();
       if (code !== 0) {
         reject(new Error(`Process exited with code ${code}`));
       } else {
@@ -127,6 +141,7 @@ function runTest(file) {
     });
 
     process.on('error', (error) => {
+      removeProcess();
       error.logOutput = `${error.message}\n${output.join('')}`;
       reject(error);
     });
@@ -208,5 +223,14 @@ async function run() {
     process.exit(2);
   }
 }
+
+function cleanup() {
+  for (const process of activeProcesses) {
+    process.kill();
+  }
+}
+
+process.on('SIGINT', cleanup);
+process.on('SIGTERM', cleanup);
 
 run();
