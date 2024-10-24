@@ -4,8 +4,6 @@
 
 const path = require('path');
 const pc = require('picocolors');
-const cliProgress = require('cli-progress');
-const logUpdate = require('log-update');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
 const { spawn } = require('child_process');
@@ -122,16 +120,21 @@ function runTest(file) {
       }
     };
 
+    const output = [];
+
+    const rejectWithError = (error) => {
+      error.logOutput = `${error.message}\n${output.join('')}`;
+      reject(error);
+    };
+
     process.on('close', (code) => {
       removeProcess();
       if (code !== 0) {
-        reject(new Error(`Process exited with code ${code}`));
+        rejectWithError(new Error(`Process exited with code ${code}`));
       } else {
         resolve();
       }
     });
-
-    const output = [];
 
     process.stdout.on('data', (data) => {
       output.push(data.toString());
@@ -143,19 +146,17 @@ function runTest(file) {
 
     process.on('error', (error) => {
       removeProcess();
-      error.logOutput = `${error.message}\n${output.join('')}`;
-      reject(error);
+      rejectWithError(error);
     });
   });
 }
 
-async function run() {
-  const progressBar = new cliProgress.SingleBar(
-    {},
-    cliProgress.Presets.shades_classic,
-  );
-  progressBar.start(files.length, 0);
+const clearLastLine = () => {
+  process.stdout.moveCursor(0, -1); // up one line
+  process.stdout.clearLine(1); // from cursor to end
+};
 
+async function run() {
   const logs = [];
   let done = 0;
   let ok = 0;
@@ -163,20 +164,19 @@ async function run() {
   const start = Date.now();
 
   function addLog(log, isError = false) {
-    if (!isCI) {
-      logs.push(log);
-      logUpdate(logs.join('\n'));
-    } else if (isError) {
+    clearLastLine();
+    if (isError) {
       console.error(log);
     } else {
       console.log(log);
     }
   }
 
-  const promises = files.sort().map(async (file) => {
+  const promises = files.sort().map((file) => async () => {
     file = path.resolve(file);
     const startTest = Date.now();
     try {
+      console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
       await runTest(file);
       ok++;
       addLog(
@@ -192,23 +192,18 @@ async function run() {
       });
       addLog(
         pc.red(
-          `✖ ${file} FAILED (in ${target}) - ${msToHumanDuration(Date.now() - startTest)}`,
+          `✖ ${file} FAILED (in ${target}) - ${msToHumanDuration(Date.now() - startTest)}\n${error.message}`,
         ),
         true,
       );
-      addLog(pc.red(error.message), true);
     }
 
     done++;
-    progressBar.increment();
   });
 
   for (let i = 0; i < promises.length; i++) {
-    await promises[i];
+    await promises[i]();
   }
-
-  progressBar.stop();
-  logUpdate.done();
 
   const end = Date.now();
 
@@ -224,7 +219,7 @@ async function run() {
   // print failed tests
   for (const { file, error, output } of failed) {
     console.log('');
-    console.log(pc.red(file));
+    console.log(`--- ${file} ---`);
     console.log(pc.red(error));
     console.log(pc.red(output));
   }
