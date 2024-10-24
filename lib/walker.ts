@@ -317,6 +317,15 @@ function stepDetect(
   }
 }
 
+/**
+ * Find a common junction point between a symlink and the real file path.
+ *
+ * @param {string} file The file path, including symlink(s).
+ * @param {string} realFile The real path to the file.
+ *
+ * @throws {Error} If no common junction point is found prior to hitting the
+ *                 filesystem root.
+ */
 async function findCommonJunctionPoint(file: string, realFile: string) {
   // find common denominator => where the link changes
   while (true) {
