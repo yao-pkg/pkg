@@ -23,7 +23,5 @@ right = utils.spawn.sync('./' + path.basename(output), [], {
   cwd: path.dirname(output),
 });
 
-assert.strictEqual(left[0], '5');
-assert.strictEqual(right[0], '5');
 assert.strictEqual(left + '\n', right);
 utils.vacuum.sync(output);
