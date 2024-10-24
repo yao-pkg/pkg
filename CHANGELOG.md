@@ -1,3 +1,23 @@
+## [6.0.0](https://github.com/yao-pkg/pkg/compare/v5.16.1...v6.0.0) (2024-10-24)
+
+### ⚠ BREAKING CHANGES
+
+- add experimental `sea` support and drop nodejs 16 support (#110)
+
+### Features
+
+- add experimental `sea` support and drop nodejs 16 support ([#110](https://github.com/yao-pkg/pkg/issues/110)) ([0145a94](https://github.com/yao-pkg/pkg/commit/0145a94abd731a839764c48422712d4c79c90404))
+
+### Bug Fixes
+
+- **tests:** improve tests and add DEVELOPMENT.md docs ([#111](https://github.com/yao-pkg/pkg/issues/111)) ([717b963](https://github.com/yao-pkg/pkg/commit/717b9635b0f3a0a78072a9b925ed0cf2bd18103d))
+
+### Test added
+
+- add macos multi arch test ([#113](https://github.com/yao-pkg/pkg/issues/113)) ([cd0095e](https://github.com/yao-pkg/pkg/commit/cd0095e7f7729f44e5ae0d47ff81b9cad65cea0a)), closes [#112](https://github.com/yao-pkg/pkg/issues/112)
+- allow to run tests in parallel ([#115](https://github.com/yao-pkg/pkg/issues/115)) ([f564a33](https://github.com/yao-pkg/pkg/commit/f564a3360365776dcebf56be3f494b82ace58932))
+- improve tests log output ([#114](https://github.com/yao-pkg/pkg/issues/114)) ([417cf78](https://github.com/yao-pkg/pkg/commit/417cf789036fabfbd446c48858aaa4eea571c5dd))
+
 ## [5.16.1](https://github.com/yao-pkg/pkg/compare/v5.16.0...v5.16.1) (2024-10-21)
 
 ### Bug Fixes
