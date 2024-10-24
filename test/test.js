@@ -189,7 +189,6 @@ async function run() {
     } catch (error) {
       failed.push({
         file,
-        error: error.message,
         output: error.logOutput,
       });
       addLog(
@@ -219,10 +218,9 @@ async function run() {
   console.log(`Ok: ${ok}`);
   console.log(`Failed: ${failed.length}`);
   // print failed tests
-  for (const { file, error, output } of failed) {
+  for (const { file, output } of failed) {
     console.log('');
     console.log(`--- ${file} ---`);
-    console.log(pc.red(error));
     console.log(pc.red(output));
   }
   console.log(`Time: ${msToHumanDuration(end - start)}`);
