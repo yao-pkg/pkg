@@ -3,35 +3,28 @@ name: CI
 on:
   workflow_call:
     inputs:
-      node_version:
-        description: 'Node.js version'
-        type: string
-        required: true
-        default: '18.x'
-      os:
-        description: 'Operating system'
-        type: string
-        required: true
-        default: 'ubuntu-latest'
       npm_command:
         description: 'NPM command to run'
         type: string
         required: true
         default: 'install'
-
-
 jobs:
   test:
-    runs-on: ${{ inputs.os }}
+    strategy:
+      fail-fast: false # prevent test to stop if one fails
+      matrix:
+        node-version: [18.x, 20.x]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: ${{ matrix.node-version }}
       - uses: actions/cache@v3
         with:
           path: ~/.pkg-cache/
-          key: ${{ inputs.os }}-${{ inputs.node_version }}
+          key: ${{ matrix.os }}-${{ matrix.node-version }}
 
       - run: yarn install
 
