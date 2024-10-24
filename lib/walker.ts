@@ -339,8 +339,13 @@ async function findCommonJunctionPoint(file: string, realFile: string) {
     realFile = path.dirname(realFile);
 
     // If the directory is /, break out of the loop and log an error.
-    if (file === path.parse(file).root || realFile === path.parse(realFile).root) {
-      throw new Error('Reached root directory without finding a common junction point');
+    if (
+      file === path.parse(file).root ||
+      realFile === path.parse(realFile).root
+    ) {
+      throw new Error(
+        'Reached root directory without finding a common junction point',
+      );
     }
   }
 }
