@@ -423,14 +423,9 @@ class Walker {
   }
 
   async appendSymlink(file: string, realFile: string) {
-    try {
-      const a = await findCommonJunctionPoint(file, realFile);
-      file = a.file;
-      realFile = a.realFile;
-    } catch (error) {
-      log.error((error as Error).message);
-      return;
-    }
+    const a = await findCommonJunctionPoint(file, realFile);
+    file = a.file;
+    realFile = a.realFile;
 
     if (!this.symLinks[file]) {
       const dn = path.dirname(file);
