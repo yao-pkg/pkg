@@ -20,6 +20,8 @@ if (target === 'host') target = host;
 
 const flavor = process.env.FLAVOR || process.argv[3] || 'all';
 
+const isCI = process.env.CI === 'true';
+
 console.log('');
 console.log('*************************************');
 console.log(target + ' ' + flavor);
@@ -139,23 +141,35 @@ async function run() {
   let ok = 0;
   let failed = [];
   const start = Date.now();
+
+  function addLog(log, isError = false) {
+    if (!isCI) {
+      logs.push(log);
+      logUpdate(logs.join('\n'));
+    } else if (isError) {
+      console.error(log);
+    } else {
+      console.log(log);
+    }
+  }
+
   const promises = files.sort().map(async (file) => {
     file = path.resolve(file);
     try {
       await runTest(file);
       ok++;
-      logs.push(pc.green(`✔ ${file} ok`));
+      addLog(pc.green(`✔ ${file} ok`));
     } catch (error) {
       failed.push({
         file,
         error: error.message,
         output: error.logOutput,
       });
-      logs.push(pc.red(`✖ ${file} FAILED (in ${target})`));
-      logs.push(pc.red(error.message));
+      addLog(pc.red(`✖ ${file} FAILED (in ${target})`), true);
+      addLog(pc.red(error.message), true);
     }
+
     done++;
-    logUpdate(logs.join('\n'));
     progressBar.increment();
   });
 
