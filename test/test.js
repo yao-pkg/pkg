@@ -7,6 +7,7 @@ const pc = require('picocolors');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
 const { spawn } = require('child_process');
+const { cpus } = require('os');
 const host = 'node' + utils.getNodeMajorVersion();
 let target = process.argv[2] || 'host';
 if (target === 'host') target = host;
@@ -18,7 +19,9 @@ if (target === 'host') target = host;
 
 const flavor = process.env.FLAVOR || process.argv[3] || 'all';
 
-const isCI = process.env.CI === 'true';
+// const isCI = process.env.CI === 'true';
+
+const maxConcurrency = flavor === 'only-npm' ? 1 : Math.max(cpus().length, 4);
 
 console.log('');
 console.log('*************************************');
@@ -151,12 +154,6 @@ function runTest(file) {
   });
 }
 
-const clearLastLine = () => {
-  if (isCI) return;
-  process.stdout.moveCursor(0, -1); // up one line
-  process.stdout.clearLine(1); // from cursor to end
-};
-
 async function run() {
   let done = 0;
   let ok = 0;
@@ -164,7 +161,6 @@ async function run() {
   const start = Date.now();
 
   function addLog(log, isError = false) {
-    clearLastLine();
     if (isError) {
       console.error(log);
     } else {
@@ -176,9 +172,6 @@ async function run() {
     file = path.resolve(file);
     const startTest = Date.now();
     try {
-      if (!isCI) {
-        console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
-      }
       await runTest(file);
       ok++;
       addLog(
@@ -203,8 +196,8 @@ async function run() {
     done++;
   });
 
-  for (let i = 0; i < promises.length; i++) {
-    await promises[i]();
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    await Promise.all(promises.slice(i, i + maxConcurrency).map((p) => p()));
   }
 
   const end = Date.now();
@@ -236,6 +229,8 @@ function cleanup() {
   for (const process of activeProcesses) {
     process.kill();
   }
+
+  process.exit(1);
 }
 
 process.on('SIGINT', cleanup);
