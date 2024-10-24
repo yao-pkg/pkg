@@ -152,12 +152,12 @@ function runTest(file) {
 }
 
 const clearLastLine = () => {
+  if (isCI) return;
   process.stdout.moveCursor(0, -1); // up one line
   process.stdout.clearLine(1); // from cursor to end
 };
 
 async function run() {
-  const logs = [];
   let done = 0;
   let ok = 0;
   let failed = [];
@@ -176,7 +176,9 @@ async function run() {
     file = path.resolve(file);
     const startTest = Date.now();
     try {
-      console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
+      if (!isCI) {
+        console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
+      }
       await runTest(file);
       ok++;
       addLog(
