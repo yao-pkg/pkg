@@ -4,9 +4,10 @@
 
 const path = require('path');
 const pc = require('picocolors');
+const cliProgress = require('cli-progress');
+const logUpdate = require('log-update');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
-const { cpus } = require('os');
 const { spawn } = require('child_process');
 const host = 'node' + utils.getNodeMajorVersion();
 let target = process.argv[2] || 'host';
@@ -88,13 +89,24 @@ if (flavor.match(/^test/)) {
 
 const files = globSync(list, { ignore });
 
-const maxConcurrency = Math.min(cpus().length, 4);
+const maxConcurrency = flavor === 'only-npm' ? 1 : 1;
+
+function msToHumanDuration(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const human = [];
+  if (hours > 0) human.push(`${hours}h`);
+  if (minutes > 0) human.push(`${minutes % 60}m`);
+  if (seconds > 0) human.push(`${seconds % 60}s`);
+  return human.join(' ');
+}
 
 function runTest(file) {
   return new Promise((resolve, reject) => {
     const process = spawn('node', [path.basename(file), target], {
       cwd: path.dirname(file),
-      stdio: 'inherit',
+      stdio: 'pipe',
     });
     process.on('close', (code) => {
       if (code !== 0) {
@@ -104,27 +116,77 @@ function runTest(file) {
       }
     });
 
-    process.on('error', reject);
+    const output = [];
+
+    process.stdout.on('data', (data) => {
+      output.push(data.toString());
+    });
+
+    process.on('error', (error) => {
+      error.logOutput = `${error.message}\n${output.join('')}`;
+      reject(error);
+    });
   });
 }
 
 async function run() {
+  const progressBar = new cliProgress.SingleBar(
+    {},
+    cliProgress.Presets.shades_classic,
+  );
+  progressBar.start(files.length, 0);
+
+  const logs = [];
+  let done = 0;
+  let ok = 0;
+  let failed = [];
+  const start = Date.now();
   const promises = files.sort().map(async (file) => {
     file = path.resolve(file);
     try {
       await runTest(file);
+      ok++;
+      logs.push(pc.green(`✔ ${file} ok`));
     } catch (error) {
-      console.log();
-      console.log(`> ${pc.red('Error!')} ${error.message}`);
-      console.log(`> ${pc.red('Error!')} ${file} FAILED (in ${target})`);
-      process.exit(2);
+      failed.push({
+        file,
+        error: error.message,
+        output: error.logOutput,
+      });
+      logs.push(pc.red(`✖ ${file} FAILED (in ${target})`));
+      logs.push(pc.red(error.message));
     }
-    console.log(file, 'ok');
+    done++;
+    logUpdate(logs.join('\n'));
+    progressBar.increment();
   });
 
-  for (let i = 0; i < promises.length; i += maxConcurrency) {
-    await Promise.all(promises.slice(i, i + maxConcurrency));
+  for (let i = 0; i < promises.length; i++) {
+    await promises[i];
   }
+
+  progressBar.stop();
+  logUpdate.done();
+
+  const end = Date.now();
+
+  console.log('');
+  console.log('*************************************');
+  console.log('Summary');
+  console.log('*************************************');
+  console.log('');
+
+  console.log(`Total: ${done}`);
+  console.log(`Ok: ${ok}`);
+  console.log(`Failed: ${failed.length}`);
+  // print failed tests
+  for (const { file, error, output } of failed) {
+    console.log('');
+    console.log(pc.red(file));
+    console.log(pc.red(error));
+    console.log(pc.red(output));
+  }
+  console.log(`Time: ${msToHumanDuration(end - start)}`);
 }
 
 run();
