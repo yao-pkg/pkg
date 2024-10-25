@@ -317,14 +317,37 @@ function stepDetect(
   }
 }
 
-function findCommonJunctionPoint(file: string, realFile: string) {
+/**
+ * Find a common junction point between a symlink and the real file path.
+ *
+ * @param {string} file The file path, including symlink(s).
+ * @param {string} realFile The real path to the file.
+ *
+ * @throws {Error} If no common junction point is found prior to hitting the
+ *                 filesystem root.
+ */
+async function findCommonJunctionPoint(file: string, realFile: string) {
   // find common denominator => where the link changes
-  while (toNormalizedRealPath(path.dirname(file)) === path.dirname(realFile)) {
+  while (true) {
+    const stats = await fs.lstat(file);
+
+    if (stats.isSymbolicLink()) {
+      return { file, realFile };
+    }
+
     file = path.dirname(file);
     realFile = path.dirname(realFile);
-  }
 
-  return { file, realFile };
+    // If the directory is /, break out of the loop and log an error.
+    if (
+      file === path.parse(file).root ||
+      realFile === path.parse(realFile).root
+    ) {
+      throw new Error(
+        'Reached root directory without finding a common junction point',
+      );
+    }
+  }
 }
 
 export interface WalkerParams {
@@ -399,8 +422,8 @@ class Walker {
     }
   }
 
-  appendSymlink(file: string, realFile: string) {
-    const a = findCommonJunctionPoint(file, realFile);
+  async appendSymlink(file: string, realFile: string) {
+    const a = await findCommonJunctionPoint(file, realFile);
     file = a.file;
     realFile = a.realFile;
 
@@ -456,7 +479,7 @@ class Walker {
     });
   }
 
-  appendBlobOrContent(task: Task) {
+  async appendBlobOrContent(task: Task) {
     if (strictVerify) {
       assert(task.file === normalizePath(task.file));
     }
@@ -486,7 +509,7 @@ class Walker {
     }
 
     this.append({ ...task, file: realFile });
-    this.appendSymlink(task.file, realFile);
+    await this.appendSymlink(task.file, realFile);
     this.appendStat({
       file: task.file,
       store: STORE_STAT,
@@ -514,7 +537,7 @@ class Walker {
               ]);
             }
 
-            this.appendBlobOrContent({
+            await this.appendBlobOrContent({
               file: normalizePath(script),
               marker,
               store: STORE_BLOB,
@@ -534,7 +557,7 @@ class Walker {
           const stat = await fs.stat(asset);
 
           if (stat.isFile()) {
-            this.appendBlobOrContent({
+            await this.appendBlobOrContent({
               file: normalizePath(asset),
               marker,
               store: STORE_CONTENT,
@@ -558,14 +581,14 @@ class Walker {
             // 2) non-source (non-js) files of top-level package are shipped as CONTENT
             // 3) parsing some js 'files' of non-top-level packages fails, hence all CONTENT
             if (marker.toplevel) {
-              this.appendBlobOrContent({
+              await this.appendBlobOrContent({
                 file,
                 marker,
                 store: isDotJS(file) ? STORE_BLOB : STORE_CONTENT,
                 reason: configPath,
               });
             } else {
-              this.appendBlobOrContent({
+              await this.appendBlobOrContent({
                 file,
                 marker,
                 store: STORE_CONTENT,
@@ -754,7 +777,7 @@ class Walker {
     }
 
     if (stat && stat.isFile()) {
-      this.appendBlobOrContent({
+      await this.appendBlobOrContent({
         file,
         marker,
         store: STORE_CONTENT,
@@ -857,7 +880,7 @@ class Walker {
             normalizePath(newPackageForNewRecords.packageJson),
         );
       }
-      this.appendBlobOrContent({
+      await this.appendBlobOrContent({
         file: newPackageForNewRecords.packageJson,
         marker: newPackageForNewRecords.marker,
         store: STORE_CONTENT,
@@ -865,7 +888,7 @@ class Walker {
       });
     }
 
-    this.appendBlobOrContent({
+    await this.appendBlobOrContent({
       file: newFile,
       marker: newPackageForNewRecords ? newPackageForNewRecords.marker : marker,
       store: STORE_BLOB,
@@ -921,7 +944,7 @@ class Walker {
 
     if (store === STORE_BLOB) {
       if (unlikelyJavascript(record.file) || isDotNODE(record.file)) {
-        this.appendBlobOrContent({
+        await this.appendBlobOrContent({
           file: record.file,
           marker,
           store: STORE_CONTENT,
@@ -930,7 +953,7 @@ class Walker {
       }
 
       if (marker.public || marker.hasDictionary) {
-        this.appendBlobOrContent({
+        await this.appendBlobOrContent({
           file: record.file,
           marker,
           store: STORE_CONTENT,
@@ -1090,7 +1113,7 @@ class Walker {
 
     entrypoint = normalizePath(entrypoint);
 
-    this.appendBlobOrContent({
+    await this.appendBlobOrContent({
       file: entrypoint,
       marker,
       store: STORE_BLOB,
@@ -1098,7 +1121,7 @@ class Walker {
 
     if (addition) {
       addition = normalizePath(addition);
-      this.appendBlobOrContent({
+      await this.appendBlobOrContent({
         file: addition,
         marker,
         store: STORE_CONTENT,
