@@ -78,8 +78,23 @@ function removeMachOExecutableSignature(executable: string) {
   });
 }
 
+function signWindowsExecutable(executable: string) {
+  execFileSync('signtool', ['sign', '/fd', 'SHA256', '/a', executable], {
+    stdio: 'inherit',
+  });
+}
+
+function removeWindowsExecutableSignature(executable: string) {
+  execFileSync('signtool', ['remove', '/s', executable], {
+    stdio: 'inherit',
+  });
+}
+
+
 export {
   patchMachOExecutable,
   removeMachOExecutableSignature,
   signMachOExecutable,
+  signWindowsExecutable,
+  removeWindowsExecutableSignature,
 };
