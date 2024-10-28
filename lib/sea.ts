@@ -11,7 +11,11 @@ import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
 import { log } from './log';
 import { NodeTarget, Target } from './types';
-import { patchMachOExecutable, signMachOExecutable } from './mach-o';
+import {
+  patchMachOExecutable,
+  removeMachOExecutableSignature,
+  signMachOExecutable,
+} from './mach-o';
 
 const exec = util.promisify(cExec);
 
@@ -277,9 +281,16 @@ async function bake(
   await copyFile(nodePath, outPath);
 
   log.info(`Injecting the blob into ${outPath}...`);
-  await exec(
-    `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
-  );
+  if (target.platform === 'macos') {
+    removeMachOExecutableSignature(outPath);
+    await exec(
+      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`,
+    );
+  } else {
+    await exec(
+      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
+    );
+  }
 }
 
 /** Create NodeJS executable using sea */
