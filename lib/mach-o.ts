@@ -79,7 +79,7 @@ function removeMachOExecutableSignature(executable: string) {
 }
 
 function signWindowsExecutable(executable: string) {
-  execFileSync('signtool', ['sign', '/fd', 'SHA256', '/a', executable], {
+  execFileSync('signtool', ['sign', '/fd', 'SHA256', executable], {
     stdio: 'inherit',
   });
 }
