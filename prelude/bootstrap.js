@@ -22,7 +22,7 @@ const fs = require('fs');
 const { isRegExp } = require('util').types;
 const Module = require('module');
 const path = require('path');
-const { promisify, _extend } = require('util');
+const { promisify } = require('util');
 const { Script } = require('vm');
 const { homedir } = require('os');
 const util = require('util');
@@ -2005,7 +2005,7 @@ function payloadFileSync(pointer) {
       args.splice(pos, 0, {});
     }
     const opts = args[pos];
-    if (!opts.env) opts.env = _extend({}, process.env);
+    if (!opts.env) opts.env = Object.assign({}, process.env);
     // see https://github.com/vercel/pkg/issues/897#issuecomment-1049370335
     if (opts.env.PKG_EXECPATH !== undefined) return;
     opts.env.PKG_EXECPATH = EXECPATH;
