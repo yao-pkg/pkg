@@ -2005,7 +2005,7 @@ function payloadFileSync(pointer) {
       args.splice(pos, 0, {});
     }
     const opts = args[pos];
-    if (!opts.env) opts.env = Object.assign({}, process.env);
+    if (!opts.env) opts.env = { ...process.env };
     // see https://github.com/vercel/pkg/issues/897#issuecomment-1049370335
     if (opts.env.PKG_EXECPATH !== undefined) return;
     opts.env.PKG_EXECPATH = EXECPATH;
