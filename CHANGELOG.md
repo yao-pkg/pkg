@@ -1,3 +1,13 @@
+## [6.1.0](https://github.com/yao-pkg/pkg/compare/v6.0.1...v6.1.0) (2024-11-04)
+
+### Features
+
+- bump fetch 3.5.17 with node 22.11.0 support ([2aae943](https://github.com/yao-pkg/pkg/commit/2aae94355b55537c361aedc2f81223b2c847955f))
+
+### Chores
+
+- fix yarn.lock issues ([fa4f911](https://github.com/yao-pkg/pkg/commit/fa4f91110b93c805b931c720ed3e5e45a3c2b28f))
+
 ## [6.0.1](https://github.com/yao-pkg/pkg/compare/v6.0.0...v6.0.1) (2024-11-04)
 
 ### Bug Fixes
