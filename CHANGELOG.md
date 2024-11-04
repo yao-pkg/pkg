@@ -1,3 +1,15 @@
+## [6.0.1](https://github.com/yao-pkg/pkg/compare/v6.0.0...v6.0.1) (2024-11-04)
+
+### Bug Fixes
+
+- avoid endless loop when handling symlinks ([#109](https://github.com/yao-pkg/pkg/issues/109)) by [@q0rban](https://github.com/q0rban) ([#109](https://github.com/yao-pkg/pkg/issues/109)) ([e41355c](https://github.com/yao-pkg/pkg/commit/e41355c5de3ad8a2597e61c6708cefe065d5ab0d))
+- deprecated `_extend` in bootstrap.js ([#118](https://github.com/yao-pkg/pkg/issues/118)) ([4acb187](https://github.com/yao-pkg/pkg/commit/4acb1879343287204957ae2f5bf4790cd83451e5))
+- follow exact SEA baking procedure for Mac ([#116](https://github.com/yao-pkg/pkg/issues/116)) ([d818a04](https://github.com/yao-pkg/pkg/commit/d818a043b20e55d381cc978220f1158e9059e160))
+
+### Test added
+
+- fix verify pkg version test ([81bd04a](https://github.com/yao-pkg/pkg/commit/81bd04ae5be7826bf695033de8e80b21c9cb7beb))
+
 ## [6.0.0](https://github.com/yao-pkg/pkg/compare/v5.16.1...v6.0.0) (2024-10-24)
 
 ### ⚠ BREAKING CHANGES
