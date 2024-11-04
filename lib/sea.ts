@@ -285,7 +285,7 @@ async function bake(
   log.info(`Injecting the blob into ${outPath}...`);
 
   let command = `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`;
-  
+
   if (target.platform === 'macos') {
     removeMachOExecutableSignature(outPath);
     command = `${command} --macho-segment-name NODE_SEA`;
@@ -299,7 +299,6 @@ async function bake(
         'After that, you can run pkg with --signature option again.',
       ]);
     }
-
   }
 
   log.info(`Running command: ${command}`);

@@ -90,7 +90,6 @@ function removeWindowsExecutableSignature(executable: string) {
   });
 }
 
-
 export {
   patchMachOExecutable,
   removeMachOExecutableSignature,
