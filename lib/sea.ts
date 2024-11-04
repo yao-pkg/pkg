@@ -9,6 +9,7 @@ import { createHash } from 'crypto';
 import { homedir, tmpdir } from 'os';
 import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
+import { setTimeout } from 'timers/promises';
 import { log } from './log';
 import { NodeTarget, Target } from './types';
 import {
@@ -306,6 +307,24 @@ async function bake(
   await exec(command);
 }
 
+async function rmRf(path: string, attemps = 1) {
+  // prevent EBUSY error on Windows
+  if (process.platform === 'win32') {
+    await setTimeout(100);
+  }
+
+  attemps -= 1;
+
+  // cleanup the temp directory
+  await rm(path, { recursive: true, force: true }).catch((err) => {
+    if (attemps <= 0) {
+      throw new Error(`Failed to remove directory ${path}: ${err}`);
+    } else {
+      return rmRf(path, attemps);
+    }
+  });
+}
+
 /** Create NodeJS executable using sea */
 export default async function sea(entryPoint: string, opts: SeaOptions) {
   entryPoint = resolve(process.cwd(), entryPoint);
@@ -398,9 +417,6 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
   } catch (error) {
     throw new Error(`Error while creating the executable: ${error}`);
   } finally {
-    // cleanup the temp directory
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => {
-      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
-    });
+    await rmRf(tmpDir, 3);
   }
 }
