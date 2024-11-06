@@ -2,9 +2,9 @@
 
 'use strict';
 
+const globby = require('globby');
 const path = require('path');
 const pc = require('picocolors');
-const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
 const { spawn } = require('child_process');
 const host = 'node' + utils.getNodeMajorVersion();
@@ -53,7 +53,6 @@ function joinAndForward(d) {
 }
 
 const list = [];
-const ignore = [];
 
 // test that should be run on `host` target only
 const npmTests = [
@@ -80,14 +79,14 @@ if (flavor.match(/^test/)) {
   list.push(joinAndForward('**/main.js'));
   if (flavor === 'no-npm') {
     // TODO: fix this test
-    ignore.push(joinAndForward('test-79-npm'));
+    list.push('!' + joinAndForward('test-79-npm'));
     npmTests.forEach((t) => {
-      ignore.push(joinAndForward(t));
+      list.push('!' + joinAndForward(t));
     });
   }
 }
 
-const files = globSync(list, { ignore });
+const files = globby.sync(list);
 
 function msToHumanDuration(ms) {
   if (ms < 1000) return `${ms}ms`;

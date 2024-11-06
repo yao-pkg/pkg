@@ -11,7 +11,7 @@ const UPM = process.env.USE_PREINSTALLED_MODULES || false; // USE_PREINSTALLED_M
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
-const { globSync } = require('tinyglobby');
+const globby = require('globby');
 const utils = require('../utils.js');
 
 assert(!module.parent);
@@ -127,12 +127,19 @@ if (!UPM) {
 })();
 
 // note to developpers:
-// you can set the env variable FILTER to something like "better-sqlite3/*.js"
+// you can set the  env variable FILTER to something like "better-sqlite3/*.js"
 // to restrict this test to this single test case
-const inputs = globSync([process.env.FILTER || '*/*.js'], {
-  absolute: true,
-  ignore: ['*/*.config.js', '*/*.meta.js', '*/gulpfile.js', '*/*fixture*'],
-}).map((p) => path.normalize(p));
+const inputs = globby
+  .sync([
+    process.env.FILTER || './*/*.js',
+    '!./*/*.config.js',
+    '!./*/*.meta.js',
+    '!./*/gulpfile.js',
+    '!./*/*fixture*',
+  ])
+  .map(function (result) {
+    return path.resolve(result);
+  });
 
 let times = {};
 const ci = process.env.CI;
@@ -302,14 +309,14 @@ inputs.some(function (input) {
     const deployFiles = [];
 
     if (!meta.deployFiles && !meta.deployFilesFrom) {
-      globSync(path.join(foldy, 'node_modules', '**', '*.node')).some(
-        function (deployFrom) {
+      globby
+        .sync(path.join(foldy, 'node_modules', '**', '*.node'))
+        .some(function (deployFrom) {
           deployFiles.push([
             deployFrom,
             path.join(path.dirname(output), path.basename(deployFrom)),
           ]);
-        },
-      );
+        });
     }
 
     const deployFilesRelative = [];
@@ -355,8 +362,9 @@ inputs.some(function (input) {
         if (statFrom.isFile()) {
           deployFiles.push([deployFrom, deployTo]);
         } else {
-          globSync(path.join(deployFrom, '**', '*')).some(
-            function (deployFrom2) {
+          globby
+            .sync(path.join(deployFrom, '**', '*'))
+            .some(function (deployFrom2) {
               const r = path.relative(deployFrom, deployFrom2);
               const deployTo2 = path.join(deployTo, r);
               if (fs.existsSync(deployFrom2)) {
@@ -365,8 +373,7 @@ inputs.some(function (input) {
                   deployFiles.push([deployFrom2, deployTo2]);
                 }
               }
-            },
-          );
+            });
         }
       }
     });
@@ -404,7 +411,7 @@ inputs.some(function (input) {
     }
   }
 
-  const rubbishes = globSync(path.join(path.dirname(output), '**', '*'));
+  const rubbishes = globby.sync(path.join(path.dirname(output), '**', '*'));
 
   rubbishes.some(function (rubbish) {
     utils.vacuum.sync(rubbish);

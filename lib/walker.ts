@@ -2,10 +2,10 @@
 
 import assert from 'assert';
 import fs from 'fs/promises';
+import globby from 'globby';
 import path from 'path';
 import { builtinModules } from 'module';
 import picomatch from 'picomatch';
-import { globSync } from 'tinyglobby';
 
 import {
   ALIAS_AS_RELATIVE,
@@ -194,7 +194,7 @@ function upon(p: string, base: string) {
 }
 
 function collect(ps: string[]) {
-  return globSync(ps, { absolute: true, dot: true });
+  return globby.sync(ps, { dot: true });
 }
 
 function expandFiles(efs: string | string[], base: string) {
