@@ -80,7 +80,7 @@ function humanSize(bytes) {
     return totalSize;
   }
   function wrap(obj, name) {
-    const f = fs[name];
+    const f = obj[name];
     obj[name] = (...args) => {
       const args1 = Object.values(args);
       console.log(
@@ -111,6 +111,7 @@ function humanSize(bytes) {
       wrap(fs, 'open');
       wrap(fs, 'readSync');
       wrap(fs, 'read');
+      wrap(fs, 'readFile');
       wrap(fs, 'writeSync');
       wrap(fs, 'write');
       wrap(fs, 'closeSync');
@@ -131,6 +132,18 @@ function humanSize(bytes) {
       wrap(fs, 'exists');
       wrap(fs, 'accessSync');
       wrap(fs, 'access');
+
+      wrap(fs.promises, 'open');
+      wrap(fs.promises, 'read');
+      wrap(fs.promises, 'readFile');
+      wrap(fs.promises, 'write');
+      wrap(fs.promises, 'readdir');
+      wrap(fs.promises, 'realpath');
+      wrap(fs.promises, 'stat');
+      wrap(fs.promises, 'lstat');
+      wrap(fs.promises, 'fstat');
+      wrap(fs.promises, 'access');
+      wrap(fs.promises, 'copyFile');
     }
   }
 })();

@@ -1722,12 +1722,10 @@ function payloadFileSync(pointer) {
     fs.promises.stat = util.promisify(fs.stat);
     fs.promises.lstat = util.promisify(fs.lstat);
 
-    /*
     fs.promises.read = util.promisify(fs.read);
     fs.promises.realpath = util.promisify(fs.realpath);
     fs.promises.fstat = util.promisify(fs.fstat);
     fs.promises.access = util.promisify(fs.access);
-  */
   }
 
   // ///////////////////////////////////////////////////////////////
