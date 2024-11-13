@@ -1722,12 +1722,16 @@ function payloadFileSync(pointer) {
     fs.promises.stat = util.promisify(fs.stat);
     fs.promises.lstat = util.promisify(fs.lstat);
 
-    /*
     fs.promises.read = util.promisify(fs.read);
     fs.promises.realpath = util.promisify(fs.realpath);
     fs.promises.fstat = util.promisify(fs.fstat);
+    fs.promises.statfs = util.promisify(fs.fstat);
     fs.promises.access = util.promisify(fs.access);
-  */
+
+    // TODO: all promises methods that try to edit files in snapshot should throw
+    // TODO implement missing methods
+    // fs.promises.readlink ?
+    // fs.promises.opendir ?
   }
 
   // ///////////////////////////////////////////////////////////////
