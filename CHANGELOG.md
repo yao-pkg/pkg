@@ -1,3 +1,9 @@
+## [6.1.1](https://github.com/yao-pkg/pkg/compare/v6.1.0...v6.1.1) (2024-11-13)
+
+### Bug Fixes
+
+- missing `fs/promises` patches to resolve `Not found` error ([#124](https://github.com/yao-pkg/pkg/issues/124)) ([93fed60](https://github.com/yao-pkg/pkg/commit/93fed60943fef354e0cefde58b72fa48eb8ff23e))
+
 ## [6.1.0](https://github.com/yao-pkg/pkg/compare/v6.0.1...v6.1.0) (2024-11-04)
 
 ### Features
