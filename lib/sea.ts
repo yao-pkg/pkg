@@ -156,7 +156,15 @@ function getNodeOs(platform: string) {
 
 /** Get the node arch based on target arch */
 function getNodeArch(arch: string) {
-  const allowedArchs = ['x64', 'arm64', 'armv7l', 'ppc64', 's390x'];
+  const allowedArchs = [
+    'x64',
+    'arm64',
+    'armv7l',
+    'ppc64',
+    's390x',
+    'riscv64',
+    'loong64',
+  ];
 
   if (!allowedArchs.includes(arch)) {
     throw new Error(`Unsupported architecture: ${arch}`);
@@ -166,7 +174,7 @@ function getNodeArch(arch: string) {
 }
 
 /** Get latest node version based on the provided partial version */
-async function getNodeVersion(nodeVersion: string) {
+async function getNodeVersion(os: string, arch: string, nodeVersion: string) {
   // validate nodeVersion using regex. Allowed formats: 16, 16.0, 16.0.0
   const regex = /^\d{1,2}(\.\d{1,2}){0,2}$/;
   if (!regex.test(nodeVersion)) {
@@ -183,7 +191,18 @@ async function getNodeVersion(nodeVersion: string) {
     return nodeVersion;
   }
 
-  const response = await fetch('https://nodejs.org/dist/index.json');
+  let url;
+  switch (arch) {
+    case 'riscv64':
+    case 'loong64':
+      url = 'https://unofficial-builds.nodejs.org/download/release/index.json';
+      break;
+    default:
+      url = 'https://nodejs.org/dist/index.json';
+      break;
+  }
+
+  const response = await fetch(url);
 
   if (!response.ok) {
     throw new Error('Failed to fetch node versions');
@@ -191,15 +210,20 @@ async function getNodeVersion(nodeVersion: string) {
 
   const versions = await response.json();
 
-  const latestVersion = versions
-    .map((v: { version: string }) => v.version)
-    .find((v: string) => v.startsWith(`v${nodeVersion}`));
+  const nodeOS = os === 'darwin' ? 'osx' : os;
+  const latestVersionAndFiles = versions
+    .map((v: { version: string; files: string[] }) => [v.version, v.files])
+    .find(
+      ([v, files]: [string, string[]]) =>
+        v.startsWith(`v${nodeVersion}`) &&
+        files.find((f: string) => f.startsWith(`${nodeOS}-${arch}`)),
+    );
 
-  if (!latestVersion) {
+  if (!latestVersionAndFiles) {
     throw new Error(`Node version ${nodeVersion} not found`);
   }
 
-  return latestVersion;
+  return latestVersionAndFiles[0];
 }
 
 /** Fetch, validate and extract nodejs binary. Returns a path to it */
@@ -222,16 +246,31 @@ async function getNodejsExecutable(
     return process.execPath;
   }
 
-  const nodeVersion = await getNodeVersion(
-    target.nodeRange.replace('node', ''),
-  );
-
   const os = getNodeOs(target.platform);
   const arch = getNodeArch(target.arch);
 
+  const nodeVersion = await getNodeVersion(
+    os,
+    arch,
+    target.nodeRange.replace('node', ''),
+  );
+
   const fileName = `node-${nodeVersion}-${os}-${arch}.${os === 'win' ? 'zip' : 'tar.gz'}`;
-  const url = `https://nodejs.org/dist/${nodeVersion}/${fileName}`;
-  const checksumUrl = `https://nodejs.org/dist/${nodeVersion}/SHASUMS256.txt`;
+
+  let url;
+  let checksumUrl;
+  switch (arch) {
+    case 'riscv64':
+    case 'loong64':
+      url = `https://unofficial-builds.nodejs.org/download/release/${nodeVersion}/${fileName}`;
+      checksumUrl = `https://unofficial-builds.nodejs.org/download/release/${nodeVersion}/SHASUMS256.txt`;
+      break;
+    default:
+      url = `https://nodejs.org/dist/${nodeVersion}/${fileName}`;
+      checksumUrl = `https://nodejs.org/dist/${nodeVersion}/SHASUMS256.txt`;
+      break;
+  }
+
   const downloadDir = join(homedir(), '.pkg-cache', 'sea');
 
   // Ensure the download directory exists
