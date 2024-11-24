@@ -3,7 +3,7 @@
 const assert = require('assert');
 const path = require('path');
 const rimraf = require('rimraf');
-const { globSync } = require('tinyglobby');
+const globby = require('globby');
 const { execSync, spawnSync } = require('child_process');
 const {
   existsSync,
@@ -194,7 +194,7 @@ module.exports.filesBefore = function (n) {
   for (const ni of n) {
     module.exports.vacuum.sync(ni);
   }
-  return globSync('**/*').sort();
+  return globby.sync('**/*', { nodir: true }).sort();
 };
 
 /**
@@ -204,10 +204,7 @@ module.exports.filesBefore = function (n) {
  * @param {string[]} newComers New files produced by test that should be removed
  */
 module.exports.filesAfter = function (before, newComers) {
-  // actual files in the directory
-  const a = globSync('**/*').sort();
-
-  // check that all files in `b` exist, otherwise fail
+  const a = globby.sync('**/*', { nodir: true }).sort();
   for (const bi of before) {
     if (a.indexOf(bi) < 0) {
       assert(false, `${bi} disappeared!?`);

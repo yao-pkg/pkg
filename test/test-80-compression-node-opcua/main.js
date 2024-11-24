@@ -14,12 +14,6 @@ const assert = require('assert');
 const utils = require('../utils.js');
 const pkgJson = require('./package.json');
 
-// FIXME: this test takes a long time to run (from 5min on linux up to 10 minuntes on windows)
-// run only on linux to save time on CI
-if (process.platform !== 'linux') {
-  return;
-}
-
 const isWindows = process.platform === 'win32';
 const buildDir = 'build';
 

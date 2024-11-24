@@ -160,7 +160,7 @@ use of `package.json` configuration.
 
 ### Scripts
 
-`scripts` is a [glob](https://github.com/SuperchupuDev/tinyglobby)
+`scripts` is a [glob](https://github.com/sindresorhus/globby)
 or list of globs. Files specified as `scripts` will be compiled
 using `v8::ScriptCompiler` and placed into executable without
 sources. They must conform to the JS standards of those Node.js versions
@@ -168,7 +168,7 @@ you target (see [Targets](#targets)), i.e. be already transpiled.
 
 ### Assets
 
-`assets` is a [glob](https://github.com/SuperchupuDev/tinyglobby)
+`assets` is a [glob](https://github.com/sindresorhus/globby)
 or list of globs. Files specified as `assets` will be packaged
 into executable as raw content without modifications. Javascript
 files may also be specified as `assets`. Their sources will
