@@ -9,12 +9,15 @@ import { createHash } from 'crypto';
 import { homedir, tmpdir } from 'os';
 import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
+import { setTimeout } from 'timers/promises';
 import { log } from './log';
 import { NodeTarget, Target } from './types';
 import {
   patchMachOExecutable,
   removeMachOExecutableSignature,
+  removeWindowsExecutableSignature,
   signMachOExecutable,
+  signWindowsExecutable,
 } from './mach-o';
 
 const exec = util.promisify(cExec);
@@ -320,16 +323,45 @@ async function bake(
   await copyFile(nodePath, outPath);
 
   log.info(`Injecting the blob into ${outPath}...`);
+
+  let command = `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`;
+
   if (target.platform === 'macos') {
     removeMachOExecutableSignature(outPath);
-    await exec(
-      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`,
-    );
-  } else {
-    await exec(
-      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
-    );
+    command = `${command} --macho-segment-name NODE_SEA`;
+  } else if (target.platform === 'win') {
+    try {
+      removeWindowsExecutableSignature(outPath);
+    } catch (error) {
+      log.warn('Unable to remove the signature from the Windows executable', [
+        'To sign the executable, you need to have signtool.exe installed.',
+        'You can install it by installing Windows SDK.',
+        'After that, you can run pkg with --signature option again.',
+      ]);
+    }
   }
+
+  log.info(`Running command: ${command}`);
+
+  await exec(command);
+}
+
+async function rmRf(path: string, attemps = 1) {
+  // prevent EBUSY error on Windows
+  if (process.platform === 'win32') {
+    await setTimeout(100);
+  }
+
+  attemps -= 1;
+
+  // cleanup the temp directory
+  await rm(path, { recursive: true, force: true }).catch((err) => {
+    if (attemps <= 0) {
+      throw new Error(`Failed to remove directory ${path}: ${err}`);
+    } else {
+      return rmRf(path, attemps);
+    }
+  });
 }
 
 /** Create NodeJS executable using sea */
@@ -385,24 +417,36 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
         const target = opts.targets[i];
         await bake(nodePath, target, blobPath);
         const output = target.output!;
-        if (opts.signature && target.platform === 'macos') {
-          const buf = patchMachOExecutable(await readFile(output));
-          await writeFile(output, buf);
+        if (opts.signature) {
+          if (target.platform === 'macos') {
+            const buf = patchMachOExecutable(await readFile(output));
+            await writeFile(output, buf);
 
-          try {
-            // sign executable ad-hoc to workaround the new mandatory signing requirement
-            // users can always replace the signature if necessary
-            signMachOExecutable(output);
-          } catch {
-            if (target.arch === 'arm64') {
-              log.warn('Unable to sign the macOS executable', [
-                'Due to the mandatory code signing requirement, before the',
-                'executable is distributed to end users, it must be signed.',
-                'Otherwise, it will be immediately killed by kernel on launch.',
-                'An ad-hoc signature is sufficient.',
-                'To do that, run pkg on a Mac, or transfer the executable to a Mac',
-                'and run "codesign --sign - <executable>", or (if you use Linux)',
-                'install "ldid" utility to PATH and then run pkg again',
+            try {
+              // sign executable ad-hoc to workaround the new mandatory signing requirement
+              // users can always replace the signature if necessary
+              signMachOExecutable(output);
+            } catch {
+              if (target.arch === 'arm64') {
+                log.warn('Unable to sign the macOS executable', [
+                  'Due to the mandatory code signing requirement, before the',
+                  'executable is distributed to end users, it must be signed.',
+                  'Otherwise, it will be immediately killed by kernel on launch.',
+                  'An ad-hoc signature is sufficient.',
+                  'To do that, run pkg on a Mac, or transfer the executable to a Mac',
+                  'and run "codesign --sign - <executable>", or (if you use Linux)',
+                  'install "ldid" utility to PATH and then run pkg again',
+                ]);
+              }
+            }
+          } else if (target.platform === 'win') {
+            try {
+              signWindowsExecutable(output);
+            } catch {
+              log.warn('Unable to sign the Windows executable', [
+                'To sign the executable, you need to have signtool.exe installed.',
+                'You can install it by installing Windows SDK.',
+                'After that, you can run pkg with --signature option again.',
               ]);
             }
           }
@@ -412,9 +456,6 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
   } catch (error) {
     throw new Error(`Error while creating the executable: ${error}`);
   } finally {
-    // cleanup the temp directory
-    await rm(tmpDir, { recursive: true }).catch(() => {
-      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
-    });
+    await rmRf(tmpDir, 3);
   }
 }
