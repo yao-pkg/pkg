@@ -417,7 +417,7 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     await rm(tmpDir, { recursive: true }).catch(() => {
       log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
     });
-    
+
     process.chdir(previousDirectory);
   }
 }
