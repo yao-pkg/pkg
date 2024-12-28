@@ -1,3 +1,14 @@
+## [6.2.0](https://github.com/yao-pkg/pkg/compare/v6.1.1...v6.2.0) (2024-12-28)
+
+### Features
+
+- bump fetch with Node v22.12.0 and v20.18.1 ([a8568a5](https://github.com/yao-pkg/pkg/commit/a8568a56d8c30f077f9add61e9c256764333b225))
+- use unofficial builds in SEA ([#126](https://github.com/yao-pkg/pkg/issues/126)) ([20e8dda](https://github.com/yao-pkg/pkg/commit/20e8ddaf2944867569b0f63d45d09c2f6abc9c11))
+
+### Bug Fixes
+
+- navigate back to previous directory after SEA build ([#131](https://github.com/yao-pkg/pkg/issues/131)) ([1489e94](https://github.com/yao-pkg/pkg/commit/1489e946332f6cba69e4be5fe0b66e798b8a23ce))
+
 ## [6.1.1](https://github.com/yao-pkg/pkg/compare/v6.1.0...v6.1.1) (2024-11-13)
 
 ### Bug Fixes
