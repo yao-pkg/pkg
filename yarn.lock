@@ -752,10 +752,10 @@
   resolved "https://registry.yarnpkg.com/@ungap/structured-clone/-/structured-clone-1.2.0.tgz#756641adb587851b5ccb3e095daf27ae581c8406"
   integrity sha512-zuVdFrMJiuCDQUMCzQaD6KL28MjnqqN8XnAqiEq9PNm/hCPTSGfrXCOfwj1ow4LFb/tNymJPwsNbVePc1xFqrQ==
 
-"@yao-pkg/pkg-fetch@3.5.18":
-  version "3.5.18"
-  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.5.18.tgz#a76510026b4f53485bbc13f4f31b58eb06ccecd3"
-  integrity sha512-tdUT7zS2lyXeJwkA8lDI4aVxHwauAc5lKj6Xui3/BtDe6vDsQ8KP+f66u07AI28DuTzKxjRJKNNXVdyGv2Ndsg==
+"@yao-pkg/pkg-fetch@3.5.19":
+  version "3.5.19"
+  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.5.19.tgz#f9df95af058c2851890d000abbd399f6b066e60e"
+  integrity sha512-EEURrS1Q5sSSAwaQ4zD0wZsquDiG8CroY3SCi7jYBoM0NG3eRA239mW6YMUYPNWUK4zCMhuK3bzFT5aIZP/rDg==
   dependencies:
     https-proxy-agent "^5.0.0"
     node-fetch "^2.6.6"
