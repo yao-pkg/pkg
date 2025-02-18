@@ -1,3 +1,14 @@
+## [6.3.1](https://github.com/yao-pkg/pkg/compare/v6.3.0...v6.3.1) (2025-02-18)
+
+### Bug Fixes
+
+- correct promisification of fs.statfs in bootstrap.js ([6e150e9](https://github.com/yao-pkg/pkg/commit/6e150e95141c4ca55229087e2d6e2638e141458c))
+- upgrade tinyglobby ([#121](https://github.com/yao-pkg/pkg/issues/121)) ([d2d38f9](https://github.com/yao-pkg/pkg/commit/d2d38f92449a9698226df3fb498d2367921827de))
+
+### Chores
+
+- update GitHub Actions to use checkout@v4 and setup-node@v4 ([e1f8f41](https://github.com/yao-pkg/pkg/commit/e1f8f41913bc80c627709c0d68c8d268c5032f13))
+
 ## [6.3.0](https://github.com/yao-pkg/pkg/compare/v6.2.0...v6.3.0) (2025-01-30)
 
 ### Features
