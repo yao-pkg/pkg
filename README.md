@@ -408,6 +408,12 @@ PKG_NODE_PATH=/path/to/node pkg app.js
 
 ## Troubleshooting
 
+### Error: Error [ERR_REQUIRE_ESM]: require() of ES Module
+
+This error is tracked by issue [#16](https://github.com/yao-pkg/pkg/issues/16#issuecomment-1945486658). Follow the link in oder to find a workaround.
+
+In most cases adding `--options experimental-require-module` to `pkg` command line will solve the issue.
+
 ### Error: Cannot find module XXX (when using `child_process`)
 
 When using `child_process` methods to run a new process pkg by default will invoke it using NodeJS runtime that is built into the executable. This means that if you are trying to spawn the packaged app itself you will get above error. In order to avoid this you must set `PKG_EXECPATH` env set to `""`:

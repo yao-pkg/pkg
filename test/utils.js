@@ -150,6 +150,7 @@ module.exports.pkg = function () {
 };
 
 const es5path = path.resolve(__dirname, '../lib-es5/bin.js');
+const tsPath = path.resolve(__dirname, '../lib/bin.ts');
 
 /**
  *
@@ -159,9 +160,15 @@ const es5path = path.resolve(__dirname, '../lib-es5/bin.js');
  */
 module.exports.pkg.sync = function (args, opts) {
   args = args.slice();
-  const es5 = existsSync(es5path);
-  args.unshift(es5path);
-  assert(es5, 'Run `yarn build` first!');
+
+  if (process.env.DEV === 'true') {
+    args.unshift(tsPath);
+    args.unshift('-r', 'esbuild-register');
+  } else {
+    const es5 = existsSync(es5path);
+    args.unshift(es5path);
+    assert(es5, 'Run `yarn build` first!');
+  }
 
   if (Array.isArray(opts)) opts = { stdio: opts };
 
