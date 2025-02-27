@@ -412,7 +412,7 @@ PKG_NODE_PATH=/path/to/node pkg app.js
 
 This error is tracked by issue [#16](https://github.com/yao-pkg/pkg/issues/16#issuecomment-1945486658). Follow the link in oder to find a workaround.
 
-In most cases adding `--option experimental-require-module` to `pkg` command line will solve the issue.
+In most cases adding `--options experimental-require-module` to `pkg` command line will solve the issue.
 
 ### Error: Cannot find module XXX (when using `child_process`)
 
