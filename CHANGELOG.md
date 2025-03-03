@@ -1,3 +1,13 @@
+## [6.3.2](https://github.com/yao-pkg/pkg/compare/v6.3.1...v6.3.2) (2025-03-03)
+
+### Bug Fixes
+
+- update resolve package to version 1.22.10 and add is-core-module dependency ([90af1c2](https://github.com/yao-pkg/pkg/commit/90af1c271a8ce71f37b5481373a387850d95863d)), closes [#138](https://github.com/yao-pkg/pkg/issues/138)
+
+### Test added
+
+- add hybrid ESM test setup with libphonenumber-js ([#139](https://github.com/yao-pkg/pkg/issues/139)) ([3bd1ccf](https://github.com/yao-pkg/pkg/commit/3bd1ccfb9ec4e42078348c6ec7f473dd6871d03d))
+
 ## [6.3.1](https://github.com/yao-pkg/pkg/compare/v6.3.0...v6.3.1) (2025-02-18)
 
 ### Bug Fixes
