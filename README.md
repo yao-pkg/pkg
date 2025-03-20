@@ -414,6 +414,9 @@ This error is tracked by issue [#16](https://github.com/yao-pkg/pkg/issues/16#is
 
 In most cases adding `--options experimental-require-module` to `pkg` command line will solve the issue.
 
+> [!NOTE]
+> This option is not needed anymore starting from NodeJS v22.12.0
+
 ### Error: Cannot find module XXX (when using `child_process`)
 
 When using `child_process` methods to run a new process pkg by default will invoke it using NodeJS runtime that is built into the executable. This means that if you are trying to spawn the packaged app itself you will get above error. In order to avoid this you must set `PKG_EXECPATH` env set to `""`:
