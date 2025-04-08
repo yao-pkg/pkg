@@ -1,3 +1,13 @@
+## [6.4.0](https://github.com/yao-pkg/pkg/compare/v6.3.2...v6.4.0) (2025-04-08)
+
+### Features
+
+- bump pkg-fetch@3.5.21 with node v18.20.8 and v22.14.0 ([1a381eb](https://github.com/yao-pkg/pkg/commit/1a381eba4255ff413dd8d13bdd609229a39258c3))
+
+### Documentation
+
+- update README.md ([0238e3c](https://github.com/yao-pkg/pkg/commit/0238e3c91d76087dda93c81081650a6192dfda50))
+
 ## [6.3.2](https://github.com/yao-pkg/pkg/compare/v6.3.1...v6.3.2) (2025-03-03)
 
 ### Bug Fixes
