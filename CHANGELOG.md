@@ -1,3 +1,9 @@
+## [6.4.1](https://github.com/yao-pkg/pkg/compare/v6.4.0...v6.4.1) (2025-04-30)
+
+### Bug Fixes
+
+- prefer `module.isBuiltin` when checking core modules ([3a57036](https://github.com/yao-pkg/pkg/commit/3a57036e4b31bd105b20d97b7646cd23d41c97d7))
+
 ## [6.4.0](https://github.com/yao-pkg/pkg/compare/v6.3.2...v6.4.0) (2025-04-08)
 
 ### Features
