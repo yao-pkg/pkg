@@ -3,7 +3,7 @@
 import assert from 'assert';
 import fs from 'fs/promises';
 import path from 'path';
-import { builtinModules } from 'module';
+import module, { builtinModules } from 'module';
 import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
 
@@ -76,10 +76,17 @@ const win32 = process.platform === 'win32';
 
 /**
  * Checks if a module is a core module
- * module.isBuiltin is available in Node.js 16.17.0 or later. Once we drop support for older
- * versions of Node.js, we can use module.isBuiltin instead of this function.
+ * module.isBuiltin is available in Node.js 16.17.0 or later. Use that if available
+ * as prefix-only modules (those starting with 'node:') can only be checked that way.
  */
 function isBuiltin(moduleName: string) {
+  if (
+    Reflect.has(module, 'isBuiltin') &&
+    typeof module.isBuiltin === 'function'
+  ) {
+    return module.isBuiltin(moduleName);
+  }
+
   const moduleNameWithoutPrefix = moduleName.startsWith('node:')
     ? moduleName.slice(5)
     : moduleName;
