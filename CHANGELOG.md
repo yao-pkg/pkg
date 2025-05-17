@@ -1,3 +1,9 @@
+## [6.5.1](https://github.com/yao-pkg/pkg/compare/v6.5.0...v6.5.1) (2025-05-17)
+
+### Bug Fixes
+
+- bump pkg-fetch to address issues related to mismatching shas ([8f38df7](https://github.com/yao-pkg/pkg/commit/8f38df739478cb50a3e82235a1f837fbf5bac884))
+
 ## [6.5.0](https://github.com/yao-pkg/pkg/compare/v6.4.1...v6.5.0) (2025-05-15)
 
 ### Features
