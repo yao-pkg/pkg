@@ -90,6 +90,14 @@ dashes, for example `node18-macos-x64` or `node14-linux-arm64`:
 
 (element) is unsupported, but you may try to compile yourself.
 
+If your target is available in the assets of the latest [pkg-fetch release](https://github.com/yao-pkg/pkg-fetch/releases),
+`pkg` downloads the pre-compiled Node.js binary from that project. Otherwise,
+or if you specify the `--build` option, it will build the binary from source
+(takes a very long time).
+Pre-compiled Node.js binaries for some unsupported architectures and
+instructions for using them are available in the [pkg-binaries](https://github.com/yao-pkg/pkg-binaries)
+project.
+
 You may omit any element (and specify just `node14` for example).
 The omitted elements will be taken from current platform or
 system-wide Node.js installation (its version and arch).
