@@ -1,3 +1,13 @@
+## [6.6.0](https://github.com/yao-pkg/pkg/compare/v6.5.1...v6.6.0) (2025-07-19)
+
+### Features
+
+- pkg-fetch@3.5.24 with Node.js versions 20.19.4 and 22.17.1 ([6a04030](https://github.com/yao-pkg/pkg/commit/6a0403084f4713ba4eede5e2cc7c79fdc232cc3e))
+
+### Documentation
+
+- add guidance on unsupported architectures to README.md ([#160](https://github.com/yao-pkg/pkg/issues/160)) ([c22e442](https://github.com/yao-pkg/pkg/commit/c22e4424def6b8f11f759dcdf47d5a7037dc4d26))
+
 ## [6.5.1](https://github.com/yao-pkg/pkg/compare/v6.5.0...v6.5.1) (2025-05-17)
 
 ### Bug Fixes
