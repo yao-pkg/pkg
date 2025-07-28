@@ -711,7 +711,7 @@ function payloadFileSync(pointer) {
   });
   function deflateSync(snapshotFilename) {
     if (!tmpFolder) {
-      tmpFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-'));
+      tmpFolder = fs.mkdtempSync(path.join(homedir(), '.cache/pkg', 'tmp-'));
     }
     const content = fs.readFileSync(snapshotFilename, { encoding: 'binary' });
     // content is already unzipped !
