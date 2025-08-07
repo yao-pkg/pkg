@@ -201,6 +201,9 @@ like tests, documentation or build files that could have been included by a depe
   }
 ```
 
+Note that both `**` and `*` would not match dotfiles e.g. `.git`,
+the dotfile names must be in the glob explicitly to be matched.
+
 To see if you have unwanted files in your executable, read the [Exploring virtual file system embedded in debug mode](#exploring-virtual-file-system-embedded-in-debug-mode) section.
 
 ### Options
