@@ -520,3 +520,88 @@ or
     C:\> output.exe
 
 Note: make sure not to use --debug flag in production.
+
+### Injecting Windows Executable Metadata After Packaging
+Executables created with `pkg` are based on a Node.js binary and, by default, 
+inherit its embedded metadata – such as version number, product name, company 
+name, icon, and description. This can be misleading or unpolished in 
+distributed applications.
+
+There are two ways to customize the metadata of the resulting `.exe`:
+1. **Use a custom Node.js binary** with your own metadata already embedded.  
+   See: [Use Custom Node.js Binary](#use-custom-nodejs-binary)
+
+2. **Post-process the generated executable** using 
+   [`resedit`](https://www.npmjs.com/package/resedit), a Node.js-compatible 
+   tool for modifying Windows executable resources. This allows injecting 
+   correct version info, icons, copyright,
+   and more.
+
+This section focuses on the second approach: post-processing the packaged
+binary using  [`resedit`](https://www.npmjs.com/package/resedit).
+
+> ⚠️ Other tools may corrupt the executable, resulting in runtime errors such as  
+> `Pkg: Error reading from file.` – 
+> [`resedit`](https://www.npmjs.com/package/resedit) has proven to work reliably  
+> with `pkg`-generated binaries.
+
+Below is a working example for post-processing an `.exe` file using the Node.js API of [`resedit`](https://www.npmjs.com/package/resedit):
+
+```ts
+import * as ResEdit from "resedit";
+import * as fs from "fs";
+import * as path from "path";
+
+// Set your inputs:
+const exePath = "dist/my-tool.exe";  // Path to the generated executable
+const outputPath = exePath;          // Overwrite or use a different path
+const version = "1.2.3";             // Your application version
+
+const lang = 1033;       // en-US
+const codepage = 1200;   // Unicode
+
+const exeData = fs.readFileSync(exePath);
+const exe = ResEdit.NtExecutable.from(exeData);
+const res = ResEdit.NtExecutableResource.from(exe);
+
+const viList = ResEdit.Resource.VersionInfo.fromEntries(res.entries);
+const vi = viList[0];
+
+const [major, minor, patch] = version.split(".");
+vi.setFileVersion(Number(major), Number(minor), Number(patch), 0, lang);
+vi.setProductVersion(Number(major), Number(minor), Number(patch), 0, lang);
+
+vi.setStringValues({ lang, codepage }, {
+  FileDescription: "ACME CLI Tool",
+  ProductName: "ACME Application",
+  CompanyName: "ACME Corporation",
+  ProductVersion: version,
+  FileVersion: version,
+  OriginalFilename: path.basename(exePath),
+  LegalCopyright: `© ${new Date().getFullYear()} ACME Corporation`
+});
+
+vi.outputToResourceEntries(res.entries);
+res.outputResource(exe);
+const newBinary = exe.generate();
+
+fs.writeFileSync(outputPath, Buffer.from(newBinary));
+```
+
+As an alternative to the Node.js API,
+[`resedit`](https://www.npmjs.com/package/resedit) also supports command–line
+usage. This can be convenient for simple use cases in build scripts:
+```powershell
+npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe `
+  --icon 1,dist/favicon.ico `
+  --company-name "ACME Corporation" `
+  --file-description "ACME CLI Tool" `
+  --product-name "ACME Application" `
+  --file-version 1.2.3.4
+```
+This command injects an icon and metadata into the executable
+`dist/bin/app_with_metadata.exe`, based on the original built file
+`dist/bin/app.exe`.
+
+For more examples and detailed API documentation, see the
+[`resedit`](https://www.npmjs.com/package/resedit) package on npm.
