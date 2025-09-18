@@ -590,18 +590,34 @@ fs.writeFileSync(outputPath, Buffer.from(newBinary));
 
 As an alternative to the Node.js API,
 [`resedit`](https://www.npmjs.com/package/resedit) also supports command–line
-usage. This can be convenient for simple use cases in build scripts:
-```powershell
-npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe `
-  --icon 1,dist/favicon.ico `
-  --company-name "ACME Corporation" `
-  --file-description "ACME CLI Tool" `
-  --product-name "ACME Application" `
-  --file-version 1.2.3.4
-```
-This command injects an icon and metadata into the executable
+usage. This can be convenient for simple use cases in build scripts.
+
+The following command examples inject an icon and metadata into the executable
 `dist/bin/app_with_metadata.exe`, based on the original built file
 `dist/bin/app.exe`.
 
-For more examples and detailed API documentation, see the
-[`resedit`](https://www.npmjs.com/package/resedit) package on npm.
+- **Example (PowerShell on Windows)**
+  ```powershell
+  npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe `
+    --icon 1,dist/favicon.ico `
+    --company-name "ACME Corporation" `
+    --file-description "ACME CLI Tool" `
+    --product-name "ACME Application" `
+    --file-version 1.2.3.4
+  ```
+
+- **Example (bash on Linux/macOS)**
+  ```bash
+  npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe \
+    --icon 1,dist/favicon.ico \
+    --company-name "ACME Corporation" \
+    --file-description "ACME CLI Tool" \
+    --product-name "ACME Application" \
+    --file-version 1.2.3.4
+  ```
+  > 💡 This is especially useful when cross-compiling Windows executables from
+  > Linux or macOS using `pkg`.
+
+> 📚 **More information:** See the
+> [`resedit`](https://www.npmjs.com/package/resedit) package on npm for
+> additional examples and full API documentation.
