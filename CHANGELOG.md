@@ -1,3 +1,14 @@
+## [6.7.0](https://github.com/yao-pkg/pkg/compare/v6.6.0...v6.7.0) (2025-09-26)
+
+### Features
+
+- bump fetch v3.5.25 with node 20.19.5, 22.19.0, and 24.8.0, special thanks to [@faulpeltz](https://github.com/faulpeltz) ([7ce1085](https://github.com/yao-pkg/pkg/commit/7ce1085ef0601c51c175579fe16609299de8225a))
+
+### Documentation
+
+- behavior of `ignore` on dotfiles ([#170](https://github.com/yao-pkg/pkg/issues/170)) ([de1e819](https://github.com/yao-pkg/pkg/commit/de1e819464aae8cfd19d6415012ffc31d0889834))
+- instructions for injecting Windows exe metadata ([#174](https://github.com/yao-pkg/pkg/issues/174)) ([14e7df0](https://github.com/yao-pkg/pkg/commit/14e7df0c0fe0ad6fa28c8cba9da2b51d58b72bf6))
+
 ## [6.6.0](https://github.com/yao-pkg/pkg/compare/v6.5.1...v6.6.0) (2025-07-19)
 
 ### Features
