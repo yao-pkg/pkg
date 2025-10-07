@@ -1,6 +1,6 @@
 {
   "name": "@yao-pkg/pkg",
-  "version": "6.7.0",
+  "version": "6.8.0",
   "description": "Package your Node.js project into an executable",
   "main": "lib-es5/index.js",
   "license": "MIT",
@@ -82,56 +82,6 @@
     "test:18": "node test/test.js node18 no-npm",
     "test:host": "node test/test.js host only-npm",
     "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
-  },
-  "release-it": {
-    "github": {
-      "release": true
-    },
-    "git": {
-      "tagName": "v${version}"
-    },
-    "hooks": {
-      "before:init": [
-        "yarn lint"
-      ]
-    },
-    "npm": {
-      "publish": true
-    },
-    "plugins": {
-      "@release-it/conventional-changelog": {
-        "infile": "CHANGELOG.md",
-        "preset": {
-          "name": "conventionalcommits",
-          "types": [
-            {
-              "type": "feat",
-              "section": "Features"
-            },
-            {
-              "type": "fix",
-              "section": "Bug Fixes"
-            },
-            {
-              "type": "test",
-              "section": "Test added"
-            },
-            {
-              "type": "refactor",
-              "section": "Code refactoring"
-            },
-            {
-              "type": "chore",
-              "section": "Chores"
-            },
-            {
-              "type": "docs",
-              "section": "Documentation"
-            }
-          ]
-        }
-      }
-    }
   },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"
