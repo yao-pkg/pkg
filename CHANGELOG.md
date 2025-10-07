@@ -1,3 +1,13 @@
+## [6.8.0](https://github.com/yao-pkg/pkg/compare/v6.7.0...v6.8.0) (2025-10-07)
+
+### Features
+
+- update @yao-pkg/pkg-fetch to version 3.5.28 and tar-fs to version 3.1.1 ([b994c6e](https://github.com/yao-pkg/pkg/commit/b994c6e3d4230f099d89a91e06a90a0c4cc3af9d))
+
+### Bug Fixes
+
+- audit ([47f662d](https://github.com/yao-pkg/pkg/commit/47f662d366ff4cadb329cd77afef82245f3a1460))
+
 ## [6.7.0](https://github.com/yao-pkg/pkg/compare/v6.6.0...v6.7.0) (2025-09-26)
 
 ### Features
