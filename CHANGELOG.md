@@ -1,3 +1,9 @@
+## [6.9.0](https://github.com/yao-pkg/pkg/compare/v6.8.0...v6.9.0) (2025-10-15)
+
+### Features
+
+- bump fetch with node 22.20.0 and 24.10.0 support ([73fcf64](https://github.com/yao-pkg/pkg/commit/73fcf6420ab42716986d7aed81c54a37ef167125))
+
 ## [6.7.0](https://github.com/yao-pkg/pkg/compare/v6.6.0...v6.7.0) (2025-09-26)
 
 ### Features
