@@ -1,6 +1,6 @@
 import { exec as cExec } from 'child_process';
 import util from 'util';
-import { basename, dirname, join, resolve } from 'path';
+import path, { basename, dirname, join, resolve } from 'path';
 import { copyFile, writeFile, rm, mkdir, stat, readFile } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
@@ -308,8 +308,7 @@ async function bake(
   );
 
   if (!(await exists(dirname(outPath)))) {
-    log.error(`Output directory "${dirname(outPath)}" does not exist`);
-    return;
+    await mkdir(path.dirname(outPath), { recursive: true });
   }
   // check if executable_path exists
   if (await exists(outPath)) {
