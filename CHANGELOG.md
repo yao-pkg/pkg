@@ -1,3 +1,10 @@
+## [6.10.0](https://github.com/yao-pkg/pkg/compare/v6.9.0...v6.10.0) (2025-10-29)
+
+### Features
+
+- automatically create output directory with `--sea` option ([#182](https://github.com/yao-pkg/pkg/issues/182)) ([68b19ec](https://github.com/yao-pkg/pkg/commit/68b19ec9d9515f9a30917b2151e3abe0eb36e475))
+- bump fetch 3.5.30 with node 24.11.0 and 22.21.1 ([1853549](https://github.com/yao-pkg/pkg/commit/1853549741188dcc4ed0bc46b034cff92d94d44f))
+
 ## [6.9.0](https://github.com/yao-pkg/pkg/compare/v6.8.0...v6.9.0) (2025-10-15)
 
 ### Features
