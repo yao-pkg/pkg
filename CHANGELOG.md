@@ -1,3 +1,37 @@
+## [6.10.0](https://github.com/yao-pkg/pkg/compare/v6.9.0...v6.10.0) (2025-10-29)
+
+### Features
+
+- automatically create output directory with `--sea` option ([#182](https://github.com/yao-pkg/pkg/issues/182)) ([68b19ec](https://github.com/yao-pkg/pkg/commit/68b19ec9d9515f9a30917b2151e3abe0eb36e475))
+- bump fetch 3.5.30 with node 24.11.0 and 22.21.1 ([1853549](https://github.com/yao-pkg/pkg/commit/1853549741188dcc4ed0bc46b034cff92d94d44f))
+
+## [6.9.0](https://github.com/yao-pkg/pkg/compare/v6.8.0...v6.9.0) (2025-10-15)
+
+### Features
+
+- bump fetch with node 22.20.0 and 24.10.0 support ([73fcf64](https://github.com/yao-pkg/pkg/commit/73fcf6420ab42716986d7aed81c54a37ef167125))
+
+## [6.7.0](https://github.com/yao-pkg/pkg/compare/v6.6.0...v6.7.0) (2025-09-26)
+
+### Features
+
+- bump fetch v3.5.25 with node 20.19.5, 22.19.0, and 24.8.0, special thanks to [@faulpeltz](https://github.com/faulpeltz) ([7ce1085](https://github.com/yao-pkg/pkg/commit/7ce1085ef0601c51c175579fe16609299de8225a))
+
+### Documentation
+
+- behavior of `ignore` on dotfiles ([#170](https://github.com/yao-pkg/pkg/issues/170)) ([de1e819](https://github.com/yao-pkg/pkg/commit/de1e819464aae8cfd19d6415012ffc31d0889834))
+- instructions for injecting Windows exe metadata ([#174](https://github.com/yao-pkg/pkg/issues/174)) ([14e7df0](https://github.com/yao-pkg/pkg/commit/14e7df0c0fe0ad6fa28c8cba9da2b51d58b72bf6))
+
+## [6.6.0](https://github.com/yao-pkg/pkg/compare/v6.5.1...v6.6.0) (2025-07-19)
+
+### Features
+
+- pkg-fetch@3.5.24 with Node.js versions 20.19.4 and 22.17.1 ([6a04030](https://github.com/yao-pkg/pkg/commit/6a0403084f4713ba4eede5e2cc7c79fdc232cc3e))
+
+### Documentation
+
+- add guidance on unsupported architectures to README.md ([#160](https://github.com/yao-pkg/pkg/issues/160)) ([c22e442](https://github.com/yao-pkg/pkg/commit/c22e4424def6b8f11f759dcdf47d5a7037dc4d26))
+
 ## [6.5.1](https://github.com/yao-pkg/pkg/compare/v6.5.0...v6.5.1) (2025-05-17)
 
 ### Bug Fixes

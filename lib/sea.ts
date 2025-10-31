@@ -308,8 +308,7 @@ async function bake(
   );
 
   if (!(await exists(dirname(outPath)))) {
-    log.error(`Output directory "${dirname(outPath)}" does not exist`);
-    return;
+    await mkdir(dirname(outPath), { recursive: true });
   }
   // check if executable_path exists
   if (await exists(outPath)) {

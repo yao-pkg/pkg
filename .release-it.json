@@ -1,0 +1,50 @@
+{
+  "$schema": "https://unpkg.com/release-it@19/schema/release-it.json",
+  "github": {
+    "release": true
+  },
+  "git": {
+    "tagName": "v${version}",
+    "requireBranch": "main"
+  },
+  "hooks": {
+    "before:init": ["yarn lint"]
+  },
+  "npm": {
+    "publish": true
+  },
+  "plugins": {
+    "@release-it/conventional-changelog": {
+      "infile": "CHANGELOG.md",
+      "preset": {
+        "name": "conventionalcommits",
+        "types": [
+          {
+            "type": "feat",
+            "section": "Features"
+          },
+          {
+            "type": "fix",
+            "section": "Bug Fixes"
+          },
+          {
+            "type": "test",
+            "section": "Test added"
+          },
+          {
+            "type": "refactor",
+            "section": "Code refactoring"
+          },
+          {
+            "type": "chore",
+            "section": "Chores"
+          },
+          {
+            "type": "docs",
+            "section": "Documentation"
+          }
+        ]
+      }
+    }
+  }
+}
