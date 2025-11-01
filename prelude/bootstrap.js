@@ -185,9 +185,7 @@ function copyFolderRecursiveSync(source, target) {
   const targetFolder = path.join(target, path.basename(source));
 
   // Check if target folder needs to be created or integrated
-  if (!fs.existsSync(targetFolder)) {
-    fs.mkdirSync(targetFolder);
-  }
+  fs.mkdirSync(targetFolder, { recursive: true });
 
   // Copy
   if (fs.lstatSync(source).isDirectory()) {
@@ -246,13 +244,6 @@ function copyFolderRecursiveSync(source, target) {
         fs.copyFileSync(curSource, curTarget);
       }
     }
-  }
-}
-
-function createDirRecursively(dir) {
-  if (!fs.existsSync(dir)) {
-    createDirRecursively(path.join(dir, '..'));
-    fs.mkdirSync(dir);
   }
 }
 
@@ -2218,7 +2209,7 @@ function payloadFileSync(pointer) {
       // Example: /home/john/.cache/pkg/<hash>
       const tmpFolder = path.join(homedir(), '.cache/pkg', hash);
 
-      createDirRecursively(tmpFolder);
+      fs.mkdirSync(tmpFolder, { recursive: true });
 
       // Example: moduleFolder = /snapshot/appname/node_modules/sharp/build/Release
       const parts = moduleFolder.split(path.sep);
