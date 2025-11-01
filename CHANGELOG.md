@@ -1,3 +1,9 @@
+## [6.10.1](https://github.com/yao-pkg/pkg/compare/v6.10.0...v6.10.1) (2025-11-01)
+
+### Bug Fixes
+
+- avoid EEXIST on race condition in createDirRecursively and copyFolderRecursiveSync ([#154](https://github.com/yao-pkg/pkg/issues/154)) ([36ea8b1](https://github.com/yao-pkg/pkg/commit/36ea8b14f7ff847919d71bcc0fadbf60df81b3f2))
+
 ## [6.10.0](https://github.com/yao-pkg/pkg/compare/v6.9.0...v6.10.0) (2025-10-29)
 
 ### Features
