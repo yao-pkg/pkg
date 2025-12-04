@@ -2,6 +2,8 @@ import { sync, SyncOpts } from 'resolve';
 import fs from 'fs';
 import path from 'path';
 import { toNormalizedRealPath } from './common';
+import { resolveModule } from './resolver';
+import { log } from './log';
 
 import type { PackageJson } from './types';
 
@@ -33,11 +35,69 @@ interface FollowOptions extends Pick<SyncOpts, 'basedir' | 'extensions'> {
 
 export function follow(x: string, opts: FollowOptions) {
   // TODO async version
-  return new Promise<string>((resolve) => {
-    resolve(
-      sync(x, {
-        basedir: opts.basedir,
-        extensions: opts.extensions,
+  return new Promise<string>((resolve, reject) => {
+    // Try ESM-aware resolution first for non-relative specifiers
+    if (!x.startsWith('.') && !x.startsWith('/') && !path.isAbsolute(x)) {
+      try {
+        const result = resolveModule(x, {
+          basedir: opts.basedir || process.cwd(),
+          extensions: Array.isArray(opts.extensions) ? opts.extensions : opts.extensions ? [opts.extensions] : ['.js', '.json', '.node'],
+        });
+        
+        log.debug(`ESM resolver found: ${x} -> ${result.resolved}`);
+        
+        // If there's a catchReadFile callback, we need to notify about package.json
+        // so it gets included in the bundle (required for runtime resolution)
+        if (opts.catchReadFile) {
+          // Find the package.json for this resolved module
+          let currentDir = path.dirname(result.resolved);
+          let packageDir = '';
+          while (currentDir !== path.dirname(currentDir)) {
+            const pkgPath = path.join(currentDir, 'package.json');
+            if (fs.existsSync(pkgPath)) {
+              // Check if this package.json is in node_modules (not the root package)
+              if (currentDir.includes('node_modules')) {
+                opts.catchReadFile(pkgPath);
+                packageDir = currentDir;
+                
+                // Also call catchPackageFilter if provided
+                if (opts.catchPackageFilter) {
+                  let pkgContent = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                  
+                  // If package doesn't have a "main" field but we resolved via exports,
+                  // add a synthetic "main" field so runtime resolution works
+                  if (!pkgContent.main && result.isESM) {
+                    const relativePath = path.relative(currentDir, result.resolved);
+                    pkgContent.main = `./${relativePath.replace(/\\/g, '/')}`;
+                  }
+                  
+                  opts.catchPackageFilter(pkgContent, currentDir, currentDir);
+                }
+                break;
+              }
+            }
+            currentDir = path.dirname(currentDir);
+          }
+        }
+        
+        resolve(result.resolved);
+        return;
+      } catch (error) {
+        // Fall through to standard resolution
+        log.debug(
+          `ESM resolver failed for ${x}, trying standard resolution: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    // Use standard CommonJS resolution
+    try {
+      resolve(
+        sync(x, {
+          basedir: opts.basedir,
+          extensions: opts.extensions,
         isFile: (file) => {
           if (
             opts.ignoreFile &&
@@ -106,11 +166,14 @@ export function follow(x: string, opts: FollowOptions) {
 
         /** function to synchronously resolve a potential symlink to its real path */
         // realpathSync?: (file: string) => string;
-        realpathSync: (file) => {
+          realpathSync: (file) => {
           const file2 = toNormalizedRealPath(file);
           return file2;
         },
-      }),
-    );
+        }),
+      );
+    } catch (error) {
+      reject(error);
+    }
   });
 }

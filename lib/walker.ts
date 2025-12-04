@@ -882,6 +882,20 @@ class Walker {
       }
     }
 
+    // Add all discovered package.json files, not just the one determined by the double-resolution logic
+    // This is necessary because ESM resolution may bypass the standard packageFilter mechanism
+    for (const newPackage of newPackages) {
+      if (newPackage.marker) {
+        await this.appendBlobOrContent({
+          file: newPackage.packageJson,
+          marker: newPackage.marker,
+          store: STORE_CONTENT,
+          reason: record.file,
+        });
+      }
+    }
+    
+    // Keep the original logic for determining the marker for the resolved file
     if (newPackageForNewRecords) {
       if (strictVerify) {
         assert(
@@ -889,12 +903,6 @@ class Walker {
             normalizePath(newPackageForNewRecords.packageJson),
         );
       }
-      await this.appendBlobOrContent({
-        file: newPackageForNewRecords.packageJson,
-        marker: newPackageForNewRecords.marker,
-        store: STORE_CONTENT,
-        reason: record.file,
-      });
     }
 
     await this.appendBlobOrContent({
@@ -970,13 +978,29 @@ class Walker {
       }
     }
 
-    if (store === STORE_BLOB || this.hasPatch(record)) {
+    if (store === STORE_BLOB || store === STORE_CONTENT || this.hasPatch(record)) {
       if (!record.body) {
         await stepRead(record);
         this.stepPatch(record);
 
         if (store === STORE_BLOB) {
           stepStrip(record);
+        }
+      }
+
+      // Patch package.json files to add synthetic main field if needed
+      if (store === STORE_CONTENT && isPackageJson(record.file) && record.body) {
+        try {
+          const pkgContent = JSON.parse(record.body.toString('utf8'));
+          
+          // If package has exports but no main, and marker has a config with main
+          // (added by catchPackageFilter in follow.ts), use that
+          if (pkgContent.exports && !pkgContent.main && marker.config?.main) {
+            pkgContent.main = marker.config.main;
+            record.body = Buffer.from(JSON.stringify(pkgContent, null, 2), 'utf8');
+          }
+        } catch (error) {
+          // Ignore JSON parsing errors
         }
       }
 
