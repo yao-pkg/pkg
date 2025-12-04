@@ -1,4 +1,4 @@
-import { sync as resolveSync, SyncOpts } from 'resolve';
+import { sync as resolveSync } from 'resolve';
 import { exports as resolveExports } from 'resolve.exports';
 import fs from 'fs';
 import path from 'path';
@@ -45,7 +45,8 @@ function resolveWithExports(
       fs.readFileSync(packageJsonPath, 'utf8'),
     );
 
-    // Check if package has exports field (cast to any for flexibility)
+    // Check if package has exports field
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pkgAny = pkg as any;
     if (!pkgAny.exports) {
       return null;
@@ -70,9 +71,7 @@ function resolveWithExports(
 
     return null;
   } catch (error) {
-    log.debug(
-      `Failed to resolve with exports field: ${packageName}${subpath}`,
-    );
+    log.debug(`Failed to resolve with exports field: ${packageName}${subpath}`);
     return null;
   }
 }
@@ -83,10 +82,7 @@ function resolveWithExports(
  * @param basedir - Base directory for resolution
  * @returns Resolved path or null
  */
-function tryResolveESM(
-  specifier: string,
-  basedir: string,
-): string | null {
+function tryResolveESM(specifier: string, basedir: string): string | null {
   try {
     // Parse package name and subpath
     let packageName: string;
@@ -111,7 +107,7 @@ function tryResolveESM(
 
     // Find package root by walking up from basedir
     let currentDir = basedir;
-    const {root} = path.parse(currentDir);
+    const { root } = path.parse(currentDir);
 
     while (currentDir !== root) {
       const packageRoot = path.join(currentDir, 'node_modules', packageName);
@@ -135,7 +131,7 @@ function tryResolveESM(
 /**
  * Resolve a module specifier with ESM support
  * Falls back to standard CommonJS resolution if ESM resolution fails
- * 
+ *
  * @param specifier - Module specifier to resolve
  * @param options - Resolution options
  * @returns Resolved file path and ESM flag

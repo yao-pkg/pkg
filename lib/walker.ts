@@ -894,7 +894,7 @@ class Walker {
         });
       }
     }
-    
+
     // Keep the original logic for determining the marker for the resolved file
     if (newPackageForNewRecords) {
       if (strictVerify) {
@@ -978,7 +978,11 @@ class Walker {
       }
     }
 
-    if (store === STORE_BLOB || store === STORE_CONTENT || this.hasPatch(record)) {
+    if (
+      store === STORE_BLOB ||
+      store === STORE_CONTENT ||
+      this.hasPatch(record)
+    ) {
       if (!record.body) {
         await stepRead(record);
         this.stepPatch(record);
@@ -989,15 +993,22 @@ class Walker {
       }
 
       // Patch package.json files to add synthetic main field if needed
-      if (store === STORE_CONTENT && isPackageJson(record.file) && record.body) {
+      if (
+        store === STORE_CONTENT &&
+        isPackageJson(record.file) &&
+        record.body
+      ) {
         try {
           const pkgContent = JSON.parse(record.body.toString('utf8'));
-          
+
           // If package has exports but no main, and marker has a config with main
           // (added by catchPackageFilter in follow.ts), use that
           if (pkgContent.exports && !pkgContent.main && marker.config?.main) {
             pkgContent.main = marker.config.main;
-            record.body = Buffer.from(JSON.stringify(pkgContent, null, 2), 'utf8');
+            record.body = Buffer.from(
+              JSON.stringify(pkgContent, null, 2),
+              'utf8',
+            );
           }
         } catch (error) {
           // Ignore JSON parsing errors
@@ -1013,9 +1024,7 @@ class Walker {
           );
           if (result.isTransformed) {
             record.body = Buffer.from(result.code, 'utf8');
-            log.debug(
-              `Transformed ESM to CJS: ${record.file}`,
-            );
+            log.debug(`Transformed ESM to CJS: ${record.file}`);
           }
         }
       }

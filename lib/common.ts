@@ -272,7 +272,7 @@ export function toNormalizedRealPath(requestPath: string) {
  */
 function findNearestPackageJson(filePath: string): string | null {
   let dir = path.dirname(filePath);
-  const root = path.parse(dir).root;
+  const { root } = path.parse(dir);
 
   while (dir !== root) {
     const packageJsonPath = path.join(dir, 'package.json');
@@ -303,7 +303,7 @@ export function isESMPackage(packageJsonPath: string): boolean {
 /**
  * Determine if a file should be treated as ESM
  * Based on file extension and nearest package.json "type" field
- * 
+ *
  * @param filePath - The file path to check
  * @returns true if file should be treated as ESM
  */
