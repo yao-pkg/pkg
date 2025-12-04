@@ -52,8 +52,9 @@ function resolveWithExports(
     }
 
     // Use resolve.exports to handle the exports field
+    // For pkg's context, we're bundling CJS code, so prioritize 'require' condition
     const resolved = resolveExports(pkgAny, subpath, {
-      conditions: ['node', 'import', 'require', 'default'],
+      conditions: ['node', 'require', 'default'],
       unsafe: true, // Allow non-standard patterns
     });
 

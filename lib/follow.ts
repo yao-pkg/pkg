@@ -62,7 +62,7 @@ export function follow(x: string, opts: FollowOptions) {
                 
                 // Also call catchPackageFilter if provided
                 if (opts.catchPackageFilter) {
-                  let pkgContent = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                  const pkgContent = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
                   
                   // If package doesn't have a "main" field but we resolved via exports,
                   // add a synthetic "main" field so runtime resolution works
