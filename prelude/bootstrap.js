@@ -2206,8 +2206,11 @@ function payloadFileSync(pointer) {
       // the hash is needed to be sure we reload the module in case it changes
       const hash = createHash('sha256').update(moduleContent).digest('hex');
 
-      // Example: /home/john/.cache/pkg/<hash>
-      const tmpFolder = path.join(homedir(), '.cache/pkg', hash);
+      // Allow users to override the cache directory via PKG_NATIVE_CACHE_PATH environment variable
+      // Example: /home/john/.cache/pkg/<hash> or custom path like /opt/myapp/cache/pkg/<hash>
+      const cacheBase =
+        process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache');
+      const tmpFolder = path.join(cacheBase, 'pkg', hash);
 
       fs.mkdirSync(tmpFolder, { recursive: true });
 

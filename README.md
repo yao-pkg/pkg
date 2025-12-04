@@ -302,21 +302,25 @@ The startup time of the application might be reduced slightly.
 
 All pkg-cache [environment vars](https://github.com/yao-pkg/pkg-fetch#environment), plus:
 
-| Var              | Description                                                                                                                                                          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CHDIR`          | Override process `chdir`                                                                                                                                             |
-| `PKG_STRICT_VER` | Turn on some assertion in the walker code to assert that each file content/state that we appending to the virtual file system applies to a real file, not a symlink. |
-| `PKG_EXECPATH`   | Used internally by `pkg`, do not override                                                                                                                            |
+| Var                     | Description                                                                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHDIR`                 | Override process `chdir`                                                                                                                                             |
+| `PKG_NATIVE_CACHE_PATH` | Override the base directory for caching extracted native addons at runtime (default: `~/.cache`)                                                                     |
+| `PKG_STRICT_VER`        | Turn on some assertion in the walker code to assert that each file content/state that we appending to the virtual file system applies to a real file, not a symlink. |
+| `PKG_EXECPATH`          | Used internally by `pkg`, do not override                                                                                                                            |
 
 Examples
 
 ```bash
-# 1 - Using export
+# 1 - Set cache path at build time (for pkg-fetch to cache Node.js binaries)
 export PKG_CACHE_PATH=/my/cache
 pkg app.js
 
-# 2 - Passing it before the script
-PKG_CACHE_PATH=/my/cache pkg app.js
+# 2 - Set cache path at runtime (for packaged app to cache extracted native addons)
+PKG_NATIVE_CACHE_PATH=/opt/myapp/cache ./myapp
+
+# 3 - Both can be used together
+PKG_CACHE_PATH=/build/cache PKG_NATIVE_CACHE_PATH=/runtime/cache pkg app.js
 ```
 
 ## Usage of packaged app
@@ -384,8 +388,17 @@ add the `.node` file directly in the `assets` field in `package.json`.
 The way Node.js requires native addon is different from a classic JS
 file. It needs to have a file on disk to load it, but `pkg` only generates
 one file. To circumvent this, `pkg` will extract native addon files to
-`$HOME/.cache/pkg/`. These files will stay on the disk after the process has
-exited and will be used again on the next process launch.
+`$HOME/.cache/pkg/` by default. These files will stay on the disk after the
+process has exited and will be used again on the next process launch.
+
+You can customize the cache directory by setting the `PKG_NATIVE_CACHE_PATH`
+environment variable. This is useful in enterprise environments where specific
+directories may be restricted or monitored:
+
+```bash
+# Set custom cache path for native addons
+PKG_NATIVE_CACHE_PATH=/opt/myapp/cache ./myapp
+```
 
 When a package, that contains a native module, is being installed,
 the native module is compiled against current system-wide Node.js
