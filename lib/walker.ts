@@ -20,12 +20,14 @@ import {
   isPackageJson,
   normalizePath,
   toNormalizedRealPath,
+  isESMFile,
 } from './common';
 
 import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
+import { transformESMtoCJS } from './esm-transformer';
 import {
   ConfigDictionary,
   FileRecord,
@@ -975,6 +977,22 @@ class Walker {
 
         if (store === STORE_BLOB) {
           stepStrip(record);
+        }
+      }
+
+      // Transform ESM to CJS before bytecode compilation
+      if (store === STORE_BLOB && record.body && isDotJS(record.file)) {
+        if (isESMFile(record.file)) {
+          const result = transformESMtoCJS(
+            record.body.toString('utf8'),
+            record.file,
+          );
+          if (result.isTransformed) {
+            record.body = Buffer.from(result.code, 'utf8');
+            log.debug(
+              `Transformed ESM to CJS: ${record.file}`,
+            );
+          }
         }
       }
 

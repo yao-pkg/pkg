@@ -264,3 +264,67 @@ export function toNormalizedRealPath(requestPath: string) {
 
   return file;
 }
+
+/**
+ * Find the nearest package.json file by walking up the directory tree
+ * @param filePath - Starting file path
+ * @returns Path to package.json or null if not found
+ */
+function findNearestPackageJson(filePath: string): string | null {
+  let dir = path.dirname(filePath);
+  const root = path.parse(dir).root;
+
+  while (dir !== root) {
+    const packageJsonPath = path.join(dir, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      return packageJsonPath;
+    }
+    dir = path.dirname(dir);
+  }
+
+  return null;
+}
+
+/**
+ * Check if a package.json indicates an ESM package
+ * @param packageJsonPath - Path to package.json
+ * @returns true if "type": "module" is set
+ */
+export function isESMPackage(packageJsonPath: string): boolean {
+  try {
+    const content = fs.readFileSync(packageJsonPath, 'utf8');
+    const pkg = JSON.parse(content);
+    return pkg.type === 'module';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Determine if a file should be treated as ESM
+ * Based on file extension and nearest package.json "type" field
+ * 
+ * @param filePath - The file path to check
+ * @returns true if file should be treated as ESM
+ */
+export function isESMFile(filePath: string): boolean {
+  // .mjs files are always ESM
+  if (filePath.endsWith('.mjs')) {
+    return true;
+  }
+
+  // .cjs files are never ESM
+  if (filePath.endsWith('.cjs')) {
+    return false;
+  }
+
+  // For .js files, check nearest package.json for "type": "module"
+  if (filePath.endsWith('.js')) {
+    const packageJsonPath = findNearestPackageJson(filePath);
+    if (packageJsonPath) {
+      return isESMPackage(packageJsonPath);
+    }
+  }
+
+  return false;
+}
