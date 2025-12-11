@@ -1,3 +1,10 @@
+## [6.11.0](https://github.com/yao-pkg/pkg/compare/v6.10.1...v6.11.0) (2025-12-11)
+
+### Features
+
+- add PKG_NATIVE_CACHE_PATH environment variable ([#190](https://github.com/yao-pkg/pkg/issues/190)) ([528f997](https://github.com/yao-pkg/pkg/commit/528f9974b581bf561b3ca83d0cf15bcc989035dc))
+- update @yao-pkg/pkg-fetch to version 3.5.31 with node 24.12.0 and 20.19.6 ([6fe9259](https://github.com/yao-pkg/pkg/commit/6fe9259f3aa26a408c7775359808013aed28f5ea))
+
 ## [6.10.1](https://github.com/yao-pkg/pkg/compare/v6.10.0...v6.10.1) (2025-11-01)
 
 ### Bug Fixes

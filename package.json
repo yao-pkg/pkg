@@ -1,6 +1,6 @@
 {
   "name": "@yao-pkg/pkg",
-  "version": "6.10.1",
+  "version": "6.11.0",
   "description": "Package your Node.js project into an executable",
   "main": "lib-es5/index.js",
   "license": "MIT",
