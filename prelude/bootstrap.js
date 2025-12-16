@@ -185,9 +185,7 @@ function copyFolderRecursiveSync(source, target) {
   const targetFolder = path.join(target, path.basename(source));
 
   // Check if target folder needs to be created or integrated
-  if (!fs.existsSync(targetFolder)) {
-    fs.mkdirSync(targetFolder);
-  }
+  fs.mkdirSync(targetFolder, { recursive: true });
 
   // Copy
   if (fs.lstatSync(source).isDirectory()) {
@@ -246,13 +244,6 @@ function copyFolderRecursiveSync(source, target) {
         fs.copyFileSync(curSource, curTarget);
       }
     }
-  }
-}
-
-function createDirRecursively(dir) {
-  if (!fs.existsSync(dir)) {
-    createDirRecursively(path.join(dir, '..'));
-    fs.mkdirSync(dir);
   }
 }
 
@@ -2196,6 +2187,15 @@ function payloadFileSync(pointer) {
     dlopen: process.dlopen,
   };
 
+  // Allow users to override the cache base directory via PKG_NATIVE_CACHE_PATH environment variable
+  // Default: path.join(homedir(), '.cache')
+  //   - Linux/macOS: /home/john/.cache or /Users/john/.cache
+  //   - Windows: C:\Users\John\.cache
+  // Custom example: /opt/myapp/cache or C:\myapp\cache
+  // Native addons will be extracted to: <PKG_NATIVE_CACHE_BASE>/pkg/<hash>
+  const PKG_NATIVE_CACHE_BASE =
+    process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache');
+
   function revertMakingLong(f) {
     if (/^\\\\\?\\/.test(f)) return f.slice(4);
     return f;
@@ -2215,10 +2215,9 @@ function payloadFileSync(pointer) {
       // the hash is needed to be sure we reload the module in case it changes
       const hash = createHash('sha256').update(moduleContent).digest('hex');
 
-      // Example: /home/john/.cache/pkg/<hash>
-      const tmpFolder = path.join(homedir(), '.cache/pkg', hash);
+      const tmpFolder = path.join(PKG_NATIVE_CACHE_BASE, 'pkg', hash);
 
-      createDirRecursively(tmpFolder);
+      fs.mkdirSync(tmpFolder, { recursive: true });
 
       // Example: moduleFolder = /snapshot/appname/node_modules/sharp/build/Release
       const parts = moduleFolder.split(path.sep);

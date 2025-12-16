@@ -1,6 +1,6 @@
 {
   "name": "@yao-pkg/pkg",
-  "version": "6.6.0",
+  "version": "6.11.0",
   "description": "Package your Node.js project into an executable",
   "main": "lib-es5/index.js",
   "license": "MIT",
@@ -25,7 +25,7 @@
     "@babel/generator": "^7.23.0",
     "@babel/parser": "^7.23.0",
     "@babel/types": "^7.23.0",
-    "@yao-pkg/pkg-fetch": "3.5.24",
+    "@yao-pkg/pkg-fetch": "3.5.31",
     "into-stream": "^6.0.0",
     "minimist": "^1.2.6",
     "multistream": "^4.1.0",
@@ -81,57 +81,8 @@
     "test:20": "node test/test.js node20 no-npm",
     "test:18": "node test/test.js node18 no-npm",
     "test:host": "node test/test.js host only-npm",
+    "bump:fetch": "yarn add @yao-pkg/pkg-fetch --exact",
     "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
-  },
-  "release-it": {
-    "github": {
-      "release": true
-    },
-    "git": {
-      "tagName": "v${version}"
-    },
-    "hooks": {
-      "before:init": [
-        "yarn lint"
-      ]
-    },
-    "npm": {
-      "publish": true
-    },
-    "plugins": {
-      "@release-it/conventional-changelog": {
-        "infile": "CHANGELOG.md",
-        "preset": {
-          "name": "conventionalcommits",
-          "types": [
-            {
-              "type": "feat",
-              "section": "Features"
-            },
-            {
-              "type": "fix",
-              "section": "Bug Fixes"
-            },
-            {
-              "type": "test",
-              "section": "Test added"
-            },
-            {
-              "type": "refactor",
-              "section": "Code refactoring"
-            },
-            {
-              "type": "chore",
-              "section": "Chores"
-            },
-            {
-              "type": "docs",
-              "section": "Documentation"
-            }
-          ]
-        }
-      }
-    }
   },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"
