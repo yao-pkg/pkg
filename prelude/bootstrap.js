@@ -704,7 +704,6 @@ function payloadFileSync(pointer) {
     }
   }
   const temporaryFiles = {};
-  const os = require('os');
   let tmpFolder = '';
   process.on('beforeExit', () => {
     removeTemporaryFolderAndContent(tmpFolder);
