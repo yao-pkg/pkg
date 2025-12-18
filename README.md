@@ -201,6 +201,9 @@ like tests, documentation or build files that could have been included by a depe
   }
 ```
 
+Note that both `**` and `*` would not match dotfiles e.g. `.git`,
+the dotfile names must be in the glob explicitly to be matched.
+
 To see if you have unwanted files in your executable, read the [Exploring virtual file system embedded in debug mode](#exploring-virtual-file-system-embedded-in-debug-mode) section.
 
 ### Options
@@ -299,21 +302,25 @@ The startup time of the application might be reduced slightly.
 
 All pkg-cache [environment vars](https://github.com/yao-pkg/pkg-fetch#environment), plus:
 
-| Var              | Description                                                                                                                                                          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CHDIR`          | Override process `chdir`                                                                                                                                             |
-| `PKG_STRICT_VER` | Turn on some assertion in the walker code to assert that each file content/state that we appending to the virtual file system applies to a real file, not a symlink. |
-| `PKG_EXECPATH`   | Used internally by `pkg`, do not override                                                                                                                            |
+| Var                     | Description                                                                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHDIR`                 | Override process `chdir`                                                                                                                                             |
+| `PKG_NATIVE_CACHE_PATH` | Override the base directory for caching extracted native addons at runtime (default: `~/.cache`)                                                                     |
+| `PKG_STRICT_VER`        | Turn on some assertion in the walker code to assert that each file content/state that we appending to the virtual file system applies to a real file, not a symlink. |
+| `PKG_EXECPATH`          | Used internally by `pkg`, do not override                                                                                                                            |
 
 Examples
 
 ```bash
-# 1 - Using export
+# 1 - Set cache path at build time (for pkg-fetch to cache Node.js binaries)
 export PKG_CACHE_PATH=/my/cache
 pkg app.js
 
-# 2 - Passing it before the script
-PKG_CACHE_PATH=/my/cache pkg app.js
+# 2 - Set cache path at runtime (for packaged app to cache extracted native addons)
+PKG_NATIVE_CACHE_PATH=/opt/myapp/cache ./myapp
+
+# 3 - Both can be used together
+PKG_CACHE_PATH=/build/cache PKG_NATIVE_CACHE_PATH=/runtime/cache pkg app.js
 ```
 
 ## Usage of packaged app
@@ -381,8 +388,17 @@ add the `.node` file directly in the `assets` field in `package.json`.
 The way Node.js requires native addon is different from a classic JS
 file. It needs to have a file on disk to load it, but `pkg` only generates
 one file. To circumvent this, `pkg` will extract native addon files to
-`$HOME/.cache/pkg/`. These files will stay on the disk after the process has
-exited and will be used again on the next process launch.
+`$HOME/.cache/pkg/` by default. These files will stay on the disk after the
+process has exited and will be used again on the next process launch.
+
+You can customize the cache directory by setting the `PKG_NATIVE_CACHE_PATH`
+environment variable. This is useful in enterprise environments where specific
+directories may be restricted or monitored:
+
+```bash
+# Set custom cache path for native addons
+PKG_NATIVE_CACHE_PATH=/opt/myapp/cache ./myapp
+```
 
 When a package, that contains a native module, is being installed,
 the native module is compiled against current system-wide Node.js
@@ -517,3 +533,104 @@ or
     C:\> output.exe
 
 Note: make sure not to use --debug flag in production.
+
+### Injecting Windows Executable Metadata After Packaging
+Executables created with `pkg` are based on a Node.js binary and, by default, 
+inherit its embedded metadata – such as version number, product name, company 
+name, icon, and description. This can be misleading or unpolished in 
+distributed applications.
+
+There are two ways to customize the metadata of the resulting `.exe`:
+1. **Use a custom Node.js binary** with your own metadata already embedded.  
+   See: [Use Custom Node.js Binary](#use-custom-nodejs-binary)
+
+2. **Post-process the generated executable** using 
+   [`resedit`](https://www.npmjs.com/package/resedit), a Node.js-compatible 
+   tool for modifying Windows executable resources. This allows injecting 
+   correct version info, icons, copyright,
+   and more.
+
+This section focuses on the second approach: post-processing the packaged
+binary using  [`resedit`](https://www.npmjs.com/package/resedit).
+
+> ⚠️ Other tools may corrupt the executable, resulting in runtime errors such as  
+> `Pkg: Error reading from file.` – 
+> [`resedit`](https://www.npmjs.com/package/resedit) has proven to work reliably  
+> with `pkg`-generated binaries.
+
+Below is a working example for post-processing an `.exe` file using the Node.js API of [`resedit`](https://www.npmjs.com/package/resedit):
+
+```ts
+import * as ResEdit from "resedit";
+import * as fs from "fs";
+import * as path from "path";
+
+// Set your inputs:
+const exePath = "dist/my-tool.exe";  // Path to the generated executable
+const outputPath = exePath;          // Overwrite or use a different path
+const version = "1.2.3";             // Your application version
+
+const lang = 1033;       // en-US
+const codepage = 1200;   // Unicode
+
+const exeData = fs.readFileSync(exePath);
+const exe = ResEdit.NtExecutable.from(exeData);
+const res = ResEdit.NtExecutableResource.from(exe);
+
+const viList = ResEdit.Resource.VersionInfo.fromEntries(res.entries);
+const vi = viList[0];
+
+const [major, minor, patch] = version.split(".");
+vi.setFileVersion(Number(major), Number(minor), Number(patch), 0, lang);
+vi.setProductVersion(Number(major), Number(minor), Number(patch), 0, lang);
+
+vi.setStringValues({ lang, codepage }, {
+  FileDescription: "ACME CLI Tool",
+  ProductName: "ACME Application",
+  CompanyName: "ACME Corporation",
+  ProductVersion: version,
+  FileVersion: version,
+  OriginalFilename: path.basename(exePath),
+  LegalCopyright: `© ${new Date().getFullYear()} ACME Corporation`
+});
+
+vi.outputToResourceEntries(res.entries);
+res.outputResource(exe);
+const newBinary = exe.generate();
+
+fs.writeFileSync(outputPath, Buffer.from(newBinary));
+```
+
+As an alternative to the Node.js API,
+[`resedit`](https://www.npmjs.com/package/resedit) also supports command–line
+usage. This can be convenient for simple use cases in build scripts.
+
+The following command examples inject an icon and metadata into the executable
+`dist/bin/app_with_metadata.exe`, based on the original built file
+`dist/bin/app.exe`.
+
+- **Example (PowerShell on Windows)**
+  ```powershell
+  npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe `
+    --icon 1,dist/favicon.ico `
+    --company-name "ACME Corporation" `
+    --file-description "ACME CLI Tool" `
+    --product-name "ACME Application" `
+    --file-version 1.2.3.4
+  ```
+
+- **Example (bash on Linux/macOS)**
+  ```bash
+  npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe \
+    --icon 1,dist/favicon.ico \
+    --company-name "ACME Corporation" \
+    --file-description "ACME CLI Tool" \
+    --product-name "ACME Application" \
+    --file-version 1.2.3.4
+  ```
+  > 💡 This is especially useful when cross-compiling Windows executables from
+  > Linux or macOS using `pkg`.
+
+> 📚 **More information:** See the
+> [`resedit`](https://www.npmjs.com/package/resedit) package on npm for
+> additional examples and full API documentation.

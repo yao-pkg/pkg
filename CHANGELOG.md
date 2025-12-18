@@ -1,3 +1,40 @@
+## [6.11.0](https://github.com/yao-pkg/pkg/compare/v6.10.1...v6.11.0) (2025-12-11)
+
+### Features
+
+- add PKG_NATIVE_CACHE_PATH environment variable ([#190](https://github.com/yao-pkg/pkg/issues/190)) ([528f997](https://github.com/yao-pkg/pkg/commit/528f9974b581bf561b3ca83d0cf15bcc989035dc))
+- update @yao-pkg/pkg-fetch to version 3.5.31 with node 24.12.0 and 20.19.6 ([6fe9259](https://github.com/yao-pkg/pkg/commit/6fe9259f3aa26a408c7775359808013aed28f5ea))
+
+## [6.10.1](https://github.com/yao-pkg/pkg/compare/v6.10.0...v6.10.1) (2025-11-01)
+
+### Bug Fixes
+
+- avoid EEXIST on race condition in createDirRecursively and copyFolderRecursiveSync ([#154](https://github.com/yao-pkg/pkg/issues/154)) ([36ea8b1](https://github.com/yao-pkg/pkg/commit/36ea8b14f7ff847919d71bcc0fadbf60df81b3f2))
+
+## [6.10.0](https://github.com/yao-pkg/pkg/compare/v6.9.0...v6.10.0) (2025-10-29)
+
+### Features
+
+- automatically create output directory with `--sea` option ([#182](https://github.com/yao-pkg/pkg/issues/182)) ([68b19ec](https://github.com/yao-pkg/pkg/commit/68b19ec9d9515f9a30917b2151e3abe0eb36e475))
+- bump fetch 3.5.30 with node 24.11.0 and 22.21.1 ([1853549](https://github.com/yao-pkg/pkg/commit/1853549741188dcc4ed0bc46b034cff92d94d44f))
+
+## [6.9.0](https://github.com/yao-pkg/pkg/compare/v6.8.0...v6.9.0) (2025-10-15)
+
+### Features
+
+- bump fetch with node 22.20.0 and 24.10.0 support ([73fcf64](https://github.com/yao-pkg/pkg/commit/73fcf6420ab42716986d7aed81c54a37ef167125))
+
+## [6.7.0](https://github.com/yao-pkg/pkg/compare/v6.6.0...v6.7.0) (2025-09-26)
+
+### Features
+
+- bump fetch v3.5.25 with node 20.19.5, 22.19.0, and 24.8.0, special thanks to [@faulpeltz](https://github.com/faulpeltz) ([7ce1085](https://github.com/yao-pkg/pkg/commit/7ce1085ef0601c51c175579fe16609299de8225a))
+
+### Documentation
+
+- behavior of `ignore` on dotfiles ([#170](https://github.com/yao-pkg/pkg/issues/170)) ([de1e819](https://github.com/yao-pkg/pkg/commit/de1e819464aae8cfd19d6415012ffc31d0889834))
+- instructions for injecting Windows exe metadata ([#174](https://github.com/yao-pkg/pkg/issues/174)) ([14e7df0](https://github.com/yao-pkg/pkg/commit/14e7df0c0fe0ad6fa28c8cba9da2b51d58b72bf6))
+
 ## [6.6.0](https://github.com/yao-pkg/pkg/compare/v6.5.1...v6.6.0) (2025-07-19)
 
 ### Features
