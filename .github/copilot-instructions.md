@@ -21,6 +21,7 @@ This is a TypeScript-based Node.js project that packages Node.js applications in
 - `dictionary/`: Package-specific configuration files for known npm packages
 - `test/`: Comprehensive test suite with numbered test directories
 - `examples/`: Example projects demonstrating pkg usage
+- `plans/`: Implementation plans and design documents
 - `.github/workflows/`: CI/CD configuration using GitHub Actions
 
 ## Development Workflow
@@ -249,14 +250,16 @@ The project uses GitHub Actions workflows:
 
 1. **Always build before testing**: Run `npm run build` before running any tests
 2. **Use correct Node.js version**: The project requires Node.js >= 18.0.0
-3. **Respect TypeScript compilation**: Edit `lib/*.ts` files, not `lib-es5/*.js` files
-4. **Maintain test numbering**: When adding tests, choose appropriate test number (XX in test-XX-name)
-5. **Check existing dictionary files**: Before adding new package support, review existing dictionary files for patterns
-6. **Preserve backward compatibility**: This tool is widely used; breaking changes need careful consideration
-7. **Cross-platform testing**: When possible, verify changes work on Linux, macOS, and Windows
-8. **Native addon handling**: Be extra careful with changes affecting native addon loading and extraction
-9. **Snapshot filesystem**: Changes to virtual filesystem handling require thorough testing
-10. **Performance matters**: Packaging time and executable size are important metrics
+3. **Use Yarn for package management**: This project uses `yarn`, not `npm`, for dependency management
+4. **Respect TypeScript compilation**: Edit `lib/*.ts` files, not `lib-es5/*.js` files
+5. **Maintain test numbering**: When adding tests, choose appropriate test number (XX in test-XX-name)
+6. **Check existing dictionary files**: Before adding new package support, review existing dictionary files for patterns
+7. **Preserve backward compatibility**: This tool is widely used; breaking changes need careful consideration
+8. **Cross-platform testing**: When possible, verify changes work on Linux, macOS, and Windows
+9. **Native addon handling**: Be extra careful with changes affecting native addon loading and extraction
+10. **Snapshot filesystem**: Changes to virtual filesystem handling require thorough testing
+11. **Performance matters**: Packaging time and executable size are important metrics
+12. **Implementation plans**: Store all implementation plans and design documents in the `plans/` directory
 
 ## Git Workflow
 

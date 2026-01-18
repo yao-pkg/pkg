@@ -1,0 +1,7 @@
+{
+  "name": "test-uuid-v10",
+  "private": true,
+  "dependencies": {
+    "uuid": "^13.0.0"
+  }
+}
