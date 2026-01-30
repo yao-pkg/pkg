@@ -1,0 +1,9 @@
+{
+  "name": "test-esm-pure",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test pure ESM module packaging",
+  "dependencies": {
+    "nanoid": "^5.0.0"
+  }
+}
