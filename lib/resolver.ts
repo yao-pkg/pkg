@@ -53,10 +53,10 @@ function resolveWithExports(
     }
 
     // Use resolve.exports to handle the exports field
-    // Try 'import' first to support ESM-only packages, fall back to 'require' for CJS
+    // For pkg's context, we're bundling CJS code, so use 'require' condition
+    // This will add 'require', 'node', and 'default' conditions automatically
     const resolved = resolveExports(pkgAny, subpath, {
-      conditions: ['node', 'import', 'require', 'default'],
-      unsafe: true, // Allow non-standard patterns
+      require: true, // Use 'require' condition instead of 'import'
     });
 
     if (resolved) {
