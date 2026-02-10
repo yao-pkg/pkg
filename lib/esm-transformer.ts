@@ -134,7 +134,6 @@ function detectUnsupportedESMFeatures(
  * @param code - The ESM source code to transform
  * @param filename - The filename for error reporting
  * @returns Object with transformed code and success flag
- * @throws Error if unsupported ESM features are detected
  */
 export function transformESMtoCJS(
   code: string,
