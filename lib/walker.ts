@@ -18,6 +18,7 @@ import {
   isDotJSON,
   isDotNODE,
   isPackageJson,
+  unlikelyJavascript,
   normalizePath,
   toNormalizedRealPath,
   isESMFile,
@@ -94,12 +95,6 @@ function isBuiltin(moduleName: string) {
     : moduleName;
 
   return builtinModules.includes(moduleNameWithoutPrefix);
-}
-
-function unlikelyJavascript(file: string) {
-  return ['.css', '.html', '.json', '.vue', '.d.ts'].includes(
-    path.extname(file),
-  );
 }
 
 function isPublic(config: PackageJson) {

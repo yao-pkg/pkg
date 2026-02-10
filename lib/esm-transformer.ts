@@ -1,6 +1,7 @@
 import * as babel from '@babel/core';
 import traverse, { NodePath } from '@babel/traverse';
 import { log } from './log';
+import { unlikelyJavascript } from './common';
 
 export interface TransformResult {
   code: string;
@@ -139,6 +140,15 @@ export function transformESMtoCJS(
   code: string,
   filename: string,
 ): TransformResult {
+  // Skip files that are unlikely to be JavaScript (e.g., .d.ts, .json, .css)
+  // to avoid Babel parse errors
+  if (unlikelyJavascript(filename)) {
+    return {
+      code,
+      isTransformed: false,
+    };
+  }
+
   // First, check for unsupported ESM features that can't be safely transformed
   const unsupportedFeatures = detectUnsupportedESMFeatures(code, filename);
 
