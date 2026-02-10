@@ -153,22 +153,13 @@ export function resolveModule(
   }
 
   // Fallback to standard CommonJS resolution
-  try {
-    const resolved = resolveSync(specifier, {
-      basedir,
-      extensions,
-    });
+  const resolved = resolveSync(specifier, {
+    basedir,
+    extensions,
+  });
 
-    return {
-      resolved,
-      isESM: false, // CJS resolution
-    };
-  } catch (error) {
-    // Re-throw with more context
-    throw new Error(
-      `Cannot resolve module '${specifier}' from '${basedir}': ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
+  return {
+    resolved,
+    isESM: false, // CJS resolution
+  };
 }

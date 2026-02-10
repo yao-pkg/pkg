@@ -884,14 +884,26 @@ class Walker {
 
     // Add all discovered package.json files, not just the one determined by the double-resolution logic
     // This is necessary because ESM resolution may bypass the standard packageFilter mechanism
+    // However, only include package.json files that are either:
+    // 1. Inside node_modules (dependencies)
+    // 2. Inside the base directory of the current marker (application being packaged)
+    // This prevents including pkg's own package.json when used from source
     for (const newPackage of newPackages) {
       if (newPackage.marker) {
-        await this.appendBlobOrContent({
-          file: newPackage.packageJson,
-          marker: newPackage.marker,
-          store: STORE_CONTENT,
-          reason: record.file,
-        });
+        const file = newPackage.packageJson;
+        const isInNodeModules = file.includes(
+          `${path.sep}node_modules${path.sep}`,
+        );
+        const isInMarkerBase = marker.base && file.startsWith(marker.base);
+
+        if (isInNodeModules || isInMarkerBase) {
+          await this.appendBlobOrContent({
+            file,
+            marker: newPackage.marker,
+            store: STORE_CONTENT,
+            reason: record.file,
+          });
+        }
       }
     }
 
