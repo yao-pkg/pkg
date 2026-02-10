@@ -22,11 +22,9 @@ async function main() {
 
     console.log(`Broker created with ID: ${broker.id}`);
 
-    // Test basic broker functionality - create a mock client
-    let published = false;
-    broker.on('publish', (packet, client) => {
+    // Test basic broker functionality - verify event system works
+    broker.on('publish', (packet) => {
       if (packet.topic === 'test/topic') {
-        published = true;
         console.log('Message published successfully');
       }
     });

@@ -16,6 +16,12 @@ const output = './run-time/test-output.exe';
 let left, right;
 utils.mkdirp.sync(path.dirname(output));
 
+// Install the ESM package first
+console.log('Installing uuid v10 (ESM-only)...');
+utils.exec.sync('npm install --no-package-lock --no-save', {
+  stdio: 'inherit',
+});
+
 // Run the test with node first to verify expected output
 // Note: uuid v10+ is ESM-only and will fail with Node.js require()
 try {

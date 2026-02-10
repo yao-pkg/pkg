@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import { toNormalizedRealPath } from './common';
 import { resolveModule } from './resolver';
-import { log } from './log';
 
 import type { PackageJson } from './types';
 
@@ -92,6 +91,17 @@ export function follow(x: string, opts: FollowOptions) {
             let currentDir = path.dirname(result.resolved);
             while (currentDir !== path.dirname(currentDir)) {
               const pkgPath = path.join(currentDir, 'package.json');
+
+              // Honor ignoreFile to ensure correct package marker determination
+              if (
+                opts.ignoreFile &&
+                path.normalize(pkgPath) === path.normalize(opts.ignoreFile)
+              ) {
+                // Skip this package.json as it's marked to be ignored
+                currentDir = path.dirname(currentDir);
+                continue;
+              }
+
               if (fs.existsSync(pkgPath)) {
                 // Check if this package.json is in node_modules (not the root package)
                 if (currentDir.includes('node_modules')) {

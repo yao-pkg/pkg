@@ -1016,7 +1016,12 @@ class Walker {
       }
 
       // Transform ESM to CJS before bytecode compilation
-      if (store === STORE_BLOB && record.body && isDotJS(record.file)) {
+      // Check all JS-like files (.js, .mjs, .cjs) but only transform ESM ones
+      if (
+        store === STORE_BLOB &&
+        record.body &&
+        (isDotJS(record.file) || record.file.endsWith('.mjs'))
+      ) {
         if (isESMFile(record.file)) {
           const result = transformESMtoCJS(
             record.body.toString('utf8'),

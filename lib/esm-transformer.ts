@@ -34,6 +34,10 @@ export function transformESMtoCJS(
       compact: false,
       // Don't modify other syntax, only transform import/export
       presets: [],
+      // Prevent Babel from loading user config files
+      babelrc: false,
+      configFile: false,
+      sourceType: 'module',
     });
 
     if (!result || !result.code) {

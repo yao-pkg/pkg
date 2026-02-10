@@ -285,17 +285,29 @@ function findNearestPackageJson(filePath: string): string | null {
   return null;
 }
 
+// Caches for ESM detection performance optimization
+const packageJsonCache = new Map<string, string | null>();
+const esmPackageCache = new Map<string, boolean>();
+
 /**
  * Check if a package.json indicates an ESM package
  * @param packageJsonPath - Path to package.json
  * @returns true if "type": "module" is set
  */
 export function isESMPackage(packageJsonPath: string): boolean {
+  // Check cache first
+  if (esmPackageCache.has(packageJsonPath)) {
+    return esmPackageCache.get(packageJsonPath)!;
+  }
+
   try {
     const content = fs.readFileSync(packageJsonPath, 'utf8');
     const pkg = JSON.parse(content);
-    return pkg.type === 'module';
+    const result = pkg.type === 'module';
+    esmPackageCache.set(packageJsonPath, result);
+    return result;
   } catch {
+    esmPackageCache.set(packageJsonPath, false);
     return false;
   }
 }
@@ -320,7 +332,21 @@ export function isESMFile(filePath: string): boolean {
 
   // For .js files, check nearest package.json for "type": "module"
   if (filePath.endsWith('.js')) {
+    const dir = path.dirname(filePath);
+
+    // Check cache first
+    if (packageJsonCache.has(dir)) {
+      const cached = packageJsonCache.get(dir);
+      if (cached) {
+        return isESMPackage(cached);
+      }
+      return false;
+    }
+
+    // Compute and cache
     const packageJsonPath = findNearestPackageJson(filePath);
+    packageJsonCache.set(dir, packageJsonPath);
+
     if (packageJsonPath) {
       return isESMPackage(packageJsonPath);
     }
