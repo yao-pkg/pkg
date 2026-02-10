@@ -115,13 +115,10 @@ function tryResolveESM(specifier: string, basedir: string): string | null {
     // Use resolveSync to find the package root (works with pnpm and other layouts)
     // Try to resolve the package.json to get the package root
     try {
-      const pkgJsonPath = resolveSync(
-        path.join(packageName, 'package.json'),
-        {
-          basedir,
-          preserveSymlinks: false,
-        },
-      );
+      const pkgJsonPath = resolveSync(path.join(packageName, 'package.json'), {
+        basedir,
+        preserveSymlinks: false,
+      });
 
       const packageRoot = path.dirname(pkgJsonPath);
 
