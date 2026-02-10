@@ -17,6 +17,8 @@ if (target === 'host') target = host;
 // ( the env variable FLAVOR takes precedence over the second argument passed to this main.js file)
 
 const flavor = process.env.FLAVOR || process.argv[3] || 'all';
+// If a 4th argument is provided and flavor is not a test name, use the 4th argument as test filter
+const testFilter = process.argv[4] || (flavor.match(/^test/) ? flavor : null);
 
 const isCI = process.env.CI === 'true';
 
@@ -70,8 +72,8 @@ const npmTests = [
   'test-00-sea',
 ];
 
-if (flavor.match(/^test/)) {
-  list.push(joinAndForward(`${flavor}/main.js`));
+if (testFilter) {
+  list.push(joinAndForward(`${testFilter}/main.js`));
 } else if (flavor === 'only-npm') {
   npmTests.forEach((t) => {
     list.push(joinAndForward(`${t}/main.js`));
@@ -230,13 +232,27 @@ async function run() {
   }
 }
 
-function cleanup() {
+let isExiting = false;
+
+function cleanup(signal) {
+  if (isExiting) return;
+  isExiting = true;
+
+  console.log(`\n\nReceived ${signal}, cleaning up...`);
+
   for (const process of activeProcesses) {
-    process.kill();
+    try {
+      process.kill('SIGTERM');
+    } catch (error) {
+      // Ignore errors when killing processes
+    }
   }
+
+  // Exit immediately
+  process.exit(130); // 128 + SIGINT(2) = 130
 }
 
-process.on('SIGINT', cleanup);
-process.on('SIGTERM', cleanup);
+process.on('SIGINT', () => cleanup('SIGINT'));
+process.on('SIGTERM', () => cleanup('SIGTERM'));
 
 run();
