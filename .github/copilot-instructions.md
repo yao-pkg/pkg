@@ -21,6 +21,7 @@ This is a TypeScript-based Node.js project that packages Node.js applications in
 - `dictionary/`: Package-specific configuration files for known npm packages
 - `test/`: Comprehensive test suite with numbered test directories
 - `examples/`: Example projects demonstrating pkg usage
+- `plans/`: Implementation plans and design documents
 - `.github/workflows/`: CI/CD configuration using GitHub Actions
 
 ## Development Workflow
@@ -48,6 +49,35 @@ npm run start
 - Run `npm run lint` to check both code style and ESLint rules
 - Run `npm run fix` to automatically fix formatting and linting issues
 - All changes must pass CI checks (linting, building, and tests)
+
+#### Commit and Push Workflow
+
+**CRITICAL: Follow this workflow for ALL commits and pushes:**
+
+1. **Clean test artifacts**: Remove any test-generated output files (executables, binaries) before staging changes
+
+   - Test artifacts typically include: `*.exe`, `*-linux`, `*-macos`, `*-win.exe` in test directories
+   - Check staged files with `git status` and remove any test outputs
+   - These files may remain if a test failed before cleanup
+
+2. **Verify no lint issues**:
+
+   - ALWAYS run `npm run lint` before committing
+   - Fix all linting errors with `npm run fix` or manually
+   - NEVER commit or push with lint errors present
+
+3. **Request approval before commit/push**:
+
+   - Show the user what files will be committed (`git status --short`)
+   - Present a summary of changes made
+   - Wait for explicit user approval before running `git commit` and `git push`
+   - Do NOT commit or push without user confirmation
+
+4. **Commit with conventional commits format**:
+   - Use: `feat:`, `fix:`, `refactor:`, `test:`, `chore:`, `docs:`
+   - Include detailed commit message explaining changes
+
+This workflow ensures code quality, prevents accidental commits of test artifacts, and gives the user control over what gets committed to the repository.
 
 #### Formatting
 
@@ -247,16 +277,21 @@ The project uses GitHub Actions workflows:
 
 ## Important Notes for Copilot Coding Agent
 
-1. **Always build before testing**: Run `npm run build` before running any tests
-2. **Use correct Node.js version**: The project requires Node.js >= 18.0.0
-3. **Respect TypeScript compilation**: Edit `lib/*.ts` files, not `lib-es5/*.js` files
-4. **Maintain test numbering**: When adding tests, choose appropriate test number (XX in test-XX-name)
-5. **Check existing dictionary files**: Before adding new package support, review existing dictionary files for patterns
-6. **Preserve backward compatibility**: This tool is widely used; breaking changes need careful consideration
-7. **Cross-platform testing**: When possible, verify changes work on Linux, macOS, and Windows
-8. **Native addon handling**: Be extra careful with changes affecting native addon loading and extraction
-9. **Snapshot filesystem**: Changes to virtual filesystem handling require thorough testing
-10. **Performance matters**: Packaging time and executable size are important metrics
+1. **NEVER commit without user approval**: Always show changes with `git status --short`, present a summary, and wait for explicit user confirmation before running `git commit` or `git push`
+2. **ALWAYS check lint before committing**: Run `npm run lint` before every commit and fix all issues - NEVER commit with lint errors
+3. **Clean test artifacts before staging**: Remove any test-generated executables (`*.exe`, `*-linux`, `*-macos`, `*-win.exe`) from test directories before committing
+4. **Always build before testing**: Run `npm run build` before running any tests
+5. **Use correct Node.js version**: The project requires Node.js >= 18.0.0
+6. **Use Yarn for package management**: This project uses `yarn`, not `npm`, for dependency management
+7. **Respect TypeScript compilation**: Edit `lib/*.ts` files, not `lib-es5/*.js` files
+8. **Maintain test numbering**: When adding tests, choose appropriate test number (XX in test-XX-name)
+9. **Check existing dictionary files**: Before adding new package support, review existing dictionary files for patterns
+10. **Preserve backward compatibility**: This tool is widely used; breaking changes need careful consideration
+11. **Cross-platform testing**: When possible, verify changes work on Linux, macOS, and Windows
+12. **Native addon handling**: Be extra careful with changes affecting native addon loading and extraction
+13. **Snapshot filesystem**: Changes to virtual filesystem handling require thorough testing
+14. **Performance matters**: Packaging time and executable size are important metrics
+15. **Implementation plans**: Store all implementation plans and design documents in the `plans/` directory
 
 ## Git Workflow
 

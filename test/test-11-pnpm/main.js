@@ -25,7 +25,7 @@ console.log('target = ', target);
 utils.vacuum.sync('./node_modules');
 utils.vacuum.sync('./pnpm-lock.yaml');
 
-const npmlog = utils.exec.sync('npm install -g pnpm@8');
+const npmlog = utils.exec.sync('npm install -g pnpm@8 --force');
 console.log('npm log :', npmlog);
 
 // launch `pnpm install`

@@ -40,6 +40,17 @@ right =
         line.indexOf('was included') < 0
       );
     })
+    .filter(function (line) {
+      // Only include lines related to test variables (filter out ESM-related debug logs)
+      return (
+        line.indexOf('reqResSomeVar') >= 0 ||
+        line.indexOf('reqSomeVar') >= 0 ||
+        line.indexOf('tryReqResSomeVar') >= 0 ||
+        line.indexOf('tryReqSomeVar') >= 0 ||
+        line.indexOf('reqResSomeLit') >= 0 ||
+        line.indexOf('reqSomeLit') >= 0
+      );
+    })
     .map(function (line) {
       if (line.indexOf('Cannot find module') >= 0) {
         return line.split(' from ')[0];

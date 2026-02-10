@@ -502,13 +502,14 @@ export function parse(body: string) {
   });
 }
 
-export function detect(body: string, visitor: VisitorFunction) {
+export function detect(body: string, visitor: VisitorFunction, file?: string) {
   let json;
 
   try {
     json = parse(body);
   } catch (error) {
-    log.warn(`Babel parse has failed: ${(error as Error).message}`);
+    const fileInfo = file ? ` in ${file}` : '';
+    log.warn(`Babel parse has failed: ${(error as Error).message}${fileInfo}`);
   }
 
   if (!json) {

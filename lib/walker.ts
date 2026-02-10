@@ -20,12 +20,14 @@ import {
   isPackageJson,
   normalizePath,
   toNormalizedRealPath,
+  isESMFile,
 } from './common';
 
 import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
+import { transformESMtoCJS } from './esm-transformer';
 import {
   ConfigDictionary,
   FileRecord,
@@ -95,7 +97,9 @@ function isBuiltin(moduleName: string) {
 }
 
 function unlikelyJavascript(file: string) {
-  return ['.css', '.html', '.json', '.vue'].includes(path.extname(file));
+  return ['.css', '.html', '.json', '.vue', '.d.ts'].includes(
+    path.extname(file),
+  );
 }
 
 function isPublic(config: PackageJson) {
@@ -258,66 +262,70 @@ function stepDetect(
   }
 
   try {
-    detector.detect(body, (node, trying) => {
-      const { toplevel } = marker;
-      let d = detector.visitorSuccessful(node) as unknown as Derivative;
+    detector.detect(
+      body,
+      (node, trying) => {
+        const { toplevel } = marker;
+        let d = detector.visitorSuccessful(node) as unknown as Derivative;
 
-      if (d) {
-        if (d.mustExclude) {
+        if (d) {
+          if (d.mustExclude) {
+            return false;
+          }
+
+          d.mayExclude = d.mayExclude || trying;
+          derivatives.push(d);
+
           return false;
         }
 
-        d.mayExclude = d.mayExclude || trying;
-        derivatives.push(d);
+        d = detector.visitorNonLiteral(node) as unknown as Derivative;
 
-        return false;
-      }
+        if (d) {
+          if (typeof d === 'object' && d.mustExclude) {
+            return false;
+          }
 
-      d = detector.visitorNonLiteral(node) as unknown as Derivative;
-
-      if (d) {
-        if (typeof d === 'object' && d.mustExclude) {
+          const debug = !toplevel || d.mayExclude || trying;
+          const level = debug ? 'debug' : 'warn';
+          log[level](`Cannot resolve '${d.alias}'`, [
+            record.file,
+            'Dynamic require may fail at run time, because the requested file',
+            'is unknown at compilation time and not included into executable.',
+            "Use a string literal as an argument for 'require', or leave it",
+            "as is and specify the resolved file name in 'scripts' option.",
+          ]);
           return false;
         }
 
-        const debug = !toplevel || d.mayExclude || trying;
-        const level = debug ? 'debug' : 'warn';
-        log[level](`Cannot resolve '${d.alias}'`, [
-          record.file,
-          'Dynamic require may fail at run time, because the requested file',
-          'is unknown at compilation time and not included into executable.',
-          "Use a string literal as an argument for 'require', or leave it",
-          "as is and specify the resolved file name in 'scripts' option.",
-        ]);
-        return false;
-      }
+        d = detector.visitorMalformed(node) as unknown as Derivative;
 
-      d = detector.visitorMalformed(node) as unknown as Derivative;
+        if (d) {
+          // there is no 'mustExclude'
+          const debug = !toplevel || trying;
+          const level = debug ? 'debug' : 'warn'; // there is no 'mayExclude'
+          log[level](`Malformed requirement for '${d.alias}'`, [record.file]);
+          return false;
+        }
 
-      if (d) {
-        // there is no 'mustExclude'
-        const debug = !toplevel || trying;
-        const level = debug ? 'debug' : 'warn'; // there is no 'mayExclude'
-        log[level](`Malformed requirement for '${d.alias}'`, [record.file]);
-        return false;
-      }
+        d = detector.visitorUseSCWD(node) as unknown as Derivative;
 
-      d = detector.visitorUseSCWD(node) as unknown as Derivative;
+        if (d) {
+          // there is no 'mustExclude'
+          const level = 'debug'; // there is no 'mayExclude'
+          log[level](`Path.resolve(${d.alias}) is ambiguous`, [
+            record.file,
+            "It resolves relatively to 'process.cwd' by default, however",
+            "you may want to use 'path.dirname(require.main.filename)'",
+          ]);
 
-      if (d) {
-        // there is no 'mustExclude'
-        const level = 'debug'; // there is no 'mayExclude'
-        log[level](`Path.resolve(${d.alias}) is ambiguous`, [
-          record.file,
-          "It resolves relatively to 'process.cwd' by default, however",
-          "you may want to use 'path.dirname(require.main.filename)'",
-        ]);
+          return false;
+        }
 
-        return false;
-      }
-
-      return true; // can i go inside?
-    });
+        return true; // can i go inside?
+      },
+      record.file,
+    );
   } catch (error) {
     log.error((error as Error).message, record.file);
     throw wasReported((error as Error).message);
@@ -880,6 +888,32 @@ class Walker {
       }
     }
 
+    // Add all discovered package.json files, not just the one determined by the double-resolution logic
+    // This is necessary because ESM resolution may bypass the standard packageFilter mechanism
+    // However, only include package.json files that are either:
+    // 1. Inside node_modules (dependencies)
+    // 2. Inside the base directory of the current marker (application being packaged)
+    // This prevents including pkg's own package.json when used from source
+    for (const newPackage of newPackages) {
+      if (newPackage.marker) {
+        const file = newPackage.packageJson;
+        const isInNodeModules = file.includes(
+          `${path.sep}node_modules${path.sep}`,
+        );
+        const isInMarkerBase = marker.base && file.startsWith(marker.base);
+
+        if (isInNodeModules || isInMarkerBase) {
+          await this.appendBlobOrContent({
+            file,
+            marker: newPackage.marker,
+            store: STORE_CONTENT,
+            reason: record.file,
+          });
+        }
+      }
+    }
+
+    // Keep the original logic for determining the marker for the resolved file
     if (newPackageForNewRecords) {
       if (strictVerify) {
         assert(
@@ -887,12 +921,6 @@ class Walker {
             normalizePath(newPackageForNewRecords.packageJson),
         );
       }
-      await this.appendBlobOrContent({
-        file: newPackageForNewRecords.packageJson,
-        marker: newPackageForNewRecords.marker,
-        store: STORE_CONTENT,
-        reason: record.file,
-      });
     }
 
     await this.appendBlobOrContent({
@@ -968,13 +996,122 @@ class Walker {
       }
     }
 
-    if (store === STORE_BLOB || this.hasPatch(record)) {
+    if (
+      store === STORE_BLOB ||
+      (store === STORE_CONTENT && isPackageJson(record.file)) ||
+      this.hasPatch(record)
+    ) {
       if (!record.body) {
         await stepRead(record);
         this.stepPatch(record);
 
         if (store === STORE_BLOB) {
           stepStrip(record);
+        }
+      }
+
+      // Patch package.json files to add synthetic main field if needed
+      if (
+        store === STORE_CONTENT &&
+        isPackageJson(record.file) &&
+        record.body
+      ) {
+        try {
+          const pkgContent = JSON.parse(record.body.toString('utf8'));
+          let modified = false;
+
+          // If package has exports but no main, add a synthetic main field
+          if (pkgContent.exports && !pkgContent.main) {
+            // Try to get main from marker.config first (set by catchPackageFilter in follow.ts)
+            if (marker.config?.main) {
+              pkgContent.main = marker.config.main;
+              modified = true;
+            } else {
+              // Fallback: try to infer main from exports field
+              const { exports } = pkgContent;
+              if (typeof exports === 'string') {
+                pkgContent.main = exports;
+                modified = true;
+              } else if (exports && typeof exports === 'object') {
+                // Handle conditional exports
+                if (exports['.']) {
+                  if (typeof exports['.'] === 'string') {
+                    pkgContent.main = exports['.'];
+                    modified = true;
+                  } else if (typeof exports['.'] === 'object') {
+                    // Try to get the best entry point for CJS
+                    // Prefer: require > node > default
+                    let mainEntry: string | undefined;
+
+                    if (
+                      typeof exports['.'].require === 'string' &&
+                      exports['.'].require
+                    ) {
+                      mainEntry = exports['.'].require;
+                    } else if (
+                      typeof exports['.'].node === 'string' &&
+                      exports['.'].node
+                    ) {
+                      mainEntry = exports['.'].node;
+                    } else if (
+                      typeof exports['.'].default === 'string' &&
+                      exports['.'].default
+                    ) {
+                      mainEntry = exports['.'].default;
+                    }
+
+                    if (mainEntry) {
+                      pkgContent.main = mainEntry;
+                      modified = true;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // If package has "type": "module", we need to change it to "commonjs"
+          // because we transform all ESM files to CJS before bytecode compilation
+          if (pkgContent.type === 'module') {
+            pkgContent.type = 'commonjs';
+            modified = true;
+          }
+
+          // Only rewrite if we made changes
+          if (modified) {
+            record.body = Buffer.from(
+              JSON.stringify(pkgContent, null, 2),
+              'utf8',
+            );
+          }
+        } catch (error) {
+          // Ignore JSON parsing errors
+        }
+      }
+
+      // Transform ESM to CJS before bytecode compilation
+      // Check all JS-like files (.js, .mjs, .cjs) but only transform ESM ones
+      if (
+        store === STORE_BLOB &&
+        record.body &&
+        (isDotJS(record.file) || record.file.endsWith('.mjs'))
+      ) {
+        if (isESMFile(record.file)) {
+          try {
+            const result = transformESMtoCJS(
+              record.body.toString('utf8'),
+              record.file,
+            );
+            if (result.isTransformed) {
+              record.body = Buffer.from(result.code, 'utf8');
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            throw new Error(
+              `Failed to transform ESM module to CJS for file "${record.file}": ${message}`,
+            );
+          }
         }
       }
 

@@ -17,6 +17,8 @@ if (target === 'host') target = host;
 // ( the env variable FLAVOR takes precedence over the second argument passed to this main.js file)
 
 const flavor = process.env.FLAVOR || process.argv[3] || 'all';
+// If a 4th argument is provided and flavor is not a test name, use the 4th argument as test filter
+const testFilter = process.argv[4] || (flavor.match(/^test/) ? flavor : null);
 
 const isCI = process.env.CI === 'true';
 
@@ -57,12 +59,16 @@ const ignore = [];
 
 // test that should be run on `host` target only
 const npmTests = [
+  'test-01-hybrid-esm',
   'test-42-fetch-all',
   'test-46-multi-arch',
   'test-46-multi-arch-2',
   // 'test-79-npm', // TODO: fix this test
   'test-10-pnpm',
   'test-11-pnpm',
+  'test-50-aedes-esm',
+  'test-50-esm-pure',
+  'test-50-uuid-v10',
   'test-80-compression-node-opcua',
   'test-99-#1135',
   'test-99-#1191',
@@ -70,8 +76,8 @@ const npmTests = [
   'test-00-sea',
 ];
 
-if (flavor.match(/^test/)) {
-  list.push(joinAndForward(`${flavor}/main.js`));
+if (testFilter) {
+  list.push(joinAndForward(`${testFilter}/main.js`));
 } else if (flavor === 'only-npm') {
   npmTests.forEach((t) => {
     list.push(joinAndForward(`${t}/main.js`));
@@ -152,7 +158,12 @@ function runTest(file) {
 }
 
 const clearLastLine = () => {
-  if (isCI) return;
+  if (
+    isCI ||
+    !process.stdout.isTTY ||
+    typeof process.stdout.moveCursor !== 'function'
+  )
+    return;
   process.stdout.moveCursor(0, -1); // up one line
   process.stdout.clearLine(1); // from cursor to end
 };
@@ -176,7 +187,7 @@ async function run() {
     file = path.resolve(file);
     const startTest = Date.now();
     try {
-      if (!isCI) {
+      if (!isCI && process.stdout.isTTY) {
         console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
       }
       await runTest(file);
@@ -230,13 +241,27 @@ async function run() {
   }
 }
 
-function cleanup() {
+let isExiting = false;
+
+function cleanup(signal) {
+  if (isExiting) return;
+  isExiting = true;
+
+  console.log(`\n\nReceived ${signal}, cleaning up...`);
+
   for (const process of activeProcesses) {
-    process.kill();
+    try {
+      process.kill('SIGTERM');
+    } catch (error) {
+      // Ignore errors when killing processes
+    }
   }
+
+  // Exit immediately
+  process.exit(130); // 128 + SIGINT(2) = 130
 }
 
-process.on('SIGINT', cleanup);
-process.on('SIGTERM', cleanup);
+process.on('SIGINT', () => cleanup('SIGINT'));
+process.on('SIGTERM', () => cleanup('SIGTERM'));
 
 run();

@@ -264,3 +264,93 @@ export function toNormalizedRealPath(requestPath: string) {
 
   return file;
 }
+
+/**
+ * Find the nearest package.json file by walking up the directory tree
+ * @param filePath - Starting file path
+ * @returns Path to package.json or null if not found
+ */
+function findNearestPackageJson(filePath: string): string | null {
+  let dir = path.dirname(filePath);
+  const { root } = path.parse(dir);
+
+  while (dir !== root) {
+    const packageJsonPath = path.join(dir, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      return packageJsonPath;
+    }
+    dir = path.dirname(dir);
+  }
+
+  return null;
+}
+
+// Caches for ESM detection performance optimization
+const packageJsonCache = new Map<string, string | null>();
+const esmPackageCache = new Map<string, boolean>();
+
+/**
+ * Check if a package.json indicates an ESM package
+ * @param packageJsonPath - Path to package.json
+ * @returns true if "type": "module" is set
+ */
+export function isESMPackage(packageJsonPath: string): boolean {
+  // Check cache first
+  if (esmPackageCache.has(packageJsonPath)) {
+    return esmPackageCache.get(packageJsonPath)!;
+  }
+
+  try {
+    const content = fs.readFileSync(packageJsonPath, 'utf8');
+    const pkg = JSON.parse(content);
+    const result = pkg.type === 'module';
+    esmPackageCache.set(packageJsonPath, result);
+    return result;
+  } catch {
+    esmPackageCache.set(packageJsonPath, false);
+    return false;
+  }
+}
+
+/**
+ * Determine if a file should be treated as ESM
+ * Based on file extension and nearest package.json "type" field
+ *
+ * @param filePath - The file path to check
+ * @returns true if file should be treated as ESM
+ */
+export function isESMFile(filePath: string): boolean {
+  // .mjs files are always ESM
+  if (filePath.endsWith('.mjs')) {
+    return true;
+  }
+
+  // .cjs files are never ESM
+  if (filePath.endsWith('.cjs')) {
+    return false;
+  }
+
+  // For .js files, check nearest package.json for "type": "module"
+  if (filePath.endsWith('.js')) {
+    const dir = path.dirname(filePath);
+
+    // Check cache first
+    if (packageJsonCache.has(dir)) {
+      const cached = packageJsonCache.get(dir);
+      if (cached) {
+        return isESMPackage(cached);
+      }
+      return false;
+    }
+
+    // Compute and cache
+    const packageJsonPath = findNearestPackageJson(filePath);
+    packageJsonCache.set(dir, packageJsonPath);
+
+    if (packageJsonPath) {
+      return isESMPackage(packageJsonPath);
+    }
+  }
+
+  return false;
+}
