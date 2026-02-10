@@ -100,6 +100,19 @@ export function isDotNODE(file: string) {
   return path.extname(file) === '.node';
 }
 
+export function unlikelyJavascript(file: string): boolean {
+  const ext = path.extname(file);
+  // Check single extensions
+  if (['.css', '.html', '.json', '.vue'].includes(ext)) {
+    return true;
+  }
+  // Check for .d.ts files (compound extension)
+  if (file.endsWith('.d.ts')) {
+    return true;
+  }
+  return false;
+}
+
 function replaceSlashes(file: string, slash: string) {
   if (/^.:\\/.test(file)) {
     if (slash === '/') {
