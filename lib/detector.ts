@@ -80,8 +80,8 @@ function reconstructSpecifiers(
 }
 
 function reconstruct(node: babelTypes.Node) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let v = generate(node as any, { comments: false }).code.replace(/\n/g, '');
+  // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__generator
+  let v = generate(node, { comments: false }).code.replace(/\n/g, '');
   let v2;
 
   while (true) {
