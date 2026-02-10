@@ -980,7 +980,7 @@ class Walker {
 
     if (
       store === STORE_BLOB ||
-      store === STORE_CONTENT ||
+      (store === STORE_CONTENT && isPackageJson(record.file)) ||
       this.hasPatch(record)
     ) {
       if (!record.body) {
@@ -1059,12 +1059,20 @@ class Walker {
         (isDotJS(record.file) || record.file.endsWith('.mjs'))
       ) {
         if (isESMFile(record.file)) {
-          const result = transformESMtoCJS(
-            record.body.toString('utf8'),
-            record.file,
-          );
-          if (result.isTransformed) {
-            record.body = Buffer.from(result.code, 'utf8');
+          try {
+            const result = transformESMtoCJS(
+              record.body.toString('utf8'),
+              record.file,
+            );
+            if (result.isTransformed) {
+              record.body = Buffer.from(result.code, 'utf8');
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            throw new Error(
+              `Failed to transform ESM module to CJS for file "${record.file}": ${message}`,
+            );
           }
         }
       }

@@ -2,7 +2,7 @@ import { sync as resolveSync } from 'resolve';
 import { exports as resolveExports } from 'resolve.exports';
 import fs from 'fs';
 import path from 'path';
-import { isESMPackage } from './common';
+import { isESMFile } from './common';
 import { log } from './log';
 
 import type { PackageJson } from './types';
@@ -53,9 +53,9 @@ function resolveWithExports(
     }
 
     // Use resolve.exports to handle the exports field
-    // For pkg's context, we're bundling CJS code, so prioritize 'require' condition
+    // Try 'import' first to support ESM-only packages, fall back to 'require' for CJS
     const resolved = resolveExports(pkgAny, subpath, {
-      conditions: ['node', 'require', 'default'],
+      conditions: ['node', 'import', 'require', 'default'],
       unsafe: true, // Allow non-standard patterns
     });
 
@@ -145,13 +145,10 @@ export function resolveModule(
   // First, try ESM-style resolution with exports field
   const esmResolved = tryResolveESM(specifier, basedir);
   if (esmResolved) {
-    // Find the package.json for this resolved module
-    const dir = path.dirname(esmResolved);
-    const packageJsonPath = path.join(dir, 'package.json');
-
+    // Use isESMFile which walks up to find the correct package.json
     return {
       resolved: esmResolved,
-      isESM: isESMPackage(packageJsonPath),
+      isESM: isESMFile(esmResolved),
     };
   }
 
