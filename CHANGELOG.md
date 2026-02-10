@@ -1,3 +1,18 @@
+## [6.13.0](https://github.com/yao-pkg/pkg/compare/v6.12.0...v6.13.0) (2026-02-10)
+
+### Features
+
+- detect and warn about unsupported ESM features ([#202](https://github.com/yao-pkg/pkg/issues/202)) ([40e71c6](https://github.com/yao-pkg/pkg/commit/40e71c656d7d81ca454febe6617e79c6fcf3c52a))
+- esm support ([#192](https://github.com/yao-pkg/pkg/issues/192)) ([45cbc2c](https://github.com/yao-pkg/pkg/commit/45cbc2ca7f0f93a7dc3c90535b949a28ebdb294f))
+
+### Bug Fixes
+
+- bump tar to 7.5.6 to fix security vulnerabilities ([#200](https://github.com/yao-pkg/pkg/issues/200)) ([1f160ac](https://github.com/yao-pkg/pkg/commit/1f160ac8c06c483f9555878741496b1b0730d6a1))
+
+### Chores
+
+- change tsconfig target to es2022 ([#198](https://github.com/yao-pkg/pkg/issues/198)) ([b72fee9](https://github.com/yao-pkg/pkg/commit/b72fee9ae4158ad23ccd132e44e373429aaaabb7))
+
 ## [6.12.0](https://github.com/yao-pkg/pkg/compare/v6.11.0...v6.12.0) (2026-01-15)
 
 ### Features
