@@ -97,7 +97,7 @@ function isBuiltin(moduleName: string) {
 }
 
 function unlikelyJavascript(file: string) {
-  return ['.css', '.html', '.json', '.vue'].includes(path.extname(file));
+  return ['.css', '.html', '.json', '.vue', '.d.ts'].includes(path.extname(file));
 }
 
 function isPublic(config: PackageJson) {
@@ -319,7 +319,7 @@ function stepDetect(
       }
 
       return true; // can i go inside?
-    });
+    }, record.file);
   } catch (error) {
     log.error((error as Error).message, record.file);
     throw wasReported((error as Error).message);
