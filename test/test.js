@@ -59,12 +59,16 @@ const ignore = [];
 
 // test that should be run on `host` target only
 const npmTests = [
+  'test-01-hybrid-esm',
   'test-42-fetch-all',
   'test-46-multi-arch',
   'test-46-multi-arch-2',
   // 'test-79-npm', // TODO: fix this test
   'test-10-pnpm',
   'test-11-pnpm',
+  'test-50-aedes-esm',
+  'test-50-esm-pure',
+  'test-50-uuid-v10',
   'test-80-compression-node-opcua',
   'test-99-#1135',
   'test-99-#1191',
@@ -154,7 +158,12 @@ function runTest(file) {
 }
 
 const clearLastLine = () => {
-  if (isCI) return;
+  if (
+    isCI ||
+    !process.stdout.isTTY ||
+    typeof process.stdout.moveCursor !== 'function'
+  )
+    return;
   process.stdout.moveCursor(0, -1); // up one line
   process.stdout.clearLine(1); // from cursor to end
 };
@@ -178,7 +187,7 @@ async function run() {
     file = path.resolve(file);
     const startTest = Date.now();
     try {
-      if (!isCI) {
+      if (!isCI && process.stdout.isTTY) {
         console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
       }
       await runTest(file);
