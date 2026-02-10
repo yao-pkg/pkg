@@ -161,7 +161,8 @@ const clearLastLine = () => {
   if (
     isCI ||
     !process.stdout.isTTY ||
-    typeof process.stdout.moveCursor !== 'function'
+    typeof process.stdout.moveCursor !== 'function' ||
+    typeof process.stdout.clearLine !== 'function'
   )
     return;
   process.stdout.moveCursor(0, -1); // up one line
