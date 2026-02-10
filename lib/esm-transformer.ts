@@ -1,5 +1,7 @@
-import * as babel from '@babel/core';
+import * as babel from '@babel/parser';
+import * as babelTypes from '@babel/types';
 import traverse, { NodePath } from '@babel/traverse';
+import * as esbuild from 'esbuild';
 import { log } from './log';
 import { unlikelyJavascript } from './common';
 
@@ -29,8 +31,7 @@ function detectUnsupportedESMFeatures(
   filename: string,
 ): UnsupportedFeature[] | null {
   try {
-    const ast = babel.parseSync(code, {
-      filename,
+    const ast = babel.parse(code, {
       sourceType: 'module',
       plugins: [],
     });
@@ -41,6 +42,7 @@ function detectUnsupportedESMFeatures(
 
     const unsupportedFeatures: UnsupportedFeature[] = [];
 
+    // @ts-ignore - Type mismatch between @babel/parser and @babel/traverse
     traverse(ast, {
       // Detect import.meta usage
       MetaProperty(path) {
@@ -129,8 +131,9 @@ function detectUnsupportedESMFeatures(
 }
 
 /**
- * Transform ESM code to CommonJS using Babel
+ * Transform ESM code to CommonJS using esbuild
  * This allows ESM modules to be compiled to bytecode via vm.Script
+ * Uses Babel parser for detecting unsupported ESM features, then esbuild for fast transformation
  *
  * @param code - The ESM source code to transform
  * @param filename - The filename for error reporting
@@ -183,29 +186,17 @@ export function transformESMtoCJS(
   }
 
   try {
-    const result = babel.transformSync(code, {
-      filename,
-      plugins: [
-        [
-          '@babel/plugin-transform-modules-commonjs',
-          {
-            strictMode: true,
-            allowTopLevelThis: true,
-          },
-        ],
-      ],
-      sourceMaps: false,
-      compact: false,
-      // Don't modify other syntax, only transform import/export
-      presets: [],
-      // Prevent Babel from loading user config files
-      babelrc: false,
-      configFile: false,
-      sourceType: 'module',
+    const result = esbuild.transformSync(code, {
+      loader: 'js',
+      format: 'cjs',
+      target: 'node18',
+      sourcemap: false,
+      minify: false,
+      keepNames: true,
     });
 
     if (!result || !result.code) {
-      log.warn(`Babel transform returned no code for ${filename}`);
+      log.warn(`esbuild transform returned no code for ${filename}`);
       return {
         code,
         isTransformed: false,
