@@ -80,7 +80,8 @@ function reconstructSpecifiers(
 }
 
 function reconstruct(node: babelTypes.Node) {
-  let v = generate(node, { comments: false }).code.replace(/\n/g, '');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let v = generate(node as any, { comments: false }).code.replace(/\n/g, '');
   let v2;
 
   while (true) {

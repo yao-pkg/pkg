@@ -1,5 +1,4 @@
 import * as babel from '@babel/parser';
-import * as babelTypes from '@babel/types';
 import traverse, { NodePath } from '@babel/traverse';
 import * as esbuild from 'esbuild';
 import { log } from './log';
@@ -42,10 +41,11 @@ function detectUnsupportedESMFeatures(
 
     const unsupportedFeatures: UnsupportedFeature[] = [];
 
-    // @ts-ignore - Type mismatch between @babel/parser and @babel/traverse
-    traverse(ast, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    traverse(ast as any, {
       // Detect import.meta usage
-      MetaProperty(path) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      MetaProperty(path: any) {
         if (
           path.node.meta.name === 'import' &&
           path.node.property.name === 'meta'
@@ -59,7 +59,8 @@ function detectUnsupportedESMFeatures(
       },
 
       // Detect top-level await
-      AwaitExpression(path) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      AwaitExpression(path: any) {
         // Check if await is at top level (not inside a function)
         let parent: NodePath | null = path.parentPath;
         let isTopLevel = true;
@@ -88,7 +89,8 @@ function detectUnsupportedESMFeatures(
       },
 
       // Detect for-await-of at top level
-      ForOfStatement(path) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ForOfStatement(path: any) {
         if (path.node.await) {
           let parent: NodePath | null = path.parentPath;
           let isTopLevel = true;
