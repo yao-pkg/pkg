@@ -1024,7 +1024,6 @@ class Walker {
           );
           if (result.isTransformed) {
             record.body = Buffer.from(result.code, 'utf8');
-            log.debug(`Transformed ESM to CJS: ${record.file}`);
           }
         }
       }
