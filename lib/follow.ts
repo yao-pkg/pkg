@@ -46,9 +46,7 @@ function isValidPackageName(specifier: string): boolean {
     const parts = specifier.split('/');
     if (parts.length < 2) return false;
     // Scope must start with @ and both parts must be valid
-    return (
-      /^@[a-z0-9_.-]+$/.test(parts[0]) && /^[a-z0-9_.-]+$/.test(parts[1])
-    );
+    return /^@[a-z0-9_.-]+$/.test(parts[0]) && /^[a-z0-9_.-]+$/.test(parts[1]);
   }
 
   // Regular package: must be lowercase with allowed characters
