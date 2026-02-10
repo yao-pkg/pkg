@@ -45,6 +45,7 @@ right = utils.spawn.sync('./' + path.basename(output), [], {
 });
 
 // Verify packaged version works
+// Note: UUID v7 generates time-based UUIDs, so we need to normalize before comparing
 if (left.trim() === 'Expected ESM error occurred') {
   // Packaged version should work and produce 'ok'
   assert.strictEqual(right, 'ok\n', 'Packaged version should output ok');
@@ -52,10 +53,18 @@ if (left.trim() === 'Expected ESM error occurred') {
     '✅ Test passed! pkg successfully transformed and packaged ESM module',
   );
 } else {
-  // If node worked, both should produce 'ok'
-  assert.strictEqual(left, 'ok\n');
-  assert.strictEqual(right, 'ok\n');
-  console.log('✅ Test passed!');
+  // If node worked, normalize outputs (remove dynamic UUIDs) before comparing
+  const normalizeOutput = (str) =>
+    str.replace(
+      /UUID v7: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
+      'UUID v7',
+    );
+
+  const normalizedLeft = normalizeOutput(left);
+  const normalizedRight = normalizeOutput(right);
+
+  assert.strictEqual(normalizedLeft, normalizedRight, 'Outputs should match');
+  console.log('✅ Test passed! Both node and pkg produced the same output');
 }
 
 // Cleanup

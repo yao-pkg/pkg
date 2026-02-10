@@ -1000,11 +1000,47 @@ class Walker {
       ) {
         try {
           const pkgContent = JSON.parse(record.body.toString('utf8'));
+          let modified = false;
 
-          // If package has exports but no main, and marker has a config with main
-          // (added by catchPackageFilter in follow.ts), use that
-          if (pkgContent.exports && !pkgContent.main && marker.config?.main) {
-            pkgContent.main = marker.config.main;
+          // If package has exports but no main, add a synthetic main field
+          if (pkgContent.exports && !pkgContent.main) {
+            // Try to get main from marker.config first (set by catchPackageFilter in follow.ts)
+            if (marker.config?.main) {
+              pkgContent.main = marker.config.main;
+              modified = true;
+            } else {
+              // Fallback: try to infer main from exports field
+              const { exports } = pkgContent;
+              if (typeof exports === 'string') {
+                pkgContent.main = exports;
+                modified = true;
+              } else if (exports && typeof exports === 'object') {
+                // Handle conditional exports
+                if (exports['.']) {
+                  if (typeof exports['.'] === 'string') {
+                    pkgContent.main = exports['.'];
+                    modified = true;
+                  } else if (exports['.'].node) {
+                    pkgContent.main = exports['.'].node;
+                    modified = true;
+                  } else if (exports['.'].default) {
+                    pkgContent.main = exports['.'].default;
+                    modified = true;
+                  }
+                }
+              }
+            }
+          }
+
+          // If package has "type": "module", we need to change it to "commonjs"
+          // because we transform all ESM files to CJS before bytecode compilation
+          if (pkgContent.type === 'module') {
+            pkgContent.type = 'commonjs';
+            modified = true;
+          }
+
+          // Only rewrite if we made changes
+          if (modified) {
             record.body = Buffer.from(
               JSON.stringify(pkgContent, null, 2),
               'utf8',

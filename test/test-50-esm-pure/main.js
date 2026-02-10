@@ -70,7 +70,7 @@ try {
 }
 
 // Verify packaged version works
-// Note: We can't compare with node output since node fails with ESM
+// Note: nanoid generates random IDs, so we need to normalize before comparing
 if (left.trim() === 'Expected ESM error occurred') {
   // Packaged version should work and produce output
   assert(
@@ -82,9 +82,15 @@ if (left.trim() === 'Expected ESM error occurred') {
     '✅ Test passed! pkg successfully transformed and packaged ESM module',
   );
 } else {
-  // If node worked, outputs should match
-  assert.strictEqual(left, right, 'Outputs should match');
-  console.log('✅ Test passed!');
+  // If node worked, normalize outputs (remove dynamic IDs) before comparing
+  const normalizeOutput = (str) =>
+    str.replace(/Generated ID: [A-Za-z0-9_-]+/g, 'Generated ID');
+
+  const normalizedLeft = normalizeOutput(left);
+  const normalizedRight = normalizeOutput(right);
+
+  assert.strictEqual(normalizedLeft, normalizedRight, 'Outputs should match');
+  console.log('✅ Test passed! Both node and pkg produced the same output');
 }
 
 utils.vacuum.sync(path.dirname(output));
