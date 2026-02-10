@@ -1032,12 +1032,32 @@ class Walker {
                   if (typeof exports['.'] === 'string') {
                     pkgContent.main = exports['.'];
                     modified = true;
-                  } else if (exports['.'].node) {
-                    pkgContent.main = exports['.'].node;
-                    modified = true;
-                  } else if (exports['.'].default) {
-                    pkgContent.main = exports['.'].default;
-                    modified = true;
+                  } else if (typeof exports['.'] === 'object') {
+                    // Try to get the best entry point for CJS
+                    // Prefer: require > node > default
+                    let mainEntry: string | undefined;
+
+                    if (
+                      typeof exports['.'].require === 'string' &&
+                      exports['.'].require
+                    ) {
+                      mainEntry = exports['.'].require;
+                    } else if (
+                      typeof exports['.'].node === 'string' &&
+                      exports['.'].node
+                    ) {
+                      mainEntry = exports['.'].node;
+                    } else if (
+                      typeof exports['.'].default === 'string' &&
+                      exports['.'].default
+                    ) {
+                      mainEntry = exports['.'].default;
+                    }
+
+                    if (mainEntry) {
+                      pkgContent.main = mainEntry;
+                      modified = true;
+                    }
                   }
                 }
               }

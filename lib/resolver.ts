@@ -53,11 +53,18 @@ function resolveWithExports(
     }
 
     // Use resolve.exports to handle the exports field
-    // For pkg's context, we're bundling CJS code, so use 'require' condition
-    // This will add 'require', 'node', and 'default' conditions automatically
-    const resolved = resolveExports(pkgAny, subpath, {
-      require: true, // Use 'require' condition instead of 'import'
+    // For pkg's context, we're bundling CJS code, so try 'require' condition first
+    // Then fallback to 'import' for ESM-only packages
+    let resolved = resolveExports(pkgAny, subpath, {
+      require: true, // Try require first
     });
+
+    // Fallback to import condition for ESM-only packages
+    if (!resolved) {
+      resolved = resolveExports(pkgAny, subpath, {
+        require: false, // This enables import condition
+      });
+    }
 
     if (resolved) {
       // resolved can be a string or array
@@ -105,21 +112,26 @@ function tryResolveESM(specifier: string, basedir: string): string | null {
       }
     }
 
-    // Find package root by walking up from basedir
-    let currentDir = basedir;
-    const { root } = path.parse(currentDir);
+    // Use resolveSync to find the package root (works with pnpm and other layouts)
+    // Try to resolve the package.json to get the package root
+    try {
+      const pkgJsonPath = resolveSync(
+        path.join(packageName, 'package.json'),
+        {
+          basedir,
+          preserveSymlinks: false,
+        },
+      );
 
-    while (currentDir !== root) {
-      const packageRoot = path.join(currentDir, 'node_modules', packageName);
-      if (fs.existsSync(packageRoot)) {
-        // Try to resolve with exports field
-        const resolved = resolveWithExports(packageName, subpath, packageRoot);
-        if (resolved) {
-          return resolved;
-        }
+      const packageRoot = path.dirname(pkgJsonPath);
+
+      // Try to resolve with exports field
+      const resolved = resolveWithExports(packageName, subpath, packageRoot);
+      if (resolved) {
+        return resolved;
       }
-
-      currentDir = path.dirname(currentDir);
+    } catch {
+      // If package.json resolution fails, fall through to return null
     }
 
     return null;

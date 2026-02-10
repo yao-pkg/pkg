@@ -9,7 +9,6 @@ try {
   console.log(`Generated ID: ${id}`);
   console.log('ok');
 } catch (error) {
-  console.error('Error:', error.message);
   // Expected error for pure ESM: "require() of ES Module ... not supported"
   if (
     error.message.includes('not supported') ||
@@ -18,5 +17,7 @@ try {
     console.log('Expected ESM error occurred');
     process.exit(0);
   }
+  // Only write error if it's an unexpected error
+  console.error('Error:', error.message);
   throw error;
 }
