@@ -1,5 +1,7 @@
-import * as babel from '@babel/core';
+import * as babel from '@babel/parser';
 import traverse, { NodePath } from '@babel/traverse';
+import * as t from '@babel/types';
+import * as esbuild from 'esbuild';
 import { log } from './log';
 import { unlikelyJavascript } from './common';
 
@@ -29,8 +31,7 @@ function detectUnsupportedESMFeatures(
   filename: string,
 ): UnsupportedFeature[] | null {
   try {
-    const ast = babel.parseSync(code, {
-      filename,
+    const ast = babel.parse(code, {
       sourceType: 'module',
       plugins: [],
     });
@@ -41,9 +42,10 @@ function detectUnsupportedESMFeatures(
 
     const unsupportedFeatures: UnsupportedFeature[] = [];
 
-    traverse(ast, {
+    // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
+    traverse(ast as t.File, {
       // Detect import.meta usage
-      MetaProperty(path) {
+      MetaProperty(path: NodePath<t.MetaProperty>) {
         if (
           path.node.meta.name === 'import' &&
           path.node.property.name === 'meta'
@@ -57,7 +59,7 @@ function detectUnsupportedESMFeatures(
       },
 
       // Detect top-level await
-      AwaitExpression(path) {
+      AwaitExpression(path: NodePath<t.AwaitExpression>) {
         // Check if await is at top level (not inside a function)
         let parent: NodePath | null = path.parentPath;
         let isTopLevel = true;
@@ -86,7 +88,7 @@ function detectUnsupportedESMFeatures(
       },
 
       // Detect for-await-of at top level
-      ForOfStatement(path) {
+      ForOfStatement(path: NodePath<t.ForOfStatement>) {
         if (path.node.await) {
           let parent: NodePath | null = path.parentPath;
           let isTopLevel = true;
@@ -129,8 +131,9 @@ function detectUnsupportedESMFeatures(
 }
 
 /**
- * Transform ESM code to CommonJS using Babel
+ * Transform ESM code to CommonJS using esbuild
  * This allows ESM modules to be compiled to bytecode via vm.Script
+ * Uses Babel parser for detecting unsupported ESM features, then esbuild for fast transformation
  *
  * @param code - The ESM source code to transform
  * @param filename - The filename for error reporting
@@ -183,29 +186,17 @@ export function transformESMtoCJS(
   }
 
   try {
-    const result = babel.transformSync(code, {
-      filename,
-      plugins: [
-        [
-          '@babel/plugin-transform-modules-commonjs',
-          {
-            strictMode: true,
-            allowTopLevelThis: true,
-          },
-        ],
-      ],
-      sourceMaps: false,
-      compact: false,
-      // Don't modify other syntax, only transform import/export
-      presets: [],
-      // Prevent Babel from loading user config files
-      babelrc: false,
-      configFile: false,
-      sourceType: 'module',
+    const result = esbuild.transformSync(code, {
+      loader: 'js',
+      format: 'cjs',
+      target: 'node18',
+      sourcemap: false,
+      minify: false,
+      keepNames: true,
     });
 
     if (!result || !result.code) {
-      log.warn(`Babel transform returned no code for ${filename}`);
+      log.warn(`esbuild transform returned no code for ${filename}`);
       return {
         code,
         isTransformed: false,
