@@ -97,7 +97,9 @@ function isBuiltin(moduleName: string) {
 }
 
 function unlikelyJavascript(file: string) {
-  return ['.css', '.html', '.json', '.vue', '.d.ts'].includes(path.extname(file));
+  return ['.css', '.html', '.json', '.vue', '.d.ts'].includes(
+    path.extname(file),
+  );
 }
 
 function isPublic(config: PackageJson) {
@@ -260,66 +262,70 @@ function stepDetect(
   }
 
   try {
-    detector.detect(body, (node, trying) => {
-      const { toplevel } = marker;
-      let d = detector.visitorSuccessful(node) as unknown as Derivative;
+    detector.detect(
+      body,
+      (node, trying) => {
+        const { toplevel } = marker;
+        let d = detector.visitorSuccessful(node) as unknown as Derivative;
 
-      if (d) {
-        if (d.mustExclude) {
+        if (d) {
+          if (d.mustExclude) {
+            return false;
+          }
+
+          d.mayExclude = d.mayExclude || trying;
+          derivatives.push(d);
+
           return false;
         }
 
-        d.mayExclude = d.mayExclude || trying;
-        derivatives.push(d);
+        d = detector.visitorNonLiteral(node) as unknown as Derivative;
 
-        return false;
-      }
+        if (d) {
+          if (typeof d === 'object' && d.mustExclude) {
+            return false;
+          }
 
-      d = detector.visitorNonLiteral(node) as unknown as Derivative;
-
-      if (d) {
-        if (typeof d === 'object' && d.mustExclude) {
+          const debug = !toplevel || d.mayExclude || trying;
+          const level = debug ? 'debug' : 'warn';
+          log[level](`Cannot resolve '${d.alias}'`, [
+            record.file,
+            'Dynamic require may fail at run time, because the requested file',
+            'is unknown at compilation time and not included into executable.',
+            "Use a string literal as an argument for 'require', or leave it",
+            "as is and specify the resolved file name in 'scripts' option.",
+          ]);
           return false;
         }
 
-        const debug = !toplevel || d.mayExclude || trying;
-        const level = debug ? 'debug' : 'warn';
-        log[level](`Cannot resolve '${d.alias}'`, [
-          record.file,
-          'Dynamic require may fail at run time, because the requested file',
-          'is unknown at compilation time and not included into executable.',
-          "Use a string literal as an argument for 'require', or leave it",
-          "as is and specify the resolved file name in 'scripts' option.",
-        ]);
-        return false;
-      }
+        d = detector.visitorMalformed(node) as unknown as Derivative;
 
-      d = detector.visitorMalformed(node) as unknown as Derivative;
+        if (d) {
+          // there is no 'mustExclude'
+          const debug = !toplevel || trying;
+          const level = debug ? 'debug' : 'warn'; // there is no 'mayExclude'
+          log[level](`Malformed requirement for '${d.alias}'`, [record.file]);
+          return false;
+        }
 
-      if (d) {
-        // there is no 'mustExclude'
-        const debug = !toplevel || trying;
-        const level = debug ? 'debug' : 'warn'; // there is no 'mayExclude'
-        log[level](`Malformed requirement for '${d.alias}'`, [record.file]);
-        return false;
-      }
+        d = detector.visitorUseSCWD(node) as unknown as Derivative;
 
-      d = detector.visitorUseSCWD(node) as unknown as Derivative;
+        if (d) {
+          // there is no 'mustExclude'
+          const level = 'debug'; // there is no 'mayExclude'
+          log[level](`Path.resolve(${d.alias}) is ambiguous`, [
+            record.file,
+            "It resolves relatively to 'process.cwd' by default, however",
+            "you may want to use 'path.dirname(require.main.filename)'",
+          ]);
 
-      if (d) {
-        // there is no 'mustExclude'
-        const level = 'debug'; // there is no 'mayExclude'
-        log[level](`Path.resolve(${d.alias}) is ambiguous`, [
-          record.file,
-          "It resolves relatively to 'process.cwd' by default, however",
-          "you may want to use 'path.dirname(require.main.filename)'",
-        ]);
+          return false;
+        }
 
-        return false;
-      }
-
-      return true; // can i go inside?
-    }, record.file);
+        return true; // can i go inside?
+      },
+      record.file,
+    );
   } catch (error) {
     log.error((error as Error).message, record.file);
     throw wasReported((error as Error).message);
