@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es2017",
+    "target": "es2022",
     "module": "commonjs",
     "allowJs": true,
     "declaration": true,
@@ -11,7 +11,8 @@
     "esModuleInterop": true,
     "incremental": true,
     "downlevelIteration": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "skipLibCheck": true
   },
   "include": ["lib/**/*", "typings/**/*"]
 }

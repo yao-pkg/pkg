@@ -1,3 +1,9 @@
+## [6.12.0](https://github.com/yao-pkg/pkg/compare/v6.11.0...v6.12.0) (2026-01-15)
+
+### Features
+
+- bump fetch with node 22.20.0 22.22.0 24.13.0 ([#199](https://github.com/yao-pkg/pkg/issues/199)) ([5807ed2](https://github.com/yao-pkg/pkg/commit/5807ed2fef6d6fc6088261f27968cac83054db83))
+
 ## [6.11.0](https://github.com/yao-pkg/pkg/compare/v6.10.1...v6.11.0) (2025-12-11)
 
 ### Features
