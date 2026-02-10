@@ -145,11 +145,13 @@ export function resolveModule(
   // First, try ESM-style resolution with exports field
   const esmResolved = tryResolveESM(specifier, basedir);
   if (esmResolved) {
+    // Find the package.json for this resolved module
+    const dir = path.dirname(esmResolved);
+    const packageJsonPath = path.join(dir, 'package.json');
+    
     return {
       resolved: esmResolved,
-      isESM: isESMPackage(
-        path.join(path.dirname(esmResolved), '../package.json'),
-      ),
+      isESM: isESMPackage(packageJsonPath),
     };
   }
 
