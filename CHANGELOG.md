@@ -1,3 +1,13 @@
+## [6.13.1](https://github.com/yao-pkg/pkg/compare/v6.13.0...v6.13.1) (2026-02-11)
+
+### Features
+
+- comprehensive ESM support with top-level await and import.meta polyfills ([#206](https://github.com/yao-pkg/pkg/issues/206)) ([332c188](https://github.com/yao-pkg/pkg/commit/332c1881998574d3170707ffcd8407bf3dcdd783)), closes [#208](https://github.com/yao-pkg/pkg/issues/208) [#208](https://github.com/yao-pkg/pkg/issues/208) [#208](https://github.com/yao-pkg/pkg/issues/208) [#208](https://github.com/yao-pkg/pkg/issues/208)
+
+### Bug Fixes
+
+- add import.meta polyfill for ESM to CJS transformation ([#208](https://github.com/yao-pkg/pkg/issues/208)) ([731b014](https://github.com/yao-pkg/pkg/commit/731b014db86107ba00eeee095aef2fcebb752350))
+
 ## [6.13.0](https://github.com/yao-pkg/pkg/compare/v6.12.0...v6.13.0) (2026-02-10)
 
 ### Features
