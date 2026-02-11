@@ -4,6 +4,7 @@
 
 const path = require('path');
 const assert = require('assert');
+const { existsSync } = require('fs');
 const utils = require('../utils.js');
 
 assert(!module.parent);
@@ -11,10 +12,10 @@ assert(__dirname === process.cwd());
 
 const target = process.argv[2] || 'host';
 
-console.log('Testing unsupported ESM features detection...');
+console.log('Testing ESM features detection and transformation...');
 
-// Test 1: import.meta detection
-console.log('\n=== Test 1: import.meta ===');
+// Test 1: import.meta support (should now work without warnings)
+console.log('\n=== Test 1: import.meta support ===');
 {
   const input = './test-import-meta.mjs';
   const output = './run-time/test-import-meta.exe';
@@ -23,19 +24,25 @@ console.log('\n=== Test 1: import.meta ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  // Capture stdout to check for warnings
+  // Capture stdout to check that no warnings are emitted
   const result = utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],
   );
 
-  // Verify warning was emitted
+  // Verify NO warning was emitted (import.meta should now be supported)
   assert(
-    result.includes('import.meta') ||
-      result.includes('Cannot transform ESM module'),
-    'Should warn about import.meta usage',
+    !result.includes('import.meta') &&
+      !result.includes('Cannot transform ESM module'),
+    'Should NOT warn about import.meta usage (it is now supported)',
   );
-  console.log('✓ import.meta detection working');
+
+  // Verify the executable was created
+  assert(existsSync(output), 'Executable should be created successfully');
+
+  console.log(
+    '✓ import.meta support working (no warnings, executable created)',
+  );
 
   // Cleanup
   utils.filesAfter(before, newcomers);
@@ -110,19 +117,26 @@ console.log('\n=== Test 4: multiple unsupported features ===');
     ['inherit', 'pipe', 'inherit'],
   );
 
-  // Verify multiple warnings were emitted
+  // Verify warnings were emitted only for truly unsupported features
   const hasImportMeta = result.includes('import.meta');
   const hasTopLevelAwait = result.includes('top-level await');
   const hasForAwaitOf = result.includes('for-await-of');
   const hasGeneralWarning = result.includes('Cannot transform ESM module');
 
+  // import.meta should NOT trigger a warning anymore (it's now supported)
   assert(
-    hasImportMeta || hasTopLevelAwait || hasForAwaitOf || hasGeneralWarning,
-    'Should warn about multiple unsupported features',
+    !hasImportMeta,
+    'Should NOT warn about import.meta (it is now supported)',
+  );
+
+  // But top-level await and for-await-of should still warn
+  assert(
+    hasTopLevelAwait || hasForAwaitOf || hasGeneralWarning,
+    'Should warn about truly unsupported features (top-level await, for-await-of)',
   );
 
   console.log('✓ Multiple features detection working');
-  console.log('  - import.meta detected:', hasImportMeta);
+  console.log('  - import.meta detected:', hasImportMeta, '(should be false)');
   console.log('  - top-level await detected:', hasTopLevelAwait);
   console.log('  - top-level for-await-of detected:', hasForAwaitOf);
 
@@ -130,4 +144,6 @@ console.log('\n=== Test 4: multiple unsupported features ===');
   utils.filesAfter(before, newcomers);
 }
 
-console.log('\n✅ All unsupported ESM features correctly detected!');
+console.log(
+  '\n✅ All ESM features correctly handled! (import.meta now supported, top-level await/for-await-of still unsupported)',
+);
