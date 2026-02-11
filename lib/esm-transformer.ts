@@ -222,7 +222,6 @@ export function transformESMtoCJS(
       });
 
       let hasExports = false;
-      const importStatements: string[] = [];
       const codeLines = code.split('\n');
       const importLineIndices = new Set<number>();
 
@@ -239,9 +238,10 @@ export function transformESMtoCJS(
         },
         ImportDeclaration(path: NodePath<t.ImportDeclaration>) {
           // Track import statements by line number
-          const loc = path.node.loc;
+          const { loc } = path.node;
           if (loc) {
-            for (let i = loc.start.line; i <= loc.end.line; i++) {
+            const { start, end } = loc;
+            for (let i = start.line; i <= end.line; i += 1) {
               importLineIndices.add(i - 1); // Convert to 0-based index
             }
           }
@@ -277,12 +277,7 @@ export function transformESMtoCJS(
         });
 
         // Reconstruct: imports at top, then async IIFE wrapping the rest
-        codeToTransform =
-          imports.join('\n') +
-          '\n' +
-          ASYNC_IIFE_WRAPPER.prefix +
-          rest.join('\n') +
-          ASYNC_IIFE_WRAPPER.suffix;
+        codeToTransform = `${imports.join('\n')}\n${ASYNC_IIFE_WRAPPER.prefix}${rest.join('\n')}${ASYNC_IIFE_WRAPPER.suffix}`;
 
         log.debug(
           `Wrapping ${filename} in async IIFE with imports extracted to top level`,
