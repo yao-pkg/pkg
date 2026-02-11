@@ -17,7 +17,7 @@ console.log('Testing import.meta support in packaged executables...');
 // Test: Package and run an ESM module that uses import.meta
 console.log('\n=== Test: import.meta properties ===');
 {
-  const input = './test-import-meta-basic.mjs';
+  const input = './test-import-meta-basic.js';
   const output = './run-time/test-import-meta-basic.exe';
   const newcomers = ['run-time/test-import-meta-basic.exe'];
 
