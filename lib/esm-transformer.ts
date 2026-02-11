@@ -211,20 +211,21 @@ export function transformESMtoCJS(
 
   let codeToTransform = code;
 
-  // If top-level await is detected, wrap in async IIFE BEFORE transformation
-  // This is necessary because esbuild cannot transform top-level await to CJS
-  // However, we need to handle export statements specially since they can't be inside a function
+  // If top-level await is detected, we need to wrap in async IIFE
+  // But we must handle imports and exports specially
   if (hasTopLevelAwait) {
     try {
-      // Parse the code to separate exports from other statements
+      // Parse the code to check for exports and collect imports
       const ast = babel.parse(code, {
         sourceType: 'module',
         plugins: [],
       });
 
       let hasExports = false;
+      const importStatements: string[] = [];
+      const codeLines = code.split('\n');
+      const importLineIndices = new Set<number>();
 
-      // Check if there are any export statements
       // @ts-expect-error Type mismatch due to @babel/types version
       traverse(ast as t.File, {
         ExportNamedDeclaration() {
@@ -236,16 +237,25 @@ export function transformESMtoCJS(
         ExportAllDeclaration() {
           hasExports = true;
         },
+        ImportDeclaration(path: NodePath<t.ImportDeclaration>) {
+          // Track import statements by line number
+          const loc = path.node.loc;
+          if (loc) {
+            for (let i = loc.start.line; i <= loc.end.line; i++) {
+              importLineIndices.add(i - 1); // Convert to 0-based index
+            }
+          }
+        },
       });
 
       if (hasExports) {
-        // If the file has exports, we can't easily wrap it in an IIFE
+        // If the file has exports, we can't wrap it in an IIFE
         // because exports need to be synchronous and at the top level.
-        // In this case, log a warning and don't transform
         log.warn(
           `Module ${filename} has both top-level await and export statements. ` +
-            `This combination requires the module to be loaded as source code (not bytecode). ` +
-            `The file will be included as content instead of bytecode.`,
+            `This combination cannot be safely transformed to CommonJS in pkg's ESM transformer. ` +
+            `The original source code will be used as-is; depending on the package visibility and build configuration, ` +
+            `bytecode compilation may fail and the module may need to be loaded from source or be skipped.`,
         );
         return {
           code,
@@ -253,26 +263,49 @@ export function transformESMtoCJS(
         };
       }
 
-      // No exports, safe to wrap in async IIFE
-      // Note: This wrapping shifts line numbers by 1 in stack traces
-      codeToTransform =
-        ASYNC_IIFE_WRAPPER.prefix + code + ASYNC_IIFE_WRAPPER.suffix;
+      // If there are imports, extract them to keep outside the async IIFE
+      if (importLineIndices.size > 0) {
+        const imports: string[] = [];
+        const rest: string[] = [];
 
-      log.debug(
-        `Wrapping ${filename} in async IIFE to support top-level await`,
-      );
+        codeLines.forEach((line, index) => {
+          if (importLineIndices.has(index)) {
+            imports.push(line);
+          } else {
+            rest.push(line);
+          }
+        });
+
+        // Reconstruct: imports at top, then async IIFE wrapping the rest
+        codeToTransform =
+          imports.join('\n') +
+          '\n' +
+          ASYNC_IIFE_WRAPPER.prefix +
+          rest.join('\n') +
+          ASYNC_IIFE_WRAPPER.suffix;
+
+        log.debug(
+          `Wrapping ${filename} in async IIFE with imports extracted to top level`,
+        );
+      } else {
+        // No imports, wrap everything
+        codeToTransform =
+          ASYNC_IIFE_WRAPPER.prefix + code + ASYNC_IIFE_WRAPPER.suffix;
+
+        log.debug(
+          `Wrapping ${filename} in async IIFE to support top-level await`,
+        );
+      }
     } catch (parseError) {
-      // If we can't parse to check for exports, try wrapping anyway
-      // This is a best-effort approach - if the module has exports,
-      // it will fail at runtime with clearer error messages
+      // If we can't parse, wrap everything and hope for the best
       codeToTransform =
         ASYNC_IIFE_WRAPPER.prefix + code + ASYNC_IIFE_WRAPPER.suffix;
 
       log.warn(
-        `Could not parse ${filename} to detect exports (${
+        `Could not parse ${filename} to detect exports/imports (${
           parseError instanceof Error ? parseError.message : String(parseError)
         }). ` +
-          `Wrapping in async IIFE anyway - this may fail if the module has export statements.`,
+          `Wrapping entire code in async IIFE - this may fail if the module has export or import statements.`,
       );
     }
   }
