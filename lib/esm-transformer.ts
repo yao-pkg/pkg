@@ -17,19 +17,22 @@ interface UnsupportedFeature {
 }
 
 /**
- * Detect ESM features that cannot be safely transformed to CommonJS
+ * Detect ESM features that require special handling or cannot be transformed
  * These include:
- * - Top-level await (no CJS equivalent)
- * - import.meta (no CJS equivalent)
+ * - Top-level await (can be handled with async IIFE wrapper)
+ * - import.meta (no CJS equivalent - truly unsupported)
  *
  * @param code - The ESM source code to check
  * @param filename - The filename for error reporting
- * @returns Array of unsupported features found, or null if parse fails
+ * @returns Object with arrays of features requiring special handling
  */
-function detectUnsupportedESMFeatures(
+function detectESMFeatures(
   code: string,
   filename: string,
-): UnsupportedFeature[] | null {
+): {
+  topLevelAwait: UnsupportedFeature[];
+  unsupportedFeatures: UnsupportedFeature[];
+} | null {
   try {
     const ast = babel.parse(code, {
       sourceType: 'module',
@@ -40,11 +43,12 @@ function detectUnsupportedESMFeatures(
       return null;
     }
 
+    const topLevelAwait: UnsupportedFeature[] = [];
     const unsupportedFeatures: UnsupportedFeature[] = [];
 
     // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
     traverse(ast as t.File, {
-      // Detect import.meta usage
+      // Detect import.meta usage - this is truly unsupported in CJS
       MetaProperty(path: NodePath<t.MetaProperty>) {
         if (
           path.node.meta.name === 'import' &&
@@ -58,7 +62,7 @@ function detectUnsupportedESMFeatures(
         }
       },
 
-      // Detect top-level await
+      // Detect top-level await - can be handled with async IIFE wrapper
       AwaitExpression(path: NodePath<t.AwaitExpression>) {
         // Check if await is at top level (not inside a function)
         let parent: NodePath | null = path.parentPath;
@@ -79,7 +83,7 @@ function detectUnsupportedESMFeatures(
         }
 
         if (isTopLevel) {
-          unsupportedFeatures.push({
+          topLevelAwait.push({
             feature: 'top-level await',
             line: path.node.loc?.start.line ?? null,
             column: path.node.loc?.start.column ?? null,
@@ -87,7 +91,7 @@ function detectUnsupportedESMFeatures(
         }
       },
 
-      // Detect for-await-of at top level
+      // Detect for-await-of at top level - can be handled with async IIFE wrapper
       ForOfStatement(path: NodePath<t.ForOfStatement>) {
         if (path.node.await) {
           let parent: NodePath | null = path.parentPath;
@@ -108,7 +112,7 @@ function detectUnsupportedESMFeatures(
           }
 
           if (isTopLevel) {
-            unsupportedFeatures.push({
+            topLevelAwait.push({
               feature: 'top-level for-await-of',
               line: path.node.loc?.start.line ?? null,
               column: path.node.loc?.start.column ?? null,
@@ -118,11 +122,11 @@ function detectUnsupportedESMFeatures(
       },
     });
 
-    return unsupportedFeatures;
+    return { topLevelAwait, unsupportedFeatures };
   } catch (error) {
     // If we can't parse, return null to let the transform attempt proceed
     log.debug(
-      `Could not parse ${filename} to detect unsupported ESM features: ${
+      `Could not parse ${filename} to detect ESM features: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -152,11 +156,16 @@ export function transformESMtoCJS(
     };
   }
 
-  // First, check for unsupported ESM features that can't be safely transformed
-  const unsupportedFeatures = detectUnsupportedESMFeatures(code, filename);
+  // First, check for ESM features that need special handling
+  const esmFeatures = detectESMFeatures(code, filename);
 
-  if (unsupportedFeatures && unsupportedFeatures.length > 0) {
-    const featureList = unsupportedFeatures
+  // Handle truly unsupported features (import.meta)
+  if (
+    esmFeatures &&
+    esmFeatures.unsupportedFeatures &&
+    esmFeatures.unsupportedFeatures.length > 0
+  ) {
+    const featureList = esmFeatures.unsupportedFeatures
       .map((f) => {
         const location = f.line !== null ? ` at line ${f.line}` : '';
         return `  - ${f.feature}${location}`;
@@ -185,15 +194,84 @@ export function transformESMtoCJS(
     };
   }
 
+  // Check if we need to wrap in async IIFE for top-level await
+  const hasTopLevelAwait =
+    esmFeatures &&
+    esmFeatures.topLevelAwait &&
+    esmFeatures.topLevelAwait.length > 0;
+
+  let codeToTransform = code;
+
+  // If top-level await is detected, wrap in async IIFE BEFORE transformation
+  // This is necessary because esbuild cannot transform top-level await to CJS
+  // However, we need to handle export statements specially since they can't be inside a function
+  if (hasTopLevelAwait) {
+    try {
+      // Parse the code to separate exports from other statements
+      const ast = babel.parse(code, {
+        sourceType: 'module',
+        plugins: [],
+      });
+
+      let hasExports = false;
+
+      // Check if there are any export statements
+      // @ts-expect-error Type mismatch due to @babel/types version
+      traverse(ast as t.File, {
+        ExportNamedDeclaration() {
+          hasExports = true;
+        },
+        ExportDefaultDeclaration() {
+          hasExports = true;
+        },
+        ExportAllDeclaration() {
+          hasExports = true;
+        },
+      });
+
+      if (hasExports) {
+        // If the file has exports, we can't easily wrap it in an IIFE
+        // because exports need to be synchronous and at the top level.
+        // In this case, log a warning and don't transform
+        log.warn(
+          `Module ${filename} has both top-level await and export statements. ` +
+            `This combination requires the module to be loaded as source code (not bytecode). ` +
+            `The file will be included as content instead of bytecode.`,
+        );
+        return {
+          code,
+          isTransformed: false,
+        };
+      }
+
+      // No exports, safe to wrap in async IIFE
+      codeToTransform = `(async () => {\n${code}\n})()`;
+
+      log.debug(
+        `Wrapping ${filename} in async IIFE to support top-level await`,
+      );
+    } catch (parseError) {
+      // If we can't parse to check for exports, try wrapping anyway
+      codeToTransform = `(async () => {\n${code}\n})()`;
+
+      log.debug(
+        `Wrapping ${filename} in async IIFE to support top-level await (parse check failed)`,
+      );
+    }
+  }
+
   try {
-    const result = esbuild.transformSync(code, {
+    // Build esbuild options
+    const esbuildOptions: esbuild.TransformOptions = {
       loader: 'js',
       format: 'cjs',
       target: 'node18',
       sourcemap: false,
       minify: false,
       keepNames: true,
-    });
+    };
+
+    const result = esbuild.transformSync(codeToTransform, esbuildOptions);
 
     if (!result || !result.code) {
       log.warn(`esbuild transform returned no code for ${filename}`);

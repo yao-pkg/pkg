@@ -17,6 +17,5 @@ for await (const item of generateItems()) {
   console.log('Item:', item);
 }
 
-export default function test() {
-  return 'ok with multiple features';
-}
+console.log('ok with multiple features');
+
