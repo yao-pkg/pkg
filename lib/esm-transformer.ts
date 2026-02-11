@@ -17,10 +17,51 @@ interface UnsupportedFeature {
 }
 
 /**
+ * Check if code contains import.meta usage
+ *
+ * @param code - The ESM source code to check
+ * @returns true if import.meta is used, false otherwise
+ */
+function hasImportMeta(code: string): boolean {
+  try {
+    const ast = babel.parse(code, {
+      sourceType: 'module',
+      plugins: [],
+    });
+
+    if (!ast) {
+      return false;
+    }
+
+    let found = false;
+
+    // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
+    traverse(ast as t.File, {
+      // Detect import.meta usage
+      MetaProperty(path: NodePath<t.MetaProperty>) {
+        if (
+          path.node.meta.name === 'import' &&
+          path.node.property.name === 'meta'
+        ) {
+          found = true;
+          path.stop(); // Stop traversal once found
+        }
+      },
+    });
+
+    return found;
+  } catch (error) {
+    // If we can't parse, assume no import.meta
+    return false;
+  }
+}
+
+/**
  * Detect ESM features that cannot be safely transformed to CommonJS
  * These include:
  * - Top-level await (no CJS equivalent)
- * - import.meta (no CJS equivalent)
+ *
+ * Note: import.meta is now supported via polyfills and is no longer unsupported
  *
  * @param code - The ESM source code to check
  * @param filename - The filename for error reporting
@@ -44,20 +85,6 @@ function detectUnsupportedESMFeatures(
 
     // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
     traverse(ast as t.File, {
-      // Detect import.meta usage
-      MetaProperty(path: NodePath<t.MetaProperty>) {
-        if (
-          path.node.meta.name === 'import' &&
-          path.node.property.name === 'meta'
-        ) {
-          unsupportedFeatures.push({
-            feature: 'import.meta',
-            line: path.node.loc?.start.line ?? null,
-            column: path.node.loc?.start.column ?? null,
-          });
-        }
-      },
-
       // Detect top-level await
       AwaitExpression(path: NodePath<t.AwaitExpression>) {
         // Check if await is at top level (not inside a function)
@@ -131,6 +158,50 @@ function detectUnsupportedESMFeatures(
 }
 
 /**
+ * Replace esbuild's empty import_meta object with a proper implementation
+ *
+ * When esbuild transforms ESM to CJS, it converts `import.meta` to a `const import_meta = {}`.
+ * This function replaces that empty object with a proper implementation of import.meta properties.
+ *
+ * Shims provided:
+ * - import.meta.url: File URL of the current module
+ * - import.meta.dirname: Directory path of the current module (Node.js 20.11+)
+ * - import.meta.filename: File path of the current module (Node.js 20.11+)
+ *
+ * Based on approach from tsup and esbuild discussions
+ * @see https://github.com/egoist/tsup/blob/main/assets/cjs_shims.js
+ * @see https://github.com/evanw/esbuild/issues/3839
+ *
+ * @param code - The transformed CJS code from esbuild
+ * @returns Code with import_meta properly implemented
+ */
+function replaceImportMetaObject(code: string): string {
+  // esbuild generates: const import_meta = {};
+  // We need to replace this with a proper implementation
+  const shimImplementation = `const import_meta = {
+  get url() {
+    if (typeof document !== 'undefined') {
+      if (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT') {
+        return document.currentScript.src;
+      }
+      return new URL('main.js', document.baseURI).href;
+    }
+    return require('url').pathToFileURL(__filename).href;
+  },
+  get dirname() {
+    return typeof __dirname !== 'undefined' ? __dirname : require('path').dirname(__filename);
+  },
+  get filename() {
+    return typeof __filename !== 'undefined' ? __filename : '';
+  }
+};`;
+
+  // Replace esbuild's empty import_meta object with our implementation
+  // Match: const import_meta = {};
+  return code.replace(/const import_meta\s*=\s*\{\s*\};/, shimImplementation);
+}
+
+/**
  * Transform ESM code to CommonJS using esbuild
  * This allows ESM modules to be compiled to bytecode via vm.Script
  * Uses Babel parser for detecting unsupported ESM features, then esbuild for fast transformation
@@ -185,6 +256,9 @@ export function transformESMtoCJS(
     };
   }
 
+  // Check if code uses import.meta before transformation
+  const usesImportMeta = hasImportMeta(code);
+
   try {
     const result = esbuild.transformSync(code, {
       loader: 'js',
@@ -203,8 +277,14 @@ export function transformESMtoCJS(
       };
     }
 
+    // Inject import.meta shims after esbuild transformation if needed
+    let finalCode = result.code;
+    if (usesImportMeta) {
+      finalCode = replaceImportMetaObject(result.code);
+    }
+
     return {
-      code: result.code,
+      code: finalCode,
       isTransformed: true,
     };
   } catch (error) {
