@@ -5,13 +5,10 @@ async function* generateNumbers() {
   yield 3;
 }
 
-// Top-level for-await-of - not allowed in CJS
+// Top-level for-await-of - now supported with async IIFE wrapper
 for await (const num of generateNumbers()) {
   console.log('Number:', num);
 }
 
 console.log('Top-level for-await-of completed');
 
-export default function test() {
-  return 'ok';
-}

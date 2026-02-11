@@ -1099,6 +1099,10 @@ class Walker {
             );
             if (result.isTransformed) {
               record.body = Buffer.from(result.code, 'utf8');
+              // Mark .mjs files as transformed so packer can rename them to .js
+              if (record.file.endsWith('.mjs')) {
+                record.wasTransformed = true;
+              }
             }
           } catch (error) {
             const message =

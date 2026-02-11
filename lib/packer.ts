@@ -67,13 +67,24 @@ export default function packer({
 }: PackerOptions) {
   const stripes: Stripe[] = [];
 
-  for (const snap in records) {
+  // If the entrypoint was a .mjs file that got transformed, update its extension
+  if (records[entrypoint]?.wasTransformed && entrypoint.endsWith('.mjs')) {
+    entrypoint = `${entrypoint.slice(0, -4)}.js`;
+  }
+
+  for (let snap in records) {
     if (records[snap]) {
       const record = records[snap];
       const { file } = record;
 
       if (!hasAnyStore(record)) {
         continue;
+      }
+
+      // If .mjs file was transformed to CJS, rename it to .js in the snapshot
+      // This prevents Node.js from treating it as an ES module
+      if (record.wasTransformed && snap.endsWith('.mjs')) {
+        snap = `${snap.slice(0, -4)}.js`;
       }
 
       assert(record[STORE_STAT], 'packer: no STORE_STAT');

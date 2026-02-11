@@ -48,7 +48,7 @@ console.log('\n=== Test 1: import.meta support ===');
   utils.filesAfter(before, newcomers);
 }
 
-// Test 2: top-level await detection
+// Test 2: top-level await support (should now work!)
 console.log('\n=== Test 2: top-level await ===');
 {
   const input = './test-top-level-await.mjs';
@@ -58,24 +58,28 @@ console.log('\n=== Test 2: top-level await ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  const result = utils.pkg.sync(
+  // Package the file with top-level await
+  utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],
   );
 
-  // Verify warning was emitted
+  // Run the executable and verify it works
+  const execResult = utils.spawn.sync('./' + path.basename(output), [], {
+    cwd: path.dirname(output),
+  });
+
   assert(
-    result.includes('top-level await') ||
-      result.includes('Cannot transform ESM module'),
-    'Should warn about top-level await usage',
+    execResult.includes('Top-level await completed'),
+    'Should successfully execute top-level await code',
   );
-  console.log('✓ top-level await detection working');
+  console.log('✓ top-level await now supported');
 
   // Cleanup
   utils.filesAfter(before, newcomers);
 }
 
-// Test 3: top-level for-await-of detection
+// Test 3: top-level for-await-of support (should now work!)
 console.log('\n=== Test 3: top-level for-await-of ===');
 {
   const input = './test-for-await-of.mjs';
@@ -85,25 +89,29 @@ console.log('\n=== Test 3: top-level for-await-of ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  const result = utils.pkg.sync(
+  // Package the file with top-level for-await-of
+  utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],
   );
 
-  // Verify warning was emitted
+  // Run the executable and verify it works
+  const execResult = utils.spawn.sync('./' + path.basename(output), [], {
+    cwd: path.dirname(output),
+  });
+
   assert(
-    result.includes('for-await-of') ||
-      result.includes('Cannot transform ESM module'),
-    'Should warn about top-level for-await-of usage',
+    execResult.includes('Top-level for-await-of completed'),
+    'Should successfully execute top-level for-await-of code',
   );
-  console.log('✓ top-level for-await-of detection working');
+  console.log('✓ top-level for-await-of now supported');
 
   // Cleanup
   utils.filesAfter(before, newcomers);
 }
 
-// Test 4: multiple unsupported features detection
-console.log('\n=== Test 4: multiple unsupported features ===');
+// Test 4: multiple ESM features working together
+console.log('\n=== Test 4: multiple ESM features ===');
 {
   const input = './test-multiple-features.mjs';
   const output = './run-time/test-multiple.exe';
@@ -112,38 +120,38 @@ console.log('\n=== Test 4: multiple unsupported features ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  const result = utils.pkg.sync(
+  utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],
   );
 
-  // Verify warnings were emitted only for truly unsupported features
-  const hasImportMeta = result.includes('import.meta');
-  const hasTopLevelAwait = result.includes('top-level await');
-  const hasForAwaitOf = result.includes('for-await-of');
-  const hasGeneralWarning = result.includes('Cannot transform ESM module');
-
-  // import.meta should NOT trigger a warning anymore (it's now supported)
+  // Verify executable was created successfully (all features now supported)
   assert(
-    !hasImportMeta,
-    'Should NOT warn about import.meta (it is now supported)',
+    existsSync(output),
+    'Executable should be created with all ESM features',
   );
 
-  // But top-level await and for-await-of should still warn
+  // Run the executable and verify it works
+  const execResult = utils.spawn.sync(`./${path.basename(output)}`, [], {
+    cwd: path.dirname(output),
+  });
+
   assert(
-    hasTopLevelAwait || hasForAwaitOf || hasGeneralWarning,
-    'Should warn about truly unsupported features (top-level await, for-await-of)',
+    execResult.includes('ok with multiple features'),
+    'Should execute successfully with all ESM features',
   );
 
-  console.log('✓ Multiple features detection working');
-  console.log('  - import.meta detected:', hasImportMeta, '(should be false)');
-  console.log('  - top-level await detected:', hasTopLevelAwait);
-  console.log('  - top-level for-await-of detected:', hasForAwaitOf);
+  console.log(
+    '✓ Multiple ESM features working together (import.meta + top-level await + for-await-of)',
+  );
 
   // Cleanup
   utils.filesAfter(before, newcomers);
 }
 
+console.log('\n✅ ESM features test completed!');
+console.log('  - import.meta is now supported with polyfills');
+console.log('  - top-level await is now supported with async IIFE wrapper');
 console.log(
-  '\n✅ All ESM features correctly handled! (import.meta now supported, top-level await/for-await-of still unsupported)',
+  '  - top-level for-await-of is now supported with async IIFE wrapper',
 );
