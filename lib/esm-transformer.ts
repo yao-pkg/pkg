@@ -178,21 +178,16 @@ function detectUnsupportedESMFeatures(
 function replaceImportMetaObject(code: string): string {
   // esbuild generates: const import_meta = {};
   // We need to replace this with a proper implementation
+  // Note: We use getters to ensure values are computed at runtime in the correct context
   const shimImplementation = `const import_meta = {
   get url() {
-    if (typeof document !== 'undefined') {
-      if (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT') {
-        return document.currentScript.src;
-      }
-      return new URL('main.js', document.baseURI).href;
-    }
     return require('url').pathToFileURL(__filename).href;
   },
   get dirname() {
-    return typeof __dirname !== 'undefined' ? __dirname : require('path').dirname(__filename);
+    return __dirname;
   },
   get filename() {
-    return typeof __filename !== 'undefined' ? __filename : '';
+    return __filename;
   }
 };`;
 
