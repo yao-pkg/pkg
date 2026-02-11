@@ -51,7 +51,7 @@ console.log('\n=== Test 2: top-level await ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  // Package the file
+  // Package the file with top-level await
   utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],
@@ -82,7 +82,7 @@ console.log('\n=== Test 3: top-level for-await-of ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  // Package the file
+  // Package the file with top-level for-await-of
   utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],

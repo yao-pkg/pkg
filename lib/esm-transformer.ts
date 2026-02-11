@@ -17,6 +17,15 @@ interface UnsupportedFeature {
 }
 
 /**
+ * Wrapper for top-level await support
+ * Wraps code in an async IIFE to allow top-level await in CommonJS
+ */
+const ASYNC_IIFE_WRAPPER = {
+  prefix: '(async () => {\n',
+  suffix: '\n})()',
+};
+
+/**
  * Detect ESM features that require special handling or cannot be transformed
  * These include:
  * - Top-level await (can be handled with async IIFE wrapper)
@@ -245,17 +254,25 @@ export function transformESMtoCJS(
       }
 
       // No exports, safe to wrap in async IIFE
-      codeToTransform = `(async () => {\n${code}\n})()`;
+      // Note: This wrapping shifts line numbers by 1 in stack traces
+      codeToTransform =
+        ASYNC_IIFE_WRAPPER.prefix + code + ASYNC_IIFE_WRAPPER.suffix;
 
       log.debug(
         `Wrapping ${filename} in async IIFE to support top-level await`,
       );
     } catch (parseError) {
       // If we can't parse to check for exports, try wrapping anyway
-      codeToTransform = `(async () => {\n${code}\n})()`;
+      // This is a best-effort approach - if the module has exports,
+      // it will fail at runtime with clearer error messages
+      codeToTransform =
+        ASYNC_IIFE_WRAPPER.prefix + code + ASYNC_IIFE_WRAPPER.suffix;
 
-      log.debug(
-        `Wrapping ${filename} in async IIFE to support top-level await (parse check failed)`,
+      log.warn(
+        `Could not parse ${filename} to detect exports (${
+          parseError instanceof Error ? parseError.message : String(parseError)
+        }). ` +
+          `Wrapping in async IIFE anyway - this may fail if the module has export statements.`,
       );
     }
   }
