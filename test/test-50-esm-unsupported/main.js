@@ -4,6 +4,7 @@
 
 const path = require('path');
 const assert = require('assert');
+const { existsSync } = require('fs');
 const utils = require('../utils.js');
 
 assert(!module.parent);
@@ -11,10 +12,10 @@ assert(__dirname === process.cwd());
 
 const target = process.argv[2] || 'host';
 
-console.log('Testing unsupported ESM features detection...');
+console.log('Testing ESM features detection and transformation...');
 
-// Test 1: import.meta detection
-console.log('\n=== Test 1: import.meta ===');
+// Test 1: import.meta support (should now work without warnings)
+console.log('\n=== Test 1: import.meta support ===');
 {
   const input = './test-import-meta.mjs';
   const output = './run-time/test-import-meta.exe';
@@ -23,19 +24,25 @@ console.log('\n=== Test 1: import.meta ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  // Capture stdout to check for warnings
+  // Capture stdout to check that no warnings are emitted
   const result = utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],
   );
 
-  // Verify warning was emitted
+  // Verify NO warning was emitted (import.meta should now be supported)
   assert(
-    result.includes('import.meta') ||
-      result.includes('Cannot transform ESM module'),
-    'Should warn about import.meta usage',
+    !result.includes('import.meta') &&
+      !result.includes('Cannot transform ESM module'),
+    'Should NOT warn about import.meta usage (it is now supported)',
   );
-  console.log('✓ import.meta detection working');
+
+  // Verify the executable was created
+  assert(existsSync(output), 'Executable should be created successfully');
+
+  console.log(
+    '✓ import.meta support working (no warnings, executable created)',
+  );
 
   // Cleanup
   utils.filesAfter(before, newcomers);
@@ -103,8 +110,8 @@ console.log('\n=== Test 3: top-level for-await-of ===');
   utils.filesAfter(before, newcomers);
 }
 
-// Test 4: multiple unsupported features detection
-console.log('\n=== Test 4: multiple unsupported features ===');
+// Test 4: multiple ESM features working together
+console.log('\n=== Test 4: multiple ESM features ===');
 {
   const input = './test-multiple-features.mjs';
   const output = './run-time/test-multiple.exe';
@@ -113,33 +120,37 @@ console.log('\n=== Test 4: multiple unsupported features ===');
   const before = utils.filesBefore(newcomers);
   utils.mkdirp.sync(path.dirname(output));
 
-  const result = utils.pkg.sync(
+  utils.pkg.sync(
     ['--target', target, '--output', output, input],
     ['inherit', 'pipe', 'inherit'],
   );
 
-  // Verify multiple warnings were emitted
-  const hasImportMeta = result.includes('import.meta');
-  const hasTopLevelAwait = result.includes('top-level await');
-  const hasForAwaitOf = result.includes('for-await-of');
-  const hasGeneralWarning = result.includes('Cannot transform ESM module');
-
+  // Verify executable was created successfully (all features now supported)
   assert(
-    hasImportMeta || hasTopLevelAwait || hasForAwaitOf || hasGeneralWarning,
-    'Should warn about multiple unsupported features',
+    existsSync(output),
+    'Executable should be created with all ESM features',
   );
 
-  console.log('✓ Multiple features detection working');
-  console.log('  - import.meta detected:', hasImportMeta);
-  console.log('  - top-level await detected:', hasTopLevelAwait);
-  console.log('  - top-level for-await-of detected:', hasForAwaitOf);
+  // Run the executable and verify it works
+  const execResult = utils.spawn.sync(`./${path.basename(output)}`, [], {
+    cwd: path.dirname(output),
+  });
+
+  assert(
+    execResult.includes('ok with multiple features'),
+    'Should execute successfully with all ESM features',
+  );
+
+  console.log(
+    '✓ Multiple ESM features working together (import.meta + top-level await + for-await-of)',
+  );
 
   // Cleanup
   utils.filesAfter(before, newcomers);
 }
 
 console.log('\n✅ ESM features test completed!');
-console.log('  - import.meta is still unsupported (as expected)');
+console.log('  - import.meta is now supported with polyfills');
 console.log('  - top-level await is now supported with async IIFE wrapper');
 console.log(
   '  - top-level for-await-of is now supported with async IIFE wrapper',

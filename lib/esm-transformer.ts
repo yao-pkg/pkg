@@ -26,10 +26,51 @@ const ASYNC_IIFE_WRAPPER = {
 };
 
 /**
+ * Check if code contains import.meta usage
+ *
+ * @param code - The ESM source code to check
+ * @returns true if import.meta is used, false otherwise
+ */
+function hasImportMeta(code: string): boolean {
+  try {
+    const ast = babel.parse(code, {
+      sourceType: 'module',
+      plugins: [],
+    });
+
+    if (!ast) {
+      return false;
+    }
+
+    let found = false;
+
+    // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
+    traverse(ast as t.File, {
+      // Detect import.meta usage
+      MetaProperty(path: NodePath<t.MetaProperty>) {
+        if (
+          path.node.meta.name === 'import' &&
+          path.node.property.name === 'meta'
+        ) {
+          found = true;
+          path.stop(); // Stop traversal once found
+        }
+      },
+    });
+
+    return found;
+  } catch (error) {
+    // If we can't parse, assume no import.meta
+    return false;
+  }
+}
+
+/**
  * Detect ESM features that require special handling or cannot be transformed
  * These include:
  * - Top-level await (can be handled with async IIFE wrapper)
- * - import.meta (no CJS equivalent - truly unsupported)
+ *
+ * Note: import.meta is now supported via polyfills and is no longer in the unsupported list
  *
  * @param code - The ESM source code to check
  * @param filename - The filename for error reporting
@@ -57,20 +98,6 @@ function detectESMFeatures(
 
     // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
     traverse(ast as t.File, {
-      // Detect import.meta usage - this is truly unsupported in CJS
-      MetaProperty(path: NodePath<t.MetaProperty>) {
-        if (
-          path.node.meta.name === 'import' &&
-          path.node.property.name === 'meta'
-        ) {
-          unsupportedFeatures.push({
-            feature: 'import.meta',
-            line: path.node.loc?.start.line ?? null,
-            column: path.node.loc?.start.column ?? null,
-          });
-        }
-      },
-
       // Detect top-level await - can be handled with async IIFE wrapper
       AwaitExpression(path: NodePath<t.AwaitExpression>) {
         // Check if await is at top level (not inside a function)
@@ -141,6 +168,45 @@ function detectESMFeatures(
     );
     return null;
   }
+}
+
+/**
+ * Replace esbuild's empty import_meta object with a proper implementation
+ *
+ * When esbuild transforms ESM to CJS, it converts `import.meta` to a `const import_meta = {}`.
+ * This function replaces that empty object with a proper implementation of import.meta properties.
+ *
+ * Shims provided:
+ * - import.meta.url: File URL of the current module
+ * - import.meta.dirname: Directory path of the current module (Node.js 20.11+)
+ * - import.meta.filename: File path of the current module (Node.js 20.11+)
+ *
+ * Based on approach from tsup and esbuild discussions
+ * @see https://github.com/egoist/tsup/blob/main/assets/cjs_shims.js
+ * @see https://github.com/evanw/esbuild/issues/3839
+ *
+ * @param code - The transformed CJS code from esbuild
+ * @returns Code with import_meta properly implemented
+ */
+function replaceImportMetaObject(code: string): string {
+  // esbuild generates: const import_meta = {};
+  // We need to replace this with a proper implementation
+  // Note: We use getters to ensure values are computed at runtime in the correct context
+  const shimImplementation = `const import_meta = {
+  get url() {
+    return require('url').pathToFileURL(__filename).href;
+  },
+  get dirname() {
+    return __dirname;
+  },
+  get filename() {
+    return __filename;
+  }
+};`;
+
+  // Replace esbuild's empty import_meta object with our implementation
+  // Match: const import_meta = {};
+  return code.replace(/const import_meta\s*=\s*\{\s*\};/, shimImplementation);
 }
 
 /**
@@ -305,6 +371,9 @@ export function transformESMtoCJS(
     }
   }
 
+  // Check if code uses import.meta before transformation
+  const usesImportMeta = hasImportMeta(code);
+
   try {
     // Build esbuild options
     const esbuildOptions: esbuild.TransformOptions = {
@@ -326,8 +395,14 @@ export function transformESMtoCJS(
       };
     }
 
+    // Inject import.meta shims after esbuild transformation if needed
+    let finalCode = result.code;
+    if (usesImportMeta) {
+      finalCode = replaceImportMetaObject(result.code);
+    }
+
     return {
-      code: result.code,
+      code: finalCode,
       isTransformed: true,
     };
   } catch (error) {

@@ -422,6 +422,37 @@ await exec(['app.js', '--target', 'host', '--output', 'app.exe']);
 // do something with app.exe, run, test, upload, deploy, etc
 ```
 
+## ECMAScript Modules (ESM) Support
+
+Starting from version **6.13.0**, pkg has improved support for ECMAScript Modules (ESM). Most ESM features are now automatically transformed to CommonJS during the packaging process.
+
+### Supported ESM Features
+
+The following ESM features are now supported and will work in your packaged executables:
+
+- **`import` and `export` statements** - Automatically transformed to `require()` and `module.exports`
+- **Top-level `await`** - Wrapped in an async IIFE to work in CommonJS context
+- **Top-level `for await...of`** - Wrapped in an async IIFE to work in CommonJS context
+- **`import.meta.url`** - Polyfilled to provide the file URL of the current module
+- **`import.meta.dirname`** - Polyfilled to provide the directory path (Node.js 20.11+ property)
+- **`import.meta.filename`** - Polyfilled to provide the file path (Node.js 20.11+ property)
+
+### Known Limitations
+
+While most ESM features work, there are some limitations to be aware of:
+
+1. **Modules with both top-level await and exports**: Modules that use `export` statements alongside top-level `await` cannot be wrapped in an async IIFE and will not be transformed to bytecode. These modules will be included as source code instead.
+
+2. **`import.meta.main`** and other custom properties: Only the standard `import.meta` properties listed above are polyfilled. Custom properties added by your code or other tools may not work as expected.
+
+3. **Dynamic imports**: `import()` expressions work but may have limitations depending on the module being imported.
+
+### Best Practices
+
+- For entry point scripts (the main file you're packaging), feel free to use top-level await
+- For library modules that will be imported by other code, avoid using both exports and top-level await together
+- Test your packaged executable to ensure all ESM features work as expected in your specific use case
+
 ## Use custom Node.js binary
 
 In case you want to use custom node binary, you can set `PKG_NODE_PATH` environment variable to the path of the node binary you want to use and `pkg` will use it instead of the default one.
@@ -535,43 +566,45 @@ or
 Note: make sure not to use --debug flag in production.
 
 ### Injecting Windows Executable Metadata After Packaging
-Executables created with `pkg` are based on a Node.js binary and, by default, 
-inherit its embedded metadata – such as version number, product name, company 
-name, icon, and description. This can be misleading or unpolished in 
+
+Executables created with `pkg` are based on a Node.js binary and, by default,
+inherit its embedded metadata – such as version number, product name, company
+name, icon, and description. This can be misleading or unpolished in
 distributed applications.
 
 There are two ways to customize the metadata of the resulting `.exe`:
+
 1. **Use a custom Node.js binary** with your own metadata already embedded.  
    See: [Use Custom Node.js Binary](#use-custom-nodejs-binary)
 
-2. **Post-process the generated executable** using 
-   [`resedit`](https://www.npmjs.com/package/resedit), a Node.js-compatible 
-   tool for modifying Windows executable resources. This allows injecting 
+2. **Post-process the generated executable** using
+   [`resedit`](https://www.npmjs.com/package/resedit), a Node.js-compatible
+   tool for modifying Windows executable resources. This allows injecting
    correct version info, icons, copyright,
    and more.
 
 This section focuses on the second approach: post-processing the packaged
-binary using  [`resedit`](https://www.npmjs.com/package/resedit).
+binary using [`resedit`](https://www.npmjs.com/package/resedit).
 
 > ⚠️ Other tools may corrupt the executable, resulting in runtime errors such as  
-> `Pkg: Error reading from file.` – 
+> `Pkg: Error reading from file.` –
 > [`resedit`](https://www.npmjs.com/package/resedit) has proven to work reliably  
 > with `pkg`-generated binaries.
 
 Below is a working example for post-processing an `.exe` file using the Node.js API of [`resedit`](https://www.npmjs.com/package/resedit):
 
 ```ts
-import * as ResEdit from "resedit";
-import * as fs from "fs";
-import * as path from "path";
+import * as ResEdit from 'resedit';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Set your inputs:
-const exePath = "dist/my-tool.exe";  // Path to the generated executable
-const outputPath = exePath;          // Overwrite or use a different path
-const version = "1.2.3";             // Your application version
+const exePath = 'dist/my-tool.exe'; // Path to the generated executable
+const outputPath = exePath; // Overwrite or use a different path
+const version = '1.2.3'; // Your application version
 
-const lang = 1033;       // en-US
-const codepage = 1200;   // Unicode
+const lang = 1033; // en-US
+const codepage = 1200; // Unicode
 
 const exeData = fs.readFileSync(exePath);
 const exe = ResEdit.NtExecutable.from(exeData);
@@ -580,19 +613,22 @@ const res = ResEdit.NtExecutableResource.from(exe);
 const viList = ResEdit.Resource.VersionInfo.fromEntries(res.entries);
 const vi = viList[0];
 
-const [major, minor, patch] = version.split(".");
+const [major, minor, patch] = version.split('.');
 vi.setFileVersion(Number(major), Number(minor), Number(patch), 0, lang);
 vi.setProductVersion(Number(major), Number(minor), Number(patch), 0, lang);
 
-vi.setStringValues({ lang, codepage }, {
-  FileDescription: "ACME CLI Tool",
-  ProductName: "ACME Application",
-  CompanyName: "ACME Corporation",
-  ProductVersion: version,
-  FileVersion: version,
-  OriginalFilename: path.basename(exePath),
-  LegalCopyright: `© ${new Date().getFullYear()} ACME Corporation`
-});
+vi.setStringValues(
+  { lang, codepage },
+  {
+    FileDescription: 'ACME CLI Tool',
+    ProductName: 'ACME Application',
+    CompanyName: 'ACME Corporation',
+    ProductVersion: version,
+    FileVersion: version,
+    OriginalFilename: path.basename(exePath),
+    LegalCopyright: `© ${new Date().getFullYear()} ACME Corporation`,
+  },
+);
 
 vi.outputToResourceEntries(res.entries);
 res.outputResource(exe);
@@ -610,6 +646,7 @@ The following command examples inject an icon and metadata into the executable
 `dist/bin/app.exe`.
 
 - **Example (PowerShell on Windows)**
+
   ```powershell
   npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe `
     --icon 1,dist/favicon.ico `
