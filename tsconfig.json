@@ -14,5 +14,5 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["lib/**/*", "typings/**/*"]
+  "include": ["lib/**/*"]
 }
