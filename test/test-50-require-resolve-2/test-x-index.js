@@ -1,5 +1,3 @@
-/* eslint-disable no-multi-spaces */
-
 'use strict';
 
 var fs = require('fs');

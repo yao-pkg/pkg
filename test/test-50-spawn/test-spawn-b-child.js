@@ -21,6 +21,6 @@ var fs = require('fs');
 try {
   // must patch fs even if entrypoint is not in snapshot
   console.log(fs.readFileSync('dirty-hack-for-testing-purposes'));
-} catch (error) {
+} catch (_error) {
   if (!process.pkg) console.log('dirty-hack-for-testing-purposes');
 }

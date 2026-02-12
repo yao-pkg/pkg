@@ -21,7 +21,7 @@ const output = 'H:\\index.exe';
 const thisFolder = __dirname;
 try {
   utils.exec.sync(`subst H: /D`);
-} catch (err) {
+} catch (_err) {
   /* */
 }
 utils.exec.sync(`subst H: ${thisFolder}`);

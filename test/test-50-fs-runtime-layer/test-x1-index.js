@@ -1,6 +1,3 @@
-/* eslint-disable brace-style */
-/* eslint-disable no-path-concat */
-
 'use strict';
 
 var fs = require('fs');

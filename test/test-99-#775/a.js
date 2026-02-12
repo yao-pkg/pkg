@@ -9,6 +9,6 @@ if (MAJOR_VERSION < 12) {
 }
 
 const { Worker } = require('worker_threads');
-// eslint-disable-next-line no-new
+
 new Worker('./b.js');
 console.log('Finishing a');

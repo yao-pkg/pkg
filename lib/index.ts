@@ -1,5 +1,3 @@
-/* eslint-disable require-atomic-updates */
-
 import assert from 'assert';
 import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
 import { mkdir, readFile, rm, stat } from 'fs/promises';
@@ -41,7 +39,7 @@ const {
   toFancyArch,
   toFancyPlatform,
 } = system;
-// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
 const hostNodeRange = `node${process.version.match(/^v(\d+)/)![1]}`;
 
 function parseTargets(items: string[]): NodeTarget[] {
@@ -258,7 +256,6 @@ export async function exec(argv2: string[]) {
   // version
 
   if (argv.v || argv.version) {
-    // eslint-disable-next-line no-console
     console.log(version);
     return;
   }
@@ -294,7 +291,6 @@ export async function exec(argv2: string[]) {
       );
   }
   if (doCompress !== CompressType.None) {
-    // eslint-disable-next-line no-console
     console.log('compression: ', CompressType[doCompress]);
   }
 
@@ -391,7 +387,7 @@ export async function exec(argv2: string[]) {
       throw wasReported('Config file does not exist', [config]);
     }
 
-    // eslint-disable-next-line import/no-dynamic-require, global-require
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     configJson = require(config); // may be either json or js
 
     if (

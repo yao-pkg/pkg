@@ -1,5 +1,3 @@
-/* eslint-disable no-underscore-dangle */
-
 'use strict';
 
 var gulp = require('gulp');

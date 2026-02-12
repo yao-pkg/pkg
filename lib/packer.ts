@@ -1,5 +1,3 @@
-/* eslint-disable complexity */
-
 import assert from 'assert';
 import { readFileSync } from 'fs';
 import path from 'path';

@@ -1,4 +1,3 @@
-/* eslint-disable max-statements-per-line */
 /* eslint-disable no-empty */
 
 'use strict';

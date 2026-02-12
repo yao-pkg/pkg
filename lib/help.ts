@@ -1,7 +1,6 @@
 import { pc } from './colors';
 
 export default function help() {
-  // eslint-disable-next-line no-console
   console.log(`
   ${pc.bold('pkg')} [options] <input>
 

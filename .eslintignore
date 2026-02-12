@@ -1,4 +1,0 @@
-lib-es5
-node_modules
-dist
-test/test-51-esm-import-meta/esm-module/test-import-meta-basic.js

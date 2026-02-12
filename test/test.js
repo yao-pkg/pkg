@@ -194,9 +194,7 @@ async function run() {
       await runTest(file);
       ok++;
       addLog(
-        pc.green(
-          `✔ ${file} ok - ${msToHumanDuration(Date.now() - startTest)}`,
-        ),
+        pc.green(`✔ ${file} ok - ${msToHumanDuration(Date.now() - startTest)}`),
       );
     } catch (error) {
       failed.push({
@@ -253,7 +251,7 @@ function cleanup(signal) {
   for (const process of activeProcesses) {
     try {
       process.kill('SIGTERM');
-    } catch (error) {
+    } catch (_error) {
       // Ignore errors when killing processes
     }
   }

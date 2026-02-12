@@ -1,5 +1,3 @@
-/* eslint-disable no-underscore-dangle */
-
 'use strict';
 
 var cp = require('child_process');
@@ -13,7 +11,7 @@ var execFileSave = cp.execFile;
 
 cp.execFile = function () {
   execFileCalled = true;
-  execFileSave.apply(cp, arguments); // eslint-disable-line prefer-rest-params
+  execFileSave.apply(cp, arguments);
 };
 
 setTimeout(function () {
