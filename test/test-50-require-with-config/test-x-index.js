@@ -1,7 +1,3 @@
-/* eslint-disable max-statements-per-line */
-/* eslint-disable no-multi-spaces */
-/* eslint-disable no-useless-concat */
-
 'use strict';
 
 var fs = require('fs');

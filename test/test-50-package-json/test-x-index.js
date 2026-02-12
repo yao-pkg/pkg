@@ -1,5 +1,3 @@
-/* eslint-disable no-useless-concat */
-
 'use strict';
 
 var theA = './test-y-' + 'resolve-A.js';

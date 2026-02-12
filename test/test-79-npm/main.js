@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-/* eslint-disable complexity */
-
 'use strict';
 
 // note: you can set the env variable USE_PREINSTALLED_MODULES to prevent reconstruction

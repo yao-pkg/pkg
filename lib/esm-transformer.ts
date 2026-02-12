@@ -59,7 +59,7 @@ function hasImportMeta(code: string): boolean {
     });
 
     return found;
-  } catch (error) {
+  } catch (_error) {
     // If we can't parse, assume no import.meta
     return false;
   }

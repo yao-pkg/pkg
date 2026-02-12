@@ -1,9 +1,3 @@
-/* eslint-disable import/no-unresolved */
-/* eslint-disable global-require */
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable prefer-rest-params */
-/* eslint-disable prefer-spread */
-
 /* global EXECPATH_FD */
 /* global PAYLOAD_POSITION */
 /* global PAYLOAD_SIZE */

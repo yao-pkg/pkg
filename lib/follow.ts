@@ -139,7 +139,7 @@ export function follow(x: string, opts: FollowOptions) {
 
         // CJS package - fall through to standard CommonJS resolution
         // to handle all callbacks properly
-      } catch (error) {
+      } catch (_error) {
         // ESM resolution failed - fall through to standard CommonJS resolution
       }
     }

@@ -253,7 +253,7 @@ function cleanup(signal) {
   for (const process of activeProcesses) {
     try {
       process.kill('SIGTERM');
-    } catch (error) {
+    } catch (_error) {
       // Ignore errors when killing processes
     }
   }

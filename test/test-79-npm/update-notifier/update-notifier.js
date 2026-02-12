@@ -7,7 +7,7 @@ var spawnWasCalled;
 var save = require('child_process').spawn;
 require('child_process').spawn = function () {
   spawnWasCalled = true;
-  return save.apply(this, arguments); // eslint-disable-line prefer-rest-params
+  return save.apply(this, arguments);
 };
 
 var updateNotifier = require('update-notifier');

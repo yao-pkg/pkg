@@ -1,6 +1,3 @@
-/* eslint-disable no-buffer-constructor */
-/* eslint-disable max-statements-per-line */
-
 'use strict';
 
 var fs = require('fs');

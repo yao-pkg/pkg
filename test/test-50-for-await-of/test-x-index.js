@@ -21,9 +21,8 @@ class AsyncIterator {
 }
 
 // The function does have an await (in the for-await-of loop), ESLint just doesn't seem to detect it
-/* eslint-disable require-await */
+
 async function t() {
-  /* eslint-enable require-await */
   let it = new AsyncIterator();
   for await (let x of it) {
     console.log(x);

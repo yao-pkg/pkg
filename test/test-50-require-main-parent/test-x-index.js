@@ -1,5 +1,3 @@
-/* eslint-disable no-nested-ternary */
-
 'use strict';
 
 var fs = require('fs');

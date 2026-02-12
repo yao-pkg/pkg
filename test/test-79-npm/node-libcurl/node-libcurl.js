@@ -15,6 +15,6 @@ curl.on('end', function (status) {
   if (status === 200) {
     console.log('ok');
   }
-  this.close(); // eslint-disable-line no-invalid-this
+  this.close();
 });
 curl.perform();
