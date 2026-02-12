@@ -26,8 +26,8 @@
     "@babel/parser": "^7.23.0",
     "@babel/traverse": "^7.23.0",
     "@babel/types": "^7.23.0",
-    "esbuild": "^0.24.0",
     "@yao-pkg/pkg-fetch": "3.5.32",
+    "esbuild": "^0.25.0",
     "into-stream": "^6.0.0",
     "minimist": "^1.2.6",
     "multistream": "^4.1.0",
@@ -37,7 +37,7 @@
     "resolve": "^1.22.10",
     "resolve.exports": "^2.0.3",
     "stream-meter": "^1.0.4",
-    "tar": "^7.5.6",
+    "tar": "^7.5.7",
     "tinyglobby": "^0.2.11",
     "unzipper": "^0.12.3"
   },
@@ -98,5 +98,14 @@
   "packageManager": "yarn@1.22.22",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "resolutions": {
+    "lodash": "^4.17.23",
+    "@octokit/request-error": "^5.1.1",
+    "@octokit/plugin-paginate-rest": "^9.2.2",
+    "@octokit/request": "^8.4.1",
+    "js-yaml": "^4.1.1",
+    "brace-expansion": "^2.0.2",
+    "tmp": "^0.2.4"
   }
 }
