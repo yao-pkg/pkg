@@ -46,6 +46,6 @@ try {
   // FIXME: on windows this throws
   // Error: EBUSY: resource busy or locked, rmdir 'C:\Users\RUNNER~1\AppData\Local\Temp\pkg-sea\1729696609242'
   utils.filesAfter(before, newcomers);
-} catch (error) {
+} catch (_error) {
   // noop
 }

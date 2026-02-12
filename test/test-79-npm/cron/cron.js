@@ -4,7 +4,7 @@ var CronJob = require('cron').CronJob;
 
 var counter = 0;
 
-new CronJob( // eslint-disable-line no-new
+new CronJob(
   '* * * * * *',
   function () {
     counter += 1;

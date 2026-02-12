@@ -1,5 +1,3 @@
-/* eslint-disable require-atomic-updates */
-
 import assert from 'assert';
 import fs from 'fs/promises';
 import path from 'path';
@@ -1079,7 +1077,7 @@ class Walker {
               'utf8',
             );
           }
-        } catch (error) {
+        } catch (_error) {
           // Ignore JSON parsing errors
         }
       }
@@ -1194,7 +1192,6 @@ class Walker {
     switch (store) {
       case STORE_BLOB:
       case STORE_CONTENT:
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         await this.step_STORE_ANY(record, task.marker!, store);
         break;
       case STORE_LINKS:
@@ -1222,7 +1219,7 @@ class Walker {
         if (this.params.noDictionary?.includes(file)) {
           continue;
         }
-        // eslint-disable-next-line import/no-dynamic-require, global-require, @typescript-eslint/no-var-requires
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const config = require(path.join(dd, file));
         this.dictionary[name] = config;
       }

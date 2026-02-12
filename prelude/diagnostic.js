@@ -1,5 +1,3 @@
-/* eslint-disable global-require */
-/* eslint-disable no-console */
 /* global DICT */
 
 'use strict';

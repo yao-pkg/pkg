@@ -9,7 +9,6 @@ const utils = require('../utils.js');
 assert(!module.parent);
 assert(__dirname === process.cwd());
 
-/* eslint-disable no-unused-vars */
 const target = process.argv[2] || 'host';
 
 if (target !== 'host') {

@@ -28,7 +28,7 @@ try {
   left = utils.spawn.sync('node', [path.basename(input)], {
     cwd: path.dirname(input),
   });
-} catch (error) {
+} catch (_error) {
   // Expected to fail with ESM error - uuid v10+ is ESM-only
   console.log(
     'Expected ESM error occurred - Node cannot require() ESM modules (uuid v10+)',

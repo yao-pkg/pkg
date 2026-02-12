@@ -77,7 +77,7 @@ function resolveWithExports(
     }
 
     return null;
-  } catch (error) {
+  } catch (_error) {
     log.debug(`Failed to resolve with exports field: ${packageName}${subpath}`);
     return null;
   }
