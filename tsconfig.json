@@ -7,10 +7,10 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "lib-es5",
+    "rootDir": "./lib",
     "strict": true,
     "esModuleInterop": true,
     "incremental": true,
-    "downlevelIteration": true,
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
