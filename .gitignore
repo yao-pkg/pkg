@@ -1,6 +1,5 @@
 # build output
 /lib-es5
-*.tsbuildinfo
 
 # dependencies
 /node_modules

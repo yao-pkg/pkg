@@ -10,7 +10,7 @@
     "rootDir": "./lib",
     "strict": true,
     "esModuleInterop": true,
-    "incremental": true,
+    "incremental": false,
     "resolveJsonModule": true,
     "skipLibCheck": true
   },

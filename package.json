@@ -71,7 +71,7 @@
     "typescript": "^4.7.2"
   },
   "scripts": {
-    "clean": "rimraf lib-es5 tsconfig.tsbuildinfo",
+    "clean": "rimraf lib-es5",
     "build": "npm run clean && tsc",
     "start": "tsc --watch",
     "lint": "npm run lint:style && npm run lint:code",
