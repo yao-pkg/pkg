@@ -194,9 +194,7 @@ async function run() {
       await runTest(file);
       ok++;
       addLog(
-        pc.green(
-          `✔ ${file} ok - ${msToHumanDuration(Date.now() - startTest)}`,
-        ),
+        pc.green(`✔ ${file} ok - ${msToHumanDuration(Date.now() - startTest)}`),
       );
     } catch (error) {
       failed.push({

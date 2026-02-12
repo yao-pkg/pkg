@@ -2,6 +2,15 @@
 
 This is a TypeScript-based Node.js project that packages Node.js applications into standalone executables. The project is maintained by the yao-pkg organization and is a fork of the original vercel/pkg project.
 
+## CRITICAL: Repository and PR Guidelines
+
+**IMPORTANT:** This repository is `yao-pkg/pkg`, a fork of the original `vercel/pkg` (which is ARCHIVED and read-only).
+
+- ✅ **ALWAYS create PRs against `yao-pkg/pkg`** (this fork)
+- ❌ **NEVER create PRs against `vercel/pkg`** (the upstream is archived and cannot accept PRs)
+- When using `gh pr create`, always specify the correct repository
+- The upstream `vercel/pkg` should be completely ignored for PR creation purposes
+
 ## Project Overview
 
 `pkg` is a command-line tool that:
@@ -55,19 +64,16 @@ npm run start
 **CRITICAL: Follow this workflow for ALL commits and pushes:**
 
 1. **Clean test artifacts**: Remove any test-generated output files (executables, binaries) before staging changes
-
    - Test artifacts typically include: `*.exe`, `*-linux`, `*-macos`, `*-win.exe` in test directories
    - Check staged files with `git status` and remove any test outputs
    - These files may remain if a test failed before cleanup
 
 2. **Verify no lint issues**:
-
    - ALWAYS run `npm run lint` before committing
    - Fix all linting errors with `npm run fix` or manually
    - NEVER commit or push with lint errors present
 
 3. **Request approval before commit/push**:
-
    - Show the user what files will be committed (`git status --short`)
    - Present a summary of changes made
    - Wait for explicit user approval before running `git commit` and `git push`
