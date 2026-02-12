@@ -80,7 +80,6 @@ function reconstructSpecifiers(
 }
 
 function reconstruct(node: babelTypes.Node) {
-  // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__generator
   let v = generate(node, { comments: false }).code.replace(/\n/g, '');
   let v2;
 

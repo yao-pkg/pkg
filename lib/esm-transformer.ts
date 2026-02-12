@@ -44,7 +44,6 @@ function hasImportMeta(code: string): boolean {
 
     let found = false;
 
-    // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
     traverse(ast as t.File, {
       // Detect import.meta usage
       MetaProperty(path: NodePath<t.MetaProperty>) {
@@ -96,7 +95,6 @@ function detectESMFeatures(
     const topLevelAwait: UnsupportedFeature[] = [];
     const unsupportedFeatures: UnsupportedFeature[] = [];
 
-    // @ts-expect-error Type mismatch due to @babel/types version in @types/babel__traverse
     traverse(ast as t.File, {
       // Detect top-level await - can be handled with async IIFE wrapper
       AwaitExpression(path: NodePath<t.AwaitExpression>) {
@@ -291,7 +289,6 @@ export function transformESMtoCJS(
       const codeLines = code.split('\n');
       const importLineIndices = new Set<number>();
 
-      // @ts-expect-error Type mismatch due to @babel/types version
       traverse(ast as t.File, {
         ExportNamedDeclaration() {
           hasExports = true;
