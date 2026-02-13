@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false # prevent test to stop if one fails
       matrix:
-        node-version: [18.x, 20.x]
+        node-version: [20.x, 22.x]
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -23,7 +23,7 @@ jobs:
 
       - run: yarn install
 
-      - if: matrix['node-version'] == '18.x' && matrix['os'] == 'ubuntu-latest'
+      - if: matrix['node-version'] == '20.x' && matrix['os'] == 'ubuntu-latest'
         run: yarn lint
       - run: yarn build
   test_host:
@@ -31,10 +31,10 @@ jobs:
     with:
       npm_command: test:host
   
-  test_18:
+  test_22:
     uses: ./.github/workflows/test.yml
     with:
-      npm_command: test:18
+      npm_command: test:22
 
   test_20:
     uses: ./.github/workflows/test.yml
