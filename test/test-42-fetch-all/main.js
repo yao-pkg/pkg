@@ -15,7 +15,7 @@ function nodeRangeToNodeVersion(nodeRange) {
 const platformsToTest = ['win', 'linux', 'macos'];
 
 for (const platform of platformsToTest) {
-  const nodeRanges = ['node18', 'node20', 'node22'];
+  const nodeRanges = ['node20', 'node22'];
   for (const nodeRange of nodeRanges) {
     const archs = ['x64'];
     if (platform === 'linux' || platform === 'macos') archs.push('arm64');

@@ -32,7 +32,7 @@ export default function help() {
   ${pc.gray('–')} Makes executable for particular target machine
     ${pc.cyan('$ pkg -t node14-win-arm64 index.js')}
   ${pc.gray('–')} Makes executables for target machines of your choice
-    ${pc.cyan('$ pkg -t node16-linux,node18-linux,node18-win index.js')}
+    ${pc.cyan('$ pkg -t node20-linux,node22-linux,node22-win index.js')}
   ${pc.gray('–')} Bakes '--expose-gc' and '--max-heap-size=34' into executable
     ${pc.cyan('$ pkg --options "expose-gc,max-heap-size=34" index.js')}
   ${pc.gray('–')} Consider packageA and packageB to be public

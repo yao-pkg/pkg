@@ -376,7 +376,7 @@ export function transformESMtoCJS(
     const esbuildOptions: esbuild.TransformOptions = {
       loader: 'js',
       format: 'cjs',
-      target: 'node18',
+      target: 'node20',
       sourcemap: false,
       minify: false,
       keepNames: true,
