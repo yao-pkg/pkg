@@ -2,6 +2,15 @@
 
 This is a TypeScript-based Node.js project that packages Node.js applications into standalone executables. The project is maintained by the yao-pkg organization and is a fork of the original vercel/pkg project.
 
+## CRITICAL: Repository and PR Guidelines
+
+**IMPORTANT:** This repository is `yao-pkg/pkg`, a fork of the original `vercel/pkg` (which is ARCHIVED and read-only).
+
+- ✅ **ALWAYS create PRs against `yao-pkg/pkg`** (this fork)
+- ❌ **NEVER create PRs against `vercel/pkg`** (the upstream is archived and cannot accept PRs)
+- When using `gh pr create`, always specify the correct repository
+- The upstream `vercel/pkg` should be completely ignored for PR creation purposes
+
 ## Project Overview
 
 `pkg` is a command-line tool that:

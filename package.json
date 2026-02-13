@@ -99,5 +99,14 @@
   "packageManager": "yarn@1.22.22",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "resolutions": {
+    "lodash": "^4.17.23",
+    "@octokit/request-error": "^5.1.1",
+    "@octokit/plugin-paginate-rest": "^9.2.2",
+    "@octokit/request": "^8.4.1",
+    "js-yaml": "^4.1.1",
+    "brace-expansion": "^2.0.2",
+    "tmp": "^0.2.4"
   }
 }
