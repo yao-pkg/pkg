@@ -4,6 +4,7 @@
 
 const path = require('path');
 const assert = require('assert');
+const { globSync } = require('tinyglobby');
 const utils = require('../utils.js');
 
 assert(!module.parent);
@@ -27,4 +28,6 @@ right = utils.spawn.sync(output, [], {
 
 assert.strictEqual(left, right);
 utils.vacuum.sync(path.dirname(output));
-utils.vacuum.sync(path.join(__dirname, '/*sync.json'));
+for (const f of globSync('*sync.json', { cwd: __dirname })) {
+  utils.vacuum.sync(path.join(__dirname, f));
+}

@@ -16,7 +16,7 @@ This is a TypeScript-based Node.js project that packages Node.js applications in
 `pkg` is a command-line tool that:
 
 - Packages Node.js projects into executables for multiple platforms (Linux, macOS, Windows)
-- Supports multiple Node.js versions (node18, node20, etc.)
+- Supports multiple Node.js versions (node20, node22, etc.)
 - Uses virtual filesystem to bundle application files
 - Compiles JavaScript to V8 bytecode for distribution
 - Supports native addons (.node files)
@@ -111,8 +111,8 @@ npm run build
 npm test
 
 # Run tests for specific Node.js version
-npm run test:18  # Test with Node.js 18
 npm run test:20  # Test with Node.js 20
+npm run test:22  # Test with Node.js 22
 npm run test:host  # Test with host Node.js version
 
 # Run specific test pattern
@@ -268,8 +268,8 @@ The project uses GitHub Actions workflows:
 
 - **ci.yml**: Runs linting and builds on multiple Node.js versions and OS platforms
 - **test.yml**: Reusable workflow for running tests
-- Matrix strategy tests: Node.js 18.x, 20.x on ubuntu-latest, windows-latest, macos-latest
-- Linting only runs on ubuntu-latest with Node.js 18.x
+- Matrix strategy tests: Node.js 20.x, 22.x on ubuntu-latest, windows-latest, macos-latest
+- Linting only runs on ubuntu-latest with Node.js 20.x
 
 ## Support and Resources
 
@@ -287,7 +287,7 @@ The project uses GitHub Actions workflows:
 2. **ALWAYS check lint before committing**: Run `npm run lint` before every commit and fix all issues - NEVER commit with lint errors
 3. **Clean test artifacts before staging**: Remove any test-generated executables (`*.exe`, `*-linux`, `*-macos`, `*-win.exe`) from test directories before committing
 4. **Always build before testing**: Run `npm run build` before running any tests
-5. **Use correct Node.js version**: The project requires Node.js >= 18.0.0
+5. **Use correct Node.js version**: The project requires Node.js >= 20.0.0
 6. **Use Yarn for package management**: This project uses `yarn`, not `npm`, for dependency management
 7. **Respect TypeScript compilation**: Edit `lib/*.ts` files, not `lib-es5/*.js` files
 8. **Maintain test numbering**: When adding tests, choose appropriate test number (XX in test-XX-name)

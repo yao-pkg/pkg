@@ -12,7 +12,8 @@
     "esModuleInterop": true,
     "incremental": false,
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": []
   },
   "include": ["lib/**/*"]
 }

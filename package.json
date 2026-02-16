@@ -27,8 +27,8 @@
     "@babel/traverse": "^7.23.0",
     "@babel/types": "^7.23.0",
     "@yao-pkg/pkg-fetch": "3.5.32",
-    "esbuild": "^0.25.0",
-    "into-stream": "^6.0.0",
+    "esbuild": "^0.27.3",
+    "into-stream": "^9.1.0",
     "minimist": "^1.2.6",
     "multistream": "^4.1.0",
     "picocolors": "^1.1.0",
@@ -42,12 +42,12 @@
     "unzipper": "^0.12.3"
   },
   "devDependencies": {
-    "@release-it/conventional-changelog": "^7.0.2",
+    "@release-it/conventional-changelog": "^10.0.5",
     "@types/babel__generator": "^7.6.5",
     "@types/babel__traverse": "^7.20.3",
     "@types/minimist": "^1.2.2",
     "@types/multistream": "^4.1.0",
-    "@types/node": "^16.18.113",
+    "@types/node": "^20.0.0",
     "@types/picomatch": "^3.0.1",
     "@types/resolve": "^1.20.2",
     "@types/stream-meter": "^0.0.22",
@@ -58,15 +58,15 @@
     "esbuild-register": "^3.6.0",
     "eslint": "^9.0.0",
     "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-config-airbnb-typescript": "^17.1.0",
+    "eslint-config-airbnb-typescript": "^18.0.0",
     "eslint-config-prettier": "^10.0.0",
     "eslint-plugin-import": "^2.31.0",
     "globals": "^17.3.0",
     "json-stable-stringify": "^1.0.1",
-    "lint-staged": "^15.2.10",
+    "lint-staged": "^15.0.0",
     "prettier": "^3.0.3",
-    "release-it": "^17.0.0",
-    "rimraf": "^3.0.2",
+    "release-it": "^19.2.4",
+    "rimraf": "^6.1.2",
     "simple-git-hooks": "^2.11.1",
     "typescript": "^4.7.2"
   },
@@ -80,9 +80,10 @@
     "fix": "npm run lint:style -- -w && npm run lint:code -- --fix",
     "prepare": "npm run build",
     "prepublishOnly": "npm run lint",
-    "test": "npm run build && npm run test:host && npm run test:18 && npm run test:20",
+    "test": "npm run build && npm run test:host && npm run test:20 && npm run test:22 && npm run test:24",
     "test:20": "node test/test.js node20 no-npm",
-    "test:18": "node test/test.js node18 no-npm",
+    "test:22": "node test/test.js node22 no-npm",
+    "test:24": "node test/test.js node24 no-npm",
     "test:host": "node test/test.js host only-npm",
     "bump:fetch": "yarn add @yao-pkg/pkg-fetch --exact",
     "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
@@ -98,7 +99,7 @@
   },
   "packageManager": "yarn@1.22.22",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "resolutions": {
     "lodash": "^4.17.23",
