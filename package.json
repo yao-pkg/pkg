@@ -80,9 +80,10 @@
     "fix": "npm run lint:style -- -w && npm run lint:code -- --fix",
     "prepare": "npm run build",
     "prepublishOnly": "npm run lint",
-    "test": "npm run build && npm run test:host && npm run test:20 && npm run test:22",
+    "test": "npm run build && npm run test:host && npm run test:20 && npm run test:22 && npm run test:24",
     "test:20": "node test/test.js node20 no-npm",
     "test:22": "node test/test.js node22 no-npm",
+    "test:24": "node test/test.js node24 no-npm",
     "test:host": "node test/test.js host only-npm",
     "bump:fetch": "yarn add @yao-pkg/pkg-fetch --exact",
     "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
