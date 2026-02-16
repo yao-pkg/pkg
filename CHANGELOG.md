@@ -1,3 +1,20 @@
+# Changelog
+
+## [6.14.0](https://github.com/yao-pkg/pkg/compare/v6.13.1...v6.14.0) (2026-02-16)
+
+### Features
+
+- bump eslint and its deps to latest ([#212](https://github.com/yao-pkg/pkg/issues/212)) ([9fee672](https://github.com/yao-pkg/pkg/commit/9fee672d3c7b95b57899333996e749e84e568bbb))
+
+### Bug Fixes
+
+- remove downlevelIteration option from tsconfig.json ([#210](https://github.com/yao-pkg/pkg/issues/210)) ([1737d03](https://github.com/yao-pkg/pkg/commit/1737d0372e347760a41f17b507c8fecba79b621c))
+- resolve security vulnerabilities in dependencies ([#211](https://github.com/yao-pkg/pkg/issues/211)) ([1715693](https://github.com/yao-pkg/pkg/commit/17156930452f87204d12738e0ebf2a4a4c23672c))
+
+### Chores
+
+- update dependencies, drop Node.js 18, add Node.js 22/24 support, and fix test compatibility ([#214](https://github.com/yao-pkg/pkg/issues/214)) ([0f43831](https://github.com/yao-pkg/pkg/commit/0f438313e6fb7209c4f40a631fe1725c5f1518fc))
+
 ## [6.13.1](https://github.com/yao-pkg/pkg/compare/v6.13.0...v6.13.1) (2026-02-11)
 
 ### Features
