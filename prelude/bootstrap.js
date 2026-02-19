@@ -1948,7 +1948,7 @@ function payloadFileSync(pointer) {
           filename = ancestor._resolveFilename.apply(this, modifiedArgs);
           // Successfully resolved .js version of .mjs file
           return filename;
-        } catch (jsError) {
+        } catch {
           // .js version also not found, continue with original error handling
         }
       }
