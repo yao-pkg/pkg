@@ -1,0 +1,6 @@
+{
+  "name": "test-53-esm-nested-imports",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true
+}
