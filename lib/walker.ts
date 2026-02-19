@@ -826,7 +826,8 @@ class Walker {
         // it is not enough because 'typos.json'
         // is not taken in require('./typos')
         // in 'normalize-package-data/lib/fixer.js'
-        extensions: ['.js', '.json', '.node'],
+        // Also include .mjs to support ESM files that get transformed to .js
+        extensions: ['.js', '.json', '.node', '.mjs'],
         catchReadFile,
         catchPackageFilter,
       });
@@ -865,7 +866,7 @@ class Walker {
       try {
         newFile2 = await follow(derivative.alias, {
           basedir: path.dirname(record.file),
-          extensions: ['.js', '.json', '.node'],
+          extensions: ['.js', '.json', '.node', '.mjs'],
           ignoreFile: newPackage.packageJson,
         });
         if (strictVerify) {

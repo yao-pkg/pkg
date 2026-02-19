@@ -1936,6 +1936,23 @@ function payloadFileSync(pointer) {
     } catch (error) {
       if (error.code !== 'MODULE_NOT_FOUND') throw error;
 
+      // If looking for .mjs file in snapshot, try .js (since .mjs files are renamed to .js)
+      const request = arguments[0];
+      if (typeof request === 'string' && request.endsWith('.mjs')) {
+        const jsRequest = request.slice(0, -4) + '.js';
+        const modifiedArgs = [
+          jsRequest,
+          ...Array.prototype.slice.call(arguments, 1),
+        ];
+        try {
+          filename = ancestor._resolveFilename.apply(this, modifiedArgs);
+          // Successfully resolved .js version of .mjs file
+          return filename;
+        } catch (jsError) {
+          // .js version also not found, continue with original error handling
+        }
+      }
+
       FLAG_ENABLE_PROJECT = true;
       const savePathCache = Module._pathCache;
       Module._pathCache = Object.create(null);
