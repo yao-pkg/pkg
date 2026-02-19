@@ -75,6 +75,10 @@ const strictVerify = Boolean(process.env.PKG_STRICT_VER);
 
 const win32 = process.platform === 'win32';
 
+// Extensions to try when resolving modules
+// Includes .mjs to support ESM files that get transformed to .js
+const MODULE_RESOLVE_EXTENSIONS = ['.js', '.json', '.node', '.mjs'];
+
 /**
  * Checks if a module is a core module
  * module.isBuiltin is available in Node.js 16.17.0 or later. Use that if available
@@ -827,7 +831,7 @@ class Walker {
         // is not taken in require('./typos')
         // in 'normalize-package-data/lib/fixer.js'
         // Also include .mjs to support ESM files that get transformed to .js
-        extensions: ['.js', '.json', '.node', '.mjs'],
+        extensions: MODULE_RESOLVE_EXTENSIONS,
         catchReadFile,
         catchPackageFilter,
       });
@@ -866,7 +870,7 @@ class Walker {
       try {
         newFile2 = await follow(derivative.alias, {
           basedir: path.dirname(record.file),
-          extensions: ['.js', '.json', '.node', '.mjs'],
+          extensions: MODULE_RESOLVE_EXTENSIONS,
           ignoreFile: newPackage.packageJson,
         });
         if (strictVerify) {
