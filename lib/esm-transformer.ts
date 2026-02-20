@@ -208,6 +208,24 @@ function replaceImportMetaObject(code: string): string {
 }
 
 /**
+ * Rewrite relative `.mjs` require paths to `.js` in CJS output
+ *
+ * When esbuild transforms ESM to CJS, it converts `import './foo.mjs'` to `require('./foo.mjs')`.
+ * Since the packer renames `.mjs` files to `.js` in the snapshot, the require paths must be
+ * updated to match. This handles the rewriting at build time.
+ *
+ * @param code - The CJS code after esbuild transformation
+ * @returns Code with relative .mjs require paths rewritten to .js
+ */
+export function rewriteMjsRequirePaths(code: string): string {
+  // Match require("./path.mjs") or require('../path.mjs') with relative paths only
+  return code.replace(
+    /require\((["'])(\.\.?\/[^"']*?)\.mjs\1\)/g,
+    'require($1$2.js$1)',
+  );
+}
+
+/**
  * Transform ESM code to CommonJS using esbuild
  * This allows ESM modules to be compiled to bytecode via vm.Script
  * Uses Babel parser for detecting unsupported ESM features, then esbuild for fast transformation
@@ -395,7 +413,7 @@ export function transformESMtoCJS(
     // Inject import.meta shims after esbuild transformation if needed
     let finalCode = result.code;
     if (usesImportMeta) {
-      finalCode = replaceImportMetaObject(result.code);
+      finalCode = replaceImportMetaObject(finalCode);
     }
 
     return {

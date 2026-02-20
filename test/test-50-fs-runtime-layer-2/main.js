@@ -25,12 +25,16 @@ function bitty(version) {
     (64 * /^(node|v)?16/.test(version)) |
     (128 * /^(node|v)?18/.test(version))
   );
+  // Node 20+ not included: bootstrap.js error handling has version-specific
+  // branches only up to Node 18, so error messages won't match on newer versions.
 }
 
 const version1 = process.version;
 const version2 = target;
 
-if (bitty(version1) === bitty(version2)) {
+// Only run when both versions are recognized and match.
+// Unrecognized versions (Node 20+) return 0, so the test is skipped.
+if (bitty(version1) !== 0 && bitty(version1) === bitty(version2)) {
   let left, right;
   utils.mkdirp.sync(path.dirname(output));
 

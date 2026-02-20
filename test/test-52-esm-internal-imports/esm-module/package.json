@@ -1,0 +1,6 @@
+{
+  "name": "test-52-esm-internal-imports",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true
+}
