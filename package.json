@@ -28,7 +28,7 @@
     "@babel/types": "^7.23.0",
     "@yao-pkg/pkg-fetch": "3.5.32",
     "esbuild": "^0.27.3",
-    "into-stream": "^9.1.0",
+    "into-stream": "^6.0.0",
     "minimist": "^1.2.6",
     "multistream": "^4.1.0",
     "picocolors": "^1.1.0",
