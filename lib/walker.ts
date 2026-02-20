@@ -26,7 +26,7 @@ import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
-import { transformESMtoCJS } from './esm-transformer';
+import { transformESMtoCJS, rewriteMjsRequirePaths } from './esm-transformer';
 import {
   ConfigDictionary,
   FileRecord,
@@ -1121,6 +1121,15 @@ class Walker {
         const derivatives2: Derivative[] = [];
         stepDetect(record, marker, derivatives2);
         await this.stepDerivatives(record, marker, derivatives2);
+
+        // After dependencies are resolved, rewrite .mjs require paths to .js
+        // since the packer renames .mjs files to .js in the snapshot
+        if (record.wasTransformed && record.body) {
+          record.body = Buffer.from(
+            rewriteMjsRequirePaths(record.body.toString('utf8')),
+            'utf8',
+          );
+        }
       }
     }
 

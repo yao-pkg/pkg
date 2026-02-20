@@ -46,6 +46,6 @@ assert.strictEqual(
   'Outputs should match between node and pkg',
 );
 
-console.log('✅ Test passed! ESM internal imports work correctly');
+console.log('Test passed: ESM internal imports work correctly');
 
 utils.vacuum.sync(path.dirname(output));

@@ -23,23 +23,17 @@ function bitty(version) {
     (16 * /^(node|v)?12/.test(version)) |
     (32 * /^(node|v)?14/.test(version)) |
     (64 * /^(node|v)?16/.test(version)) |
-    (128 * /^(node|v)?18/.test(version))
+    (128 * /^(node|v)?18/.test(version)) |
+    (256 * /^(node|v)?20/.test(version)) |
+    (512 * /^(node|v)?22/.test(version)) |
+    (1024 * /^(node|v)?24/.test(version))
   );
 }
 
 const version1 = process.version;
 const version2 = target;
 
-// Skip test if we're on an unsupported Node version (20+)
-// This test relies on specific error message formats that changed in Node 20+
-const version1Supported = bitty(version1) !== 0;
-const version2Supported = bitty(version2) !== 0;
-
-if (
-  version1Supported &&
-  version2Supported &&
-  bitty(version1) === bitty(version2)
-) {
+if (bitty(version1) === bitty(version2)) {
   let left, right;
   utils.mkdirp.sync(path.dirname(output));
 

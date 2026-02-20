@@ -1936,43 +1936,15 @@ function payloadFileSync(pointer) {
     } catch (error) {
       if (error.code !== 'MODULE_NOT_FOUND') throw error;
 
-      // If looking for .mjs file from a module inside snapshot, try .js
-      // (since .mjs files are renamed to .js in the snapshot)
-      const request = arguments[0];
-      const parent = arguments[1];
-      const isRelativeRequest =
-        typeof request === 'string' &&
-        (request.startsWith('./') || request.startsWith('../'));
-      const isParentInSnapshot =
-        parent && parent.filename && insideSnapshot(parent.filename);
-
-      if (isRelativeRequest && isParentInSnapshot && request.endsWith('.mjs')) {
-        const jsRequest = request.slice(0, -4) + '.js';
-        const modifiedArgs = [
-          jsRequest,
-          ...Array.prototype.slice.call(arguments, 1),
-        ];
-        try {
-          filename = ancestor._resolveFilename.apply(this, modifiedArgs);
-          // Successfully resolved .js version of .mjs file, continue to snapshot checks below
-        } catch (jsError) {
-          // Only ignore MODULE_NOT_FOUND for .js retry, re-throw other errors
-          if (jsError.code !== 'MODULE_NOT_FOUND') throw jsError;
-          // .js version also not found, continue with original error handling
-        }
-      }
-
-      if (!filename) {
-        FLAG_ENABLE_PROJECT = true;
-        const savePathCache = Module._pathCache;
-        Module._pathCache = Object.create(null);
-        try {
-          filename = ancestor._resolveFilename.apply(this, arguments);
-          flagWasOn = true;
-        } finally {
-          Module._pathCache = savePathCache;
-          FLAG_ENABLE_PROJECT = false;
-        }
+      FLAG_ENABLE_PROJECT = true;
+      const savePathCache = Module._pathCache;
+      Module._pathCache = Object.create(null);
+      try {
+        filename = ancestor._resolveFilename.apply(this, arguments);
+        flagWasOn = true;
+      } finally {
+        Module._pathCache = savePathCache;
+        FLAG_ENABLE_PROJECT = false;
       }
     }
     if (!insideSnapshot(filename)) {
