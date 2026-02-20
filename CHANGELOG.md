@@ -1,5 +1,15 @@
 # Changelog
 
+## [6.14.1](https://github.com/yao-pkg/pkg/compare/v6.14.0...v6.14.1) (2026-02-20)
+
+### Bug Fixes
+
+- MODULE_NOT_FOUND for ESM internal .mjs imports at runtime ([#218](https://github.com/yao-pkg/pkg/issues/218)) ([290d9ba](https://github.com/yao-pkg/pkg/commit/290d9ba2f6840b36163180133462875633127482))
+
+### Chores
+
+- add CLAUDE.md referencing shared copilot instructions ([#216](https://github.com/yao-pkg/pkg/issues/216)) ([2bd6e47](https://github.com/yao-pkg/pkg/commit/2bd6e478dc40159a041f5054df1444a07b88029a))
+
 ## [6.14.0](https://github.com/yao-pkg/pkg/compare/v6.13.1...v6.14.0) (2026-02-16)
 
 ### Features
