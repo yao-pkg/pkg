@@ -1,5 +1,20 @@
 # Changelog
 
+## [6.14.2](https://github.com/yao-pkg/pkg/compare/v6.14.1...v6.14.2) (2026-04-01)
+
+### Features
+
+- add workflow to bump pkg-fetch dependency automatically ([7450d31](https://github.com/yao-pkg/pkg/commit/7450d31d6956cccc6f8d4e68de8c287cb9916584))
+- bump fetch 3.5.33 with nodejs 20.20.2, 22.22.2, 24.14.1 ([#226](https://github.com/yao-pkg/pkg/issues/226)) ([439c64e](https://github.com/yao-pkg/pkg/commit/439c64e64ca4979a9dc7e814ecd5c8811d1ac65c))
+
+### Bug Fixes
+
+- improve formatting of pull request title for pkg-fetch version bump ([022f69d](https://github.com/yao-pkg/pkg/commit/022f69df3aa3ca79c80b9c7dad4969d1f23f1f77))
+
+### Chores
+
+- switch to npm trusted publisher with OIDC provenance ([#225](https://github.com/yao-pkg/pkg/issues/225)) ([b9fd3fd](https://github.com/yao-pkg/pkg/commit/b9fd3fd372d62866265789e27dfea22404dbd8d1))
+
 ## [6.14.1](https://github.com/yao-pkg/pkg/compare/v6.14.0...v6.14.1) (2026-02-20)
 
 ### Bug Fixes
