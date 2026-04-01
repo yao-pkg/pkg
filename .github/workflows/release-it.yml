@@ -1,0 +1,55 @@
+# #########################################################################
+# Creates a new release using `workflow_dispatch` event trigger with `type`
+# as input to describe the type of release to create
+name: 'Release-it: Create a new release on demand'
+
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        description: 'Type/Options. `major --preRelease=beta`, `--preRelease`, `major`, `patch`, `minor` or `major`'
+        required: false
+        default: 'patch'
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      id-token: write
+
+    runs-on: [ubuntu-latest]
+    strategy:
+      matrix:
+        node-version: [22.x]
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: 'main'
+          fetch-depth: 0 # fetch all commits history to create the changelog
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'yarn'
+
+      - name: Upgrade npm for OIDC support (requires npm >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: yarn install --ignore-engines
+
+      - name: Initialize Git user
+        run: |
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git config --global user.name "${{ github.actor }}"
+
+      - name: Make the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # When all commits since the latest major tag should be added to the changelog, use --git.tagExclude='*[-]*'
+          npx release-it ${{github.event.inputs.type}} --git.tagExclude='*[-]*' --ci --verbose

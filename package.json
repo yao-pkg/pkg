@@ -95,7 +95,8 @@
     "*.{js,css,md,json}": "prettier --write"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "packageManager": "yarn@1.22.22",
   "engines": {
