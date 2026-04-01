@@ -9,7 +9,7 @@ on:
       type:
         description: 'Type/Options. `major --preRelease=beta`, `--preRelease`, `major`, `patch`, `minor` or `major`'
         required: false
-        default: 'patch'
+        default: ''
 
 jobs:
   release:
