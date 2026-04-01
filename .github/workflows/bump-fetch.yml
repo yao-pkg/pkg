@@ -61,7 +61,7 @@ jobs:
             awk -F. '{major[$1]=$0} END {for (m in major) print major[m]}' | \
             sort -t. -k1,1n)
 
-          TITLE_VERSIONS=$(echo "$LATEST_PER_MAJOR" | paste -sd ', ')
+          TITLE_VERSIONS=$(echo "$LATEST_PER_MAJOR" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
 
           echo "pr_title=feat: bump fetch $VERSION with nodejs $TITLE_VERSIONS" >> $GITHUB_OUTPUT
           {
