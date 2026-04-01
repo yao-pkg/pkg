@@ -1,4 +1,9 @@
+# pkg
+
 [![Build Status](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml/badge.svg)](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@yao-pkg/pkg)](https://www.npmjs.com/package/@yao-pkg/pkg)
+[![npm downloads](https://img.shields.io/npm/dm/@yao-pkg/pkg)](https://www.npmjs.com/package/@yao-pkg/pkg)
+[![license](https://img.shields.io/npm/l/@yao-pkg/pkg)](https://github.com/yao-pkg/pkg/blob/main/LICENSE)
 
 This command line interface enables you to package your Node.js project into an executable that can be run even on devices without Node.js installed.
 
@@ -51,7 +56,7 @@ After installing it, run `pkg --help` without arguments to see list of options:
   – Takes package.json from cwd and follows 'bin' entry
     $ pkg .
   – Makes executable for particular target machine
-    $ pkg -t node14-win-arm64 index.js
+    $ pkg -t node22-win-arm64 index.js
   – Makes executables for target machines of your choice
     $ pkg -t node20-linux,node22-linux,node22-win index.js
   – Bakes '--expose-gc' and '--max-heap-size=34' into executable
@@ -84,7 +89,7 @@ time. You can specify a comma-separated list of targets via `--targets`
 option. A canonical target consists of 3 elements, separated by
 dashes, for example `node20-macos-x64` or `node22-linux-arm64`:
 
-- **nodeRange** (node8), node10, node12, node14, node16 or latest
+- **nodeRange** node20, node22, node24 or latest
 - **platform** alpine, linux, linuxstatic, win, macos, (freebsd)
 - **arch** x64, arm64, (armv6, armv7)
 
@@ -148,7 +153,7 @@ your `package.json` file.
   "pkg": {
     "scripts": "build/**/*.js",
     "assets": "views/**/*",
-    "targets": [ "node14-linux-arm64" ],
+    "targets": [ "node22-linux-arm64" ],
     "outputPath": "dist"
   }
 ```
@@ -290,7 +295,7 @@ See [pkg-fetch](https://github.com/yao-pkg/pkg-fetch) for more info.
 
 ### Compression
 
-Pass `--compress Brotli` or `--compress GZip` to `pkg` to compress further the content of the files store in the exectable.
+Pass `--compress Brotli` or `--compress GZip` to `pkg` to compress further the content of the files stored in the executable.
 
 This option can reduce the size of the embedded file system by up to 60%.
 
@@ -465,7 +470,7 @@ PKG_NODE_PATH=/path/to/node pkg app.js
 
 ### Error: Error [ERR_REQUIRE_ESM]: require() of ES Module
 
-This error is tracked by issue [#16](https://github.com/yao-pkg/pkg/issues/16#issuecomment-1945486658). Follow the link in oder to find a workaround.
+This error is tracked by issue [#16](https://github.com/yao-pkg/pkg/issues/16#issuecomment-1945486658). Follow the link in order to find a workaround.
 
 In most cases adding `--options experimental-require-module` to `pkg` command line will solve the issue.
 
@@ -489,7 +494,7 @@ const child = spawn(process.execPath, [process.argv[1]], {
 
 More info [here](https://github.com/yao-pkg/pkg/pull/90)
 
-### Error: Cannot execute binaray from snapshot
+### Error: Cannot execute binary from snapshot
 
 Binaries must be extracted from snapshot in order to be executed. In order to do this you can use this approach:
 
@@ -528,7 +533,7 @@ application is running.
 This error can be caused by using `NODE_OPTIONS` variable to force to
 run `node` with the debug mode enabled. Debugging options are disallowed
 , as **pkg** executables are usually used for production environments.
-If you do need to use inspector, you can [build a debuggable Node.js](https://github.com/vercel/pkg/issues/93#issuecomment-301210543) yourself.
+If you do need to use inspector, you can [build a debuggable Node.js](https://github.com/yao-pkg/pkg/issues/93#issuecomment-301210543) yourself.
 
 ### Error: require(...).internalModuleStat is not a function
 
