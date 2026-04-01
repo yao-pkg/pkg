@@ -853,10 +853,10 @@
     "@typescript-eslint/types" "8.55.0"
     eslint-visitor-keys "^4.2.1"
 
-"@yao-pkg/pkg-fetch@3.5.32":
-  version "3.5.32"
-  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.5.32.tgz#4d9cb77a2f5977a513ae7c6e19cfa94737d0f624"
-  integrity sha512-hS8zzze5VVyVAciZoNX4q3ZmCdn0gi34P2SElk4PFbzkA4LPs7qBJ3LhUKb4d4KGw1HVkFJJOMgGomH7cMqQ5Q==
+"@yao-pkg/pkg-fetch@3.5.33":
+  version "3.5.33"
+  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.5.33.tgz#4d2adb0299c361f369c5dfc098f655a72fefd2a1"
+  integrity sha512-j2UoH+eP4VobfovQg1gkWwDoB4O/tv8rlLnEjUEEHuWXJ5eBLNUIrobMSEp773/2pgUJUfqqPUFIhS1pN8OZuQ==
   dependencies:
     https-proxy-agent "^5.0.0"
     node-fetch "^2.6.6"
