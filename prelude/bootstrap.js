@@ -689,14 +689,13 @@ function payloadFileSync(pointer) {
     }
   }
   const temporaryFiles = {};
-  const os = require('os');
   let tmpFolder = '';
   process.on('beforeExit', () => {
     removeTemporaryFolderAndContent(tmpFolder);
   });
   function deflateSync(snapshotFilename) {
     if (!tmpFolder) {
-      tmpFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-'));
+      tmpFolder = fs.mkdtempSync(path.join(homedir(), '.pkg-cache', 'tmp-'));
     }
     const content = fs.readFileSync(snapshotFilename, { encoding: 'binary' });
     // content is already unzipped !
