@@ -21,6 +21,7 @@ interface ResolveOptions {
 interface ResolveResult {
   resolved: string;
   isESM: boolean;
+  resolvedViaExports: boolean;
 }
 
 /**
@@ -149,7 +150,7 @@ export function resolveModule(
   specifier: string,
   options: ResolveOptions,
 ): ResolveResult {
-  const { basedir, extensions = ['.js', '.json', '.node'] } = options;
+  const { basedir, extensions = ['.js', '.json', '.node', '.mjs', '.cjs'] } = options;
 
   // First, try ESM-style resolution with exports field
   const esmResolved = tryResolveESM(specifier, basedir);
@@ -158,6 +159,7 @@ export function resolveModule(
     return {
       resolved: esmResolved,
       isESM: isESMFile(esmResolved),
+      resolvedViaExports: true,
     };
   }
 
@@ -170,5 +172,6 @@ export function resolveModule(
   return {
     resolved,
     isESM: false, // CJS resolution
+    resolvedViaExports: false,
   };
 }

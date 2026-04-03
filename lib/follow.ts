@@ -73,7 +73,7 @@ export function follow(x: string, opts: FollowOptions) {
         } else if (opts.extensions) {
           extensions = [opts.extensions as string];
         } else {
-          extensions = ['.js', '.json', '.node'];
+          extensions = ['.js', '.json', '.node', '.mjs', '.cjs'];
         }
 
         const result = resolveModule(x, {
@@ -81,11 +81,11 @@ export function follow(x: string, opts: FollowOptions) {
           extensions,
         });
 
-        // Only use ESM resolution result if it's an actual ESM package
-        // For CJS packages, fall through to standard CommonJS resolution
-        // to ensure all callbacks (catchReadFile, catchPackageFilter) are handled correctly
-        if (result.isESM) {
-          // This is a real ESM package, handle it here
+        // Use the exports-aware resolver result whenever it succeeds,
+        // regardless of whether the resolved file is ESM or CJS.
+        // The "exports" field is a package-level feature, not ESM-only —
+        // dual-format packages use it to point require() to .cjs files.
+        if (result.resolvedViaExports) {
           if (opts.catchReadFile) {
             // Find the package.json for this resolved module
             let currentDir = path.dirname(result.resolved);
@@ -132,13 +132,12 @@ export function follow(x: string, opts: FollowOptions) {
             }
           }
 
-          // ESM package resolved successfully
+          // Exports-aware resolver succeeded
           resolve(result.resolved);
           return;
         }
 
-        // CJS package - fall through to standard CommonJS resolution
-        // to handle all callbacks properly
+        // No exports field found - fall through to standard CommonJS resolution
       } catch (_error) {
         // ESM resolution failed - fall through to standard CommonJS resolution
       }
