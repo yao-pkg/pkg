@@ -2187,7 +2187,10 @@ function payloadFileSync(pointer) {
   //   - Windows: C:\Users\John\.cache
   // Custom example: /opt/myapp/cache or C:\myapp\cache
   // Native addons will be extracted to: <PKG_NATIVE_CACHE_BASE>/pkg/<hash>
-  const PKG_NATIVE_CACHE_BASE =
+  //
+  // Note: We capture the initial value as the default, but re-read process.env inside
+  // process.dlopen so that runtime changes to PKG_NATIVE_CACHE_PATH take effect.
+  const PKG_NATIVE_CACHE_DEFAULT =
     process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache');
 
   function revertMakingLong(f) {
@@ -2209,7 +2212,9 @@ function payloadFileSync(pointer) {
       // the hash is needed to be sure we reload the module in case it changes
       const hash = createHash('sha256').update(moduleContent).digest('hex');
 
-      const tmpFolder = path.join(PKG_NATIVE_CACHE_BASE, 'pkg', hash);
+      // Re-read PKG_NATIVE_CACHE_PATH at each call so runtime changes take effect
+      const cacheBase = process.env.PKG_NATIVE_CACHE_PATH || PKG_NATIVE_CACHE_DEFAULT;
+      const tmpFolder = path.join(cacheBase, 'pkg', hash);
 
       fs.mkdirSync(tmpFolder, { recursive: true });
 
@@ -2237,7 +2242,17 @@ function payloadFileSync(pointer) {
       } else {
         const tmpModulePath = path.join(tmpFolder, moduleBaseName);
 
-        if (!fs.existsSync(tmpModulePath)) {
+        if (fs.existsSync(tmpModulePath)) {
+          // Verify cached file integrity against snapshot content.
+          // The folder name encodes the expected hash, but the file inside could
+          // have been replaced (e.g. by a local user to inject malicious code).
+          const cachedContent = fs.readFileSync(tmpModulePath);
+          const cachedHash = createHash('sha256').update(cachedContent).digest('hex');
+          if (cachedHash !== hash) {
+            // Cached file was tampered with or corrupted — re-extract from snapshot
+            fs.copyFileSync(modulePath, tmpModulePath);
+          }
+        } else {
           fs.copyFileSync(modulePath, tmpModulePath);
         }
 
