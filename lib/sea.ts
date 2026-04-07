@@ -405,12 +405,35 @@ async function withSeaTmpDir<T>(
 /** Validate that the host Node.js version supports SEA */
 function assertSeaNodeVersion() {
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
-  if (nodeMajor < 20) {
+  if (nodeMajor < 22) {
     throw new Error(
-      `SEA support requires at least node v20.0.0, actual node version is ${process.version}`,
+      `SEA support requires at least node v22.0.0, actual node version is ${process.version}`,
     );
   }
   return nodeMajor;
+}
+
+/**
+ * Generate the SEA blob from a sea-config.json file.
+ * Uses --build-sea on Node >= 25 with fallback to --experimental-sea-config.
+ */
+async function generateSeaBlob(seaConfigFilePath: string, nodeMajor: number) {
+  if (nodeMajor >= 25) {
+    try {
+      log.info('Generating the blob using --build-sea...');
+      await execFileAsync(process.execPath, ['--build-sea', seaConfigFilePath]);
+      return;
+    } catch {
+      log.info(
+        '--build-sea not available, falling back to --experimental-sea-config...',
+      );
+    }
+  }
+  log.info('Generating the blob...');
+  await execFileAsync(process.execPath, [
+    '--experimental-sea-config',
+    seaConfigFilePath,
+  ]);
 }
 
 /** Create NodeJS executable using the enhanced SEA pipeline (walker + refiner + assets) */
@@ -492,17 +515,7 @@ export async function seaEnhanced(
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
     // Generate the SEA blob
-    // --build-sea is stable from Node 25; older versions use --experimental-sea-config
-    if (nodeMajor >= 25) {
-      log.info('Generating the blob using --build-sea...');
-      await execFileAsync(process.execPath, ['--build-sea', seaConfigFilePath]);
-    } else {
-      log.info('Generating the blob...');
-      await execFileAsync(process.execPath, [
-        '--experimental-sea-config',
-        seaConfigFilePath,
-      ]);
-    }
+    await generateSeaBlob(seaConfigFilePath, nodeMajor);
 
     // Bake blob into each target executable
     await Promise.all(
@@ -517,7 +530,7 @@ export async function seaEnhanced(
 
 /** Create NodeJS executable using sea */
 export default async function sea(entryPoint: string, opts: SeaOptions) {
-  assertSeaNodeVersion();
+  const nodeMajor = assertSeaNodeVersion();
 
   entryPoint = resolve(process.cwd(), entryPoint);
 
@@ -545,11 +558,7 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     log.info('Creating sea-config.json file...');
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
-    log.info('Generating the blob...');
-    await execFileAsync(process.execPath, [
-      '--experimental-sea-config',
-      seaConfigFilePath,
-    ]);
+    await generateSeaBlob(seaConfigFilePath, nodeMajor);
 
     await Promise.all(
       nodePaths.map(async (nodePath, i) => {

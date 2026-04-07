@@ -488,7 +488,7 @@ function payloadFileSync(pointer) {
 // /////////////////////////////////////////////////////////////////
 
 (() => {
-  REQUIRE_SHARED.setupProcessPkg(ENTRYPOINT);
+  REQUIRE_SHARED.setupProcessPkg(ENTRYPOINT, DEFAULT_ENTRYPOINT);
   process.versions.pkg = '%VERSION%';
   process.pkg.mount = createMountpoint;
 })();

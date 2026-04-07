@@ -248,10 +248,11 @@ function patchChildProcess(entrypoint) {
  *
  * @param {string} entrypoint  The snapshotified entrypoint path.
  */
-function setupProcessPkg(entrypoint) {
+function setupProcessPkg(entrypoint, defaultEntrypoint) {
   process.pkg = {
     entrypoint: entrypoint,
-    defaultEntrypoint: entrypoint,
+    defaultEntrypoint:
+      defaultEntrypoint !== undefined ? defaultEntrypoint : entrypoint,
     path: {
       resolve: function () {
         var args = [path.dirname(entrypoint)];

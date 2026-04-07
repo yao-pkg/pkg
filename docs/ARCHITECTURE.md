@@ -39,7 +39,7 @@ pkg single-file.js --sea       # Simple SEA mode (any single .js file)
 | Bytecode      | V8 compiled          | No (source as-is)   | No                  |
 | ESM transform | ESM to CJS           | No (native ESM)     | No                  |
 | Node.js API   | Binary patching      | Official `node:sea` | Official `node:sea` |
-| Min Node      | 22 (pkg runtime)     | 22 (target)         | 20 (target)         |
+| Min Node      | 22 (pkg runtime)     | 22 (target)         | 22 (target)         |
 
 ---
 
