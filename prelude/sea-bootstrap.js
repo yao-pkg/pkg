@@ -6,12 +6,10 @@
 // It sets up a Virtual File System from SEA-embedded assets so that
 // fs.readFileSync, require, import, etc. work transparently on packaged files.
 
-const sea = require('node:sea');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
-const { createHash } = require('crypto');
-const Module = require('module');
+var sea = require('node:sea');
+var path = require('path');
+var Module = require('module');
+var shared = require('./bootstrap-shared');
 
 // /////////////////////////////////////////////////////////////////
 // MANIFEST ////////////////////////////////////////////////////////
@@ -115,58 +113,23 @@ var SNAPSHOT_PREFIX =
 virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
 
 // /////////////////////////////////////////////////////////////////
-// NATIVE ADDON EXTRACTION /////////////////////////////////////////
+// SHARED PATCHES //////////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-var nativeCacheBase =
-  process.env.PKG_NATIVE_CACHE_PATH || path.join(os.homedir(), '.cache', 'pkg');
+// Detect whether a path is inside the snapshot
+function insideSnapshot(f) {
+  if (typeof f !== 'string') return false;
+  return f.startsWith(SNAPSHOT_PREFIX + path.sep) || f === SNAPSHOT_PREFIX;
+}
 
-var ancestorDlopen = process.dlopen.bind(process);
+// Native addon extraction (shared with traditional bootstrap)
+shared.patchDlopen(insideSnapshot);
 
-process.dlopen = function patchedDlopen(module_, filename, flags) {
-  if (typeof filename === 'string' && filename.startsWith(SNAPSHOT_PREFIX)) {
-    // Read the .node file content from VFS
-    var content = fs.readFileSync(filename);
-    var hash = createHash('sha256').update(content).digest('hex').slice(0, 16);
-    var cacheDir = path.join(nativeCacheBase, hash);
+// child_process patching (shared with traditional bootstrap)
+shared.patchChildProcess(manifest.entrypoint);
 
-    fs.mkdirSync(cacheDir, { recursive: true });
-
-    var extractedPath = path.join(cacheDir, path.basename(filename));
-
-    try {
-      fs.statSync(extractedPath);
-    } catch (_) {
-      // Not cached yet — extract to real filesystem
-      fs.writeFileSync(extractedPath, content, { mode: 0o755 });
-    }
-
-    return ancestorDlopen(module_, extractedPath, flags);
-  }
-
-  return ancestorDlopen(module_, filename, flags);
-};
-
-// /////////////////////////////////////////////////////////////////
-// PROCESS COMPATIBILITY ///////////////////////////////////////////
-// /////////////////////////////////////////////////////////////////
-
-process.pkg = {
-  entrypoint: manifest.entrypoint,
-  defaultEntrypoint: manifest.entrypoint,
-  path: {
-    resolve: function () {
-      var args = [path.dirname(manifest.entrypoint)];
-      for (var i = 0; i < arguments.length; i++) {
-        args.push(arguments[i]);
-      }
-      return path.resolve.apply(path, args);
-    },
-  },
-  mount: function () {
-    throw new Error('process.pkg.mount is not supported in SEA mode');
-  },
-};
+// process.pkg setup (shared with traditional bootstrap)
+shared.setupProcessPkg(manifest.entrypoint);
 
 // /////////////////////////////////////////////////////////////////
 // ENTRYPOINT //////////////////////////////////////////////////////

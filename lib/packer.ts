@@ -25,6 +25,11 @@ const bootstrapText = readFileSync(
 
 const commonText = readFileSync(require.resolve('./common'), 'utf8');
 
+const sharedText = readFileSync(
+  require.resolve('../prelude/bootstrap-shared.js'),
+  'utf8',
+);
+
 const diagnosticText = readFileSync(
   require.resolve('../prelude/diagnostic.js'),
   'utf8',
@@ -169,10 +174,11 @@ export default function packer({
     }
   }
   const prelude =
-    `return (function (REQUIRE_COMMON, VIRTUAL_FILESYSTEM, DEFAULT_ENTRYPOINT, SYMLINKS, DICT, DOCOMPRESS) {
+    `return (function (REQUIRE_COMMON, REQUIRE_SHARED, VIRTUAL_FILESYSTEM, DEFAULT_ENTRYPOINT, SYMLINKS, DICT, DOCOMPRESS) {
         ${bootstrapText}${
           log.debugMode ? diagnosticText : ''
         }\n})(function (exports) {\n${commonText}\n},\n` +
+    `(function () { var module = { exports: {} };\n${sharedText}\nreturn module.exports; })(),\n` +
     `%VIRTUAL_FILESYSTEM%` +
     `\n,\n` +
     `%DEFAULT_ENTRYPOINT%` +
