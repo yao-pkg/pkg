@@ -82,14 +82,29 @@ if (manifest.debug) {
         return new OriginalWorker(filename, options);
       }
 
+      // Build a wrapper that:
+      // 1. Sets up VFS (workerBootstrap = bundled sea-vfs-setup.js)
+      // 2. Creates a proper CJS module context via Module._compile
+      //    so that require('./relative') resolves correctly from the
+      //    worker's snapshot path (eval mode's synthetic require doesn't
+      //    honour module.filename for relative resolution).
       var wrapper =
         workerBootstrap +
-        '\n__filename = ' +
+        '\nvar _Module = require("module");\n' +
+        'var _m = new _Module(' +
         JSON.stringify(filename) +
-        ';\n__dirname = ' +
+        ', module);\n' +
+        '_m.filename = ' +
+        JSON.stringify(filename) +
+        ';\n' +
+        '_m.paths = _Module._nodeModulePaths(' +
         JSON.stringify(path.dirname(filename)) +
-        ';\nmodule.filename = __filename;\nmodule.paths = require("module")._nodeModulePaths(__dirname);\n' +
-        workerCode;
+        ');\n' +
+        '_m._compile(' +
+        JSON.stringify(workerCode) +
+        ', ' +
+        JSON.stringify(filename) +
+        ');\n';
 
       options = Object.assign({}, options, { eval: true });
       return new OriginalWorker(wrapper, options);
