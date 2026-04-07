@@ -366,6 +366,7 @@ export interface WalkerParams {
   publicToplevel?: boolean;
   publicPackages?: string[];
   noDictionary?: string[];
+  seaMode?: boolean;
 }
 
 class Walker {
@@ -497,6 +498,12 @@ class Walker {
     }
 
     assert(task.store === STORE_BLOB || task.store === STORE_CONTENT);
+
+    // In SEA mode, always store as content (no V8 bytecode compilation)
+    if (this.params.seaMode && task.store === STORE_BLOB) {
+      task.store = STORE_CONTENT;
+    }
+
     assert(typeof task.file === 'string');
     const realFile = toNormalizedRealPath(task.file);
 
@@ -996,6 +1003,7 @@ class Walker {
 
     if (
       store === STORE_BLOB ||
+      this.params.seaMode ||
       (store === STORE_CONTENT && isPackageJson(record.file)) ||
       this.hasPatch(record)
     ) {
@@ -1070,7 +1078,7 @@ class Walker {
 
           // If package has "type": "module", we need to change it to "commonjs"
           // because we transform all ESM files to CJS before bytecode compilation
-          if (pkgContent.type === 'module') {
+          if (pkgContent.type === 'module' && !this.params.seaMode) {
             pkgContent.type = 'commonjs';
             modified = true;
           }
@@ -1091,6 +1099,7 @@ class Walker {
       // Check all JS-like files (.js, .mjs, .cjs) but only transform ESM ones
       if (
         store === STORE_BLOB &&
+        !this.params.seaMode &&
         record.body &&
         (isDotJS(record.file) || record.file.endsWith('.mjs'))
       ) {
@@ -1117,7 +1126,7 @@ class Walker {
         }
       }
 
-      if (store === STORE_BLOB) {
+      if (store === STORE_BLOB || this.params.seaMode) {
         const derivatives2: Derivative[] = [];
         stepDetect(record, marker, derivatives2);
         await this.stepDerivatives(record, marker, derivatives2);

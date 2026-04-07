@@ -1,0 +1,11 @@
+{
+  "name": "test-89-sea-fs-ops",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js",
+  "pkg": {
+    "assets": [
+      "data.json"
+    ]
+  }
+}

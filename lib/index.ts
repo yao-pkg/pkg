@@ -18,7 +18,7 @@ import { Target, NodeTarget, SymLinks } from './types';
 import { CompressType } from './compress_type';
 import { patchMachOExecutable, signMachOExecutable } from './mach-o';
 import pkgOptions from './options';
-import sea from './sea';
+import sea, { seaEnhanced } from './sea';
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
@@ -529,10 +529,40 @@ export async function exec(argv2: string[]) {
   }
 
   if (argv.sea) {
-    await sea(inputFin, {
-      targets,
-      signature: argv.signature,
-    });
+    const targetNodeMajor = parseInt(
+      targets[0].nodeRange.replace('node', ''),
+      10,
+    );
+
+    if ((inputJson || configJson) && targetNodeMajor >= 22) {
+      // Enhanced SEA mode — use walker pipeline
+      const marker: Record<string, unknown> = configJson
+        ? {
+            config: configJson,
+            base: path.dirname(config),
+            configPath: config,
+          }
+        : {
+            config: inputJson || {},
+            base: path.dirname(input),
+            configPath: input,
+          };
+      marker.toplevel = true;
+
+      await seaEnhanced(inputFin, {
+        targets,
+        signature: argv.signature,
+        marker,
+        params: { seaMode: true },
+        addition: isConfiguration(input) ? input : undefined,
+      });
+    } else {
+      // Simple SEA mode (backward compat: plain .js file or Node < 22)
+      await sea(inputFin, {
+        targets,
+        signature: argv.signature,
+      });
+    }
     return;
   }
 

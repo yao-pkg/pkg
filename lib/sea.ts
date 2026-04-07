@@ -10,12 +10,15 @@ import { homedir, tmpdir } from 'os';
 import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
 import { log } from './log';
-import { NodeTarget, Target } from './types';
+import { NodeTarget, Target, SeaEnhancedOptions } from './types';
 import {
   patchMachOExecutable,
   removeMachOExecutableSignature,
   signMachOExecutable,
 } from './mach-o';
+import walk, { Marker, WalkerParams } from './walker';
+import refine from './refiner';
+import { generateSeaAssets } from './sea-assets';
 
 const exec = util.promisify(cExec);
 
@@ -328,6 +331,134 @@ async function bake(
     await exec(
       `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
     );
+  }
+}
+
+/** Create NodeJS executable using the enhanced SEA pipeline (walker + refiner + assets) */
+export async function seaEnhanced(
+  entryPoint: string,
+  opts: SeaEnhancedOptions,
+) {
+  entryPoint = resolve(process.cwd(), entryPoint);
+
+  if (!(await exists(entryPoint))) {
+    throw new Error(`Entrypoint path "${entryPoint}" does not exist`);
+  }
+
+  const marker = opts.marker as unknown as Marker;
+  const params = (opts.params || {}) as WalkerParams;
+
+  // Run walker in SEA mode
+  log.info('Walking dependencies...');
+  const walkResult = await walk(marker, entryPoint, opts.addition, {
+    ...params,
+    seaMode: true,
+  });
+
+  // Refine (path compression, empty dir pruning)
+  log.info('Refining file records...');
+  const {
+    records,
+    entrypoint: refinedEntry,
+    symLinks,
+  } = refine(walkResult.records, walkResult.entrypoint, walkResult.symLinks);
+
+  const tmpDir = join(tmpdir(), 'pkg-sea', `${Date.now()}`);
+  await mkdir(tmpDir, { recursive: true });
+
+  // Resolve target outputs to absolute paths before chdir to tmpDir
+  for (const target of opts.targets) {
+    if (target.output) {
+      target.output = resolve(process.cwd(), target.output);
+    }
+  }
+
+  const nodePaths = await Promise.all(
+    opts.targets.map((target) => getNodejsExecutable(target, opts)),
+  );
+
+  const previousDirectory = process.cwd();
+  try {
+    process.chdir(tmpDir);
+
+    // Generate SEA assets from walker output
+    log.info('Generating SEA assets...');
+    const { assets, manifestPath } = await generateSeaAssets(
+      records,
+      refinedEntry,
+      symLinks,
+      tmpDir,
+    );
+
+    // Copy bundled bootstrap
+    const bootstrapPath = join(tmpDir, 'sea-main.js');
+    await copyFile(
+      join(__dirname, '..', 'prelude', 'sea-bootstrap.bundle.js'),
+      bootstrapPath,
+    );
+
+    // Build sea-config.json
+    const blobPath = join(tmpDir, 'sea-prep.blob');
+    const seaConfig = {
+      main: bootstrapPath,
+      output: blobPath,
+      disableExperimentalSEAWarning: true,
+      useCodeCache: opts.seaConfig?.useCodeCache ?? false,
+      useSnapshot: false,
+      assets: {
+        __pkg_manifest__: manifestPath,
+        ...assets,
+      },
+    };
+
+    const seaConfigFilePath = join(tmpDir, 'sea-config.json');
+    log.info('Creating sea-config.json file...');
+    await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
+
+    // Detect Node version for build command
+    const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
+    if (nodeMajor >= 25) {
+      log.info('Generating the blob using --build-sea...');
+      await exec(`node --build-sea "${seaConfigFilePath}"`);
+    } else {
+      log.info('Generating the blob...');
+      await exec(`node --experimental-sea-config "${seaConfigFilePath}"`);
+    }
+
+    // Bake blob into each target executable
+    await Promise.allSettled(
+      nodePaths.map(async (nodePath, i) => {
+        const target = opts.targets[i];
+        await bake(nodePath, target, blobPath);
+        const output = target.output!;
+        if (opts.signature && target.platform === 'macos') {
+          const buf = patchMachOExecutable(await readFile(output));
+          await writeFile(output, buf);
+          try {
+            signMachOExecutable(output);
+          } catch {
+            if (target.arch === 'arm64') {
+              log.warn('Unable to sign the macOS executable', [
+                'Due to the mandatory code signing requirement, before the',
+                'executable is distributed to end users, it must be signed.',
+                'Otherwise, it will be immediately killed by kernel on launch.',
+                'An ad-hoc signature is sufficient.',
+                'To do that, run pkg on a Mac, or transfer the executable to a Mac',
+                'and run "codesign --sign - <executable>", or (if you use Linux)',
+                'install "ldid" utility to PATH and then run pkg again',
+              ]);
+            }
+          }
+        }
+      }),
+    );
+  } catch (error) {
+    throw new Error(`Error while creating the executable: ${error}`);
+  } finally {
+    await rm(tmpDir, { recursive: true }).catch(() => {
+      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
+    });
+    process.chdir(previousDirectory);
   }
 }
 

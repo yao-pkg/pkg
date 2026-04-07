@@ -73,4 +73,19 @@ export interface Target extends NodeTarget {
   fabricator: Target;
 }
 
+export interface SeaEnhancedOptions {
+  seaConfig?: {
+    disableExperimentalSEAWarning?: boolean;
+    useSnapshot?: boolean;
+    useCodeCache?: boolean;
+  };
+  signature?: boolean;
+  targets: (NodeTarget & Partial<Target>)[];
+  useLocalNode?: boolean;
+  nodePath?: string;
+  marker: Record<string, unknown>;
+  params: Record<string, unknown>;
+  addition?: string;
+}
+
 export type SymLinks = Record<string, string>;

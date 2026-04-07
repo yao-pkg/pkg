@@ -613,6 +613,11 @@
   resolved "https://registry.yarnpkg.com/@phun-ky/typeof/-/typeof-2.0.3.tgz#581f617862e6fd9245e992440e46a88dbc228005"
   integrity sha512-oeQJs1aa8Ghke8JIK9yuq/+KjMiaYeDZ38jx7MhkXncXlUKjqQ3wEm2X3qCKyjo+ZZofZj+WsEEiqkTtRuE2xQ==
 
+"@platformatic/vfs@^0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@platformatic/vfs/-/vfs-0.3.0.tgz#d3664af6b2ad3add1661ce7aa9be2a970bb22d19"
+  integrity sha512-BGXVOAz59HYPZCgI9v/MtiTF/ng8YAWtkooxVwOPR3TatNgGy0WZ/t15ScqytiZi5NdSRqWNRfuAbXKeAlKDdQ==
+
 "@release-it/conventional-changelog@^10.0.5":
   version "10.0.5"
   resolved "https://registry.yarnpkg.com/@release-it/conventional-changelog/-/conventional-changelog-10.0.5.tgz#20081534fc8033027960c69f8e9d153c31fa9ec3"
