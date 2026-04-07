@@ -44,72 +44,86 @@ try {
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
 var MemoryProvider = vfsModule.MemoryProvider;
 
+// Manifest keys are always POSIX (forward slashes, no drive letter).
+// VFS may pass platform-native paths after stripping the mount prefix,
+// so normalise before any manifest or SEA-asset lookup.
+function toManifestKey(p) {
+  return p.replace(/\\/g, '/');
+}
+
 // Custom provider that reads from SEA assets lazily.
 // Extends MemoryProvider for directory/stat support while lazily populating
 // file content from SEA assets on first access.
+//
+// All paths are normalised to POSIX (via toManifestKey) before use, so
+// manifest lookups, SEA asset lookups, and MemoryProvider storage all use
+// the same key format regardless of platform.
 class SEAProvider extends MemoryProvider {
   constructor(seaManifest) {
     super();
     this._manifest = seaManifest;
     this._loaded = new Set();
 
-    // Pre-populate directory structure from manifest
+    // Pre-populate directory structure from manifest (keys are already POSIX)
     for (var dir of Object.keys(seaManifest.directories)) {
       super.mkdirSync(dir, { recursive: true });
     }
   }
 
-  _resolveSymlink(filePath) {
-    var target = this._manifest.symlinks[filePath];
-    return target || filePath;
+  _resolveSymlink(p) {
+    var target = this._manifest.symlinks[p];
+    return target || p;
   }
 
   readFileSync(filePath, options) {
-    filePath = this._resolveSymlink(filePath);
-    this._ensureLoaded(filePath);
-    return super.readFileSync(filePath, options);
+    var p = this._resolveSymlink(toManifestKey(filePath));
+    this._ensureLoaded(p);
+    return super.readFileSync(p, options);
   }
 
   readlinkSync(filePath) {
-    var target = this._manifest.symlinks[filePath];
+    var p = toManifestKey(filePath);
+    var target = this._manifest.symlinks[p];
     if (target) return target;
-    return super.readlinkSync(filePath);
+    return super.readlinkSync(p);
   }
 
-  _ensureLoaded(filePath) {
-    if (this._loaded.has(filePath)) return;
+  _ensureLoaded(p) {
+    if (this._loaded.has(p)) return;
     try {
-      var raw = sea.getRawAsset(filePath);
+      var raw = sea.getRawAsset(p);
       // getRawAsset returns an ArrayBuffer — Buffer.from copies the data
-      super.writeFileSync(filePath, Buffer.from(raw));
-      this._loaded.add(filePath);
+      super.writeFileSync(p, Buffer.from(raw));
+      this._loaded.add(p);
     } catch (_) {
       // Not a SEA asset — let super handle the ENOENT
     }
   }
 
   statSync(filePath) {
-    filePath = this._resolveSymlink(filePath);
-    var meta = this._manifest.stats[filePath];
-    if (meta && meta.isFile && !this._loaded.has(filePath)) {
-      this._ensureLoaded(filePath);
+    var p = this._resolveSymlink(toManifestKey(filePath));
+    var meta = this._manifest.stats[p];
+    if (meta && meta.isFile && !this._loaded.has(p)) {
+      this._ensureLoaded(p);
     }
-    return super.statSync(filePath);
+    return super.statSync(p);
   }
 
   readdirSync(dirPath) {
-    var entries = this._manifest.directories[dirPath];
+    var p = toManifestKey(dirPath);
+    var entries = this._manifest.directories[p];
     if (entries) return entries.slice();
-    return super.readdirSync(dirPath);
+    return super.readdirSync(p);
   }
 
   existsSync(filePath) {
-    if (filePath in this._manifest.symlinks) return true;
-    filePath = this._resolveSymlink(filePath);
-    if (filePath in this._manifest.stats) return true;
+    var p = toManifestKey(filePath);
+    if (p in this._manifest.symlinks) return true;
+    p = this._resolveSymlink(p);
+    if (p in this._manifest.stats) return true;
     // Fall through to super for directories created via mkdirSync
     try {
-      super.statSync(filePath);
+      super.statSync(p);
       return true;
     } catch (_) {
       return false;
@@ -144,15 +158,6 @@ function toPlatformPath(p) {
 }
 
 var entrypoint = toPlatformPath(manifest.entrypoint);
-
-// Normalise symlink map keys & values so the provider can match them
-if (process.platform === 'win32') {
-  var winSymlinks = {};
-  for (var sk in manifest.symlinks) {
-    winSymlinks[toPlatformPath(sk)] = toPlatformPath(manifest.symlinks[sk]);
-  }
-  manifest.symlinks = winSymlinks;
-}
 
 // /////////////////////////////////////////////////////////////////
 // SHARED PATCHES //////////////////////////////////////////////////
