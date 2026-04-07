@@ -24,3 +24,19 @@ console.log('readdir:' + entries.join(','));
 const content = fs.readFileSync(path.join(__dirname, 'data.json'), 'utf8');
 const parsed = JSON.parse(content);
 console.log('readFile:' + parsed.test);
+
+// Test error path: statSync on non-existent file should throw
+try {
+  fs.statSync(path.join(__dirname, 'does-not-exist.txt'));
+  console.log('stat-missing:no-error');
+} catch (e) {
+  console.log('stat-missing:' + e.code);
+}
+
+// Test error path: readFileSync on non-existent file should throw
+try {
+  fs.readFileSync(path.join(__dirname, 'does-not-exist.txt'));
+  console.log('read-missing:no-error');
+} catch (e) {
+  console.log('read-missing:' + e.code);
+}

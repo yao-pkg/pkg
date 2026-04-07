@@ -32,7 +32,9 @@ const expectedOutput =
   'dir-isFile:false\n' +
   'dir-isDir:true\n' +
   'readdir:data.json,index.js,package.json\n' +
-  'readFile:ok\n';
+  'readFile:ok\n' +
+  'stat-missing:ENOENT\n' +
+  'read-missing:ENOENT\n';
 
 utils.assertSeaOutput('test-89-sea-fs-ops', expectedOutput);
 

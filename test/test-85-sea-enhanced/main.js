@@ -24,10 +24,15 @@ const before = utils.filesBefore(newcomers);
 
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
-utils.assertSeaOutput(
-  'test-85-sea-enhanced',
-  'hello from lib\nmain: got message\n',
-);
+const expected =
+  'hello from lib\n' +
+  'main: got message\n' +
+  'pkg-exists:true\n' +
+  'pkg-entrypoint:true\n' +
+  'pkg-path-resolve:true\n' +
+  'pkg-mount:throws\n';
+
+utils.assertSeaOutput('test-85-sea-enhanced', expected);
 
 try {
   utils.filesAfter(before, newcomers);
