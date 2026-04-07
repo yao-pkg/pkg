@@ -4,7 +4,6 @@
 // Both import this module to avoid duplicating the SEAProvider + mount logic.
 
 var sea = require('node:sea');
-var path = require('path');
 
 var vfsModule;
 try {
@@ -110,8 +109,12 @@ class SEAProvider extends MemoryProvider {
 var provider = new SEAProvider(manifest);
 var virtualFs = new VirtualFileSystem(provider);
 
-var SNAPSHOT_PREFIX =
-  process.platform === 'win32' ? 'C:\\snapshot' : '/snapshot';
+// Always mount with a POSIX prefix — @platformatic/vfs internally relies on
+// '/' as path separator (isUnderMountPoint, getRelativePath, etc.).
+// Our prototype patches below convert Windows paths to POSIX before they
+// reach the VFS, and Node's VFS module hooks use the V: sentinel drive
+// for subsequent path resolution, which normalizeVFSPath already handles.
+var SNAPSHOT_PREFIX = '/snapshot';
 
 // On Windows, @platformatic/vfs normalises with path.normalize() which
 // uses backslashes, but isUnderMountPoint() uses '/'.  Patch to convert.
@@ -143,7 +146,22 @@ function toPlatformPath(p) {
 
 function insideSnapshot(f) {
   if (typeof f !== 'string') return false;
-  return f.startsWith(SNAPSHOT_PREFIX + path.sep) || f === SNAPSHOT_PREFIX;
+  if (f.startsWith('/snapshot/') || f === '/snapshot') return true;
+  if (process.platform === 'win32') {
+    // Module hooks use the V: sentinel drive; dlopen/child_process use C:
+    if (
+      f.startsWith('V:\\snapshot\\') ||
+      f.startsWith('V:/snapshot/') ||
+      f === 'V:\\snapshot' ||
+      f === 'V:/snapshot' ||
+      f.startsWith('C:\\snapshot\\') ||
+      f.startsWith('C:/snapshot/') ||
+      f === 'C:\\snapshot' ||
+      f === 'C:/snapshot'
+    )
+      return true;
+  }
+  return false;
 }
 
 module.exports = {
