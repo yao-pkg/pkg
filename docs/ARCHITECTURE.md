@@ -14,6 +14,7 @@ This document describes how `pkg` packages Node.js applications into standalone 
   - [Binary Format](#sea-binary-format)
   - [Runtime Bootstrap](#sea-runtime-bootstrap)
   - [VFS Provider Architecture](#vfs-provider-architecture)
+  - [Worker Thread Support](#worker-thread-support)
 - [Shared Runtime Code](#shared-runtime-code)
 - [Performance Comparison](#performance-comparison)
 - [Code Protection Comparison](#code-protection-comparison)
@@ -167,6 +168,8 @@ CLI (lib/index.ts)
   │
   └─ SEA Orchestrator (lib/sea.ts → seaEnhanced())
       ├─ Copy pre-bundled sea-bootstrap.bundle.js to tmpDir
+      │     (built by scripts/build-sea-bootstrap.js which inlines
+      │      the worker thread bootstrap via esbuild `define`)
       ├─ Build sea-config.json:
       │     { main, output, assets: { __pkg_manifest__, ...files } }
       ├─ Generate blob:
@@ -209,15 +212,18 @@ The resource is embedded using OS-native formats:
 
 ### SEA Runtime Bootstrap
 
-`prelude/sea-bootstrap.js` (187 lines, bundled with `@platformatic/vfs` into 151kb `sea-bootstrap.bundle.js`) executes as the SEA `main` entry:
+`prelude/sea-bootstrap.js` (~250 lines, bundled with `@platformatic/vfs` and the worker bootstrap into `sea-bootstrap.bundle.js`) executes as the SEA `main` entry:
 
 1. **Load manifest** — `JSON.parse(sea.getAsset('__pkg_manifest__', 'utf8'))`
-2. **Initialize VFS** — Creates `SEAProvider` (extends `MemoryProvider`), mounts at `/snapshot` with overlay mode
-3. **Normalize paths** — On Windows, converts POSIX `/snapshot/...` paths in manifest to `C:\snapshot\...`
+2. **Patch VFS for Windows** — On Windows, monkey-patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to convert Windows-native paths (e.g. `C:\snapshot\...`) to POSIX before the VFS processes them. This is needed because `@platformatic/vfs` internally uses `/` as the path separator in `isUnderMountPoint()`, but Node's `path.normalize()` converts to `\` on Windows
+3. **Initialize VFS** — Creates `SEAProvider` (extends `MemoryProvider`), always mounts at `/snapshot` (POSIX path, regardless of platform). The VFS module hooks use the `V:` sentinel drive for subsequent path resolution on Windows
 4. **Apply shared patches** — Calls `patchDlopen()`, `patchChildProcess()`, `setupProcessPkg()` from `bootstrap-shared.js`
-5. **Run entrypoint** — Sets `process.argv[1]`, calls `Module.runMain()`
+5. **Patch Worker threads** — Wraps `workerThreads.Worker` so workers spawned with `/snapshot/...` paths get a self-contained bootstrap (see [Worker Thread Support](#worker-thread-support))
+6. **Run entrypoint** — Sets `process.argv[1]`, calls `Module.runMain()`
 
 The VFS polyfill (`@platformatic/vfs`) handles all `fs` and `fs/promises` patching automatically when `mount()` is called — intercepting 164+ functions including `readFile`, `readFileSync`, `stat`, `readdir`, `access`, `realpath`, `createReadStream`, `watch`, `open`, and their promise-based equivalents. It also hooks into the Node.js module resolution system for `require()` and `import`.
+
+**Windows path strategy:** Unlike the main thread's VFS approach (which uses `@platformatic/vfs` with automatic module hooks), the SEA bootstrap takes care to normalize all paths to POSIX before they reach the VFS. The `insideSnapshot()` helper checks for both `/snapshot` and `V:\snapshot` (the sentinel drive used by `@platformatic/vfs` module hooks on Windows).
 
 ### VFS Provider Architecture
 
@@ -258,6 +264,52 @@ The `SEAProvider` implements lazy loading:
 | `readlinkSync(path)` | Return symlink target from manifest                                                      |
 
 Assets are loaded lazily via `sea.getRawAsset(key)` which returns a zero-copy `ArrayBuffer` reference to the executable's memory-mapped region. The buffer is copied once into the `MemoryProvider` cache on first access.
+
+### Worker Thread Support
+
+Worker threads spawned from packaged applications don't inherit VFS hooks from the main thread — `@platformatic/vfs` only patches the main thread's `fs` and module system. The SEA bootstrap solves this by monkey-patching the `Worker` constructor:
+
+```
+workerThreads.Worker(filename, options)
+  │
+  ├─ filename NOT inside /snapshot → original Worker (pass-through)
+  │
+  └─ filename inside /snapshot:
+       ├─ Read worker source from VFS via fs.readFileSync (intercepted)
+       ├─ Prepend self-contained worker bootstrap
+       │     (inlined at build time via WORKER_BOOTSTRAP_CODE)
+       ├─ Append __filename, __dirname, module.paths setup
+       └─ Spawn with { eval: true } → worker runs in-memory
+```
+
+**Worker Bootstrap (`prelude/sea-worker-bootstrap.js`, ~135 lines):**
+
+The worker bootstrap is a self-contained VFS implementation that reads directly from SEA assets via `node:sea`. It does NOT use `@platformatic/vfs` — instead it monkey-patches `fs` and `Module` directly, similar to the traditional bootstrap approach:
+
+- **`fs.readFileSync`** — Intercepts snapshot paths, reads from SEA assets via `sea.getRawAsset(key)`
+- **`fs.existsSync`** — Checks manifest stats for snapshot paths
+- **`fs.statSync`** — Returns metadata from manifest for snapshot paths
+- **`fs.readdirSync`** — Returns directory entries from manifest
+- **`Module._resolveFilename`** — Resolves `require()` calls within the snapshot (handles relative paths, node_modules, package.json `main` fields, extension resolution)
+- **`Module._extensions['.js']` / `['.json']`** — Compiles/parses files from SEA assets
+
+This approach is necessary because `@platformatic/vfs` relies on module hooks and process-level patching that may not transfer cleanly to `eval`'d worker code.
+
+**Build-time inlining:**
+
+The worker bootstrap is inlined into the main bundle at build time by `scripts/build-sea-bootstrap.js`, which uses esbuild's `define` option to replace the `WORKER_BOOTSTRAP_CODE` placeholder with the stringified worker bootstrap source:
+
+```javascript
+// scripts/build-sea-bootstrap.js
+require('esbuild').buildSync({
+  ...
+  define: {
+    WORKER_BOOTSTRAP_CODE: JSON.stringify(workerCode),
+  },
+});
+```
+
+This keeps the worker bootstrap as a separate, readable source file while ensuring it ships as a single bundle.
 
 ---
 
@@ -413,18 +465,20 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 
 ## File Reference
 
-| File                          | Lines | Purpose                                                     |
-| ----------------------------- | ----- | ----------------------------------------------------------- |
-| `prelude/bootstrap.js`        | ~1970 | Traditional runtime bootstrap (fs/module/process patching)  |
-| `prelude/bootstrap-shared.js` | ~255  | Shared runtime patches (dlopen, child_process, process.pkg) |
-| `prelude/sea-bootstrap.js`    | ~187  | SEA runtime bootstrap (VFS setup, lazy SEAProvider)         |
-| `lib/index.ts`                | ~726  | CLI entry point, mode routing                               |
-| `lib/walker.ts`               | ~1304 | Dependency walker (with seaMode support)                    |
-| `lib/packer.ts`               | ~194  | Serializes walker output into stripes + prelude wrapper     |
-| `lib/producer.ts`             | ~601  | Assembles final binary (payload injection, compression)     |
-| `lib/sea.ts`                  | ~561  | SEA orchestrator (seaEnhanced + simple sea)                 |
-| `lib/sea-assets.ts`           | ~105  | Generates SEA asset map + manifest JSON                     |
-| `lib/fabricator.ts`           | ~173  | V8 bytecode compilation (traditional mode only)             |
-| `lib/esm-transformer.ts`      | ~434  | ESM to CJS transformation (traditional mode only)           |
-| `lib/refiner.ts`              | ~110  | Path compression, empty directory pruning                   |
-| `lib/common.ts`               | ~369  | Path normalization, snapshot helpers, store constants       |
+| File                              | Lines | Purpose                                                                  |
+| --------------------------------- | ----- | ------------------------------------------------------------------------ |
+| `prelude/bootstrap.js`            | ~1970 | Traditional runtime bootstrap (fs/module/process patching)               |
+| `prelude/bootstrap-shared.js`     | ~255  | Shared runtime patches (dlopen, child_process, process.pkg)              |
+| `prelude/sea-bootstrap.js`        | ~250  | SEA runtime bootstrap (VFS setup, lazy SEAProvider, worker patch)        |
+| `prelude/sea-worker-bootstrap.js` | ~135  | Self-contained worker thread bootstrap (fs/Module patching via node:sea) |
+| `scripts/build-sea-bootstrap.js`  | ~22   | Build script: bundles sea-bootstrap + inlines worker bootstrap           |
+| `lib/index.ts`                    | ~726  | CLI entry point, mode routing                                            |
+| `lib/walker.ts`                   | ~1304 | Dependency walker (with seaMode support)                                 |
+| `lib/packer.ts`                   | ~194  | Serializes walker output into stripes + prelude wrapper                  |
+| `lib/producer.ts`                 | ~601  | Assembles final binary (payload injection, compression)                  |
+| `lib/sea.ts`                      | ~561  | SEA orchestrator (seaEnhanced + simple sea)                              |
+| `lib/sea-assets.ts`               | ~105  | Generates SEA asset map + manifest JSON                                  |
+| `lib/fabricator.ts`               | ~173  | V8 bytecode compilation (traditional mode only)                          |
+| `lib/esm-transformer.ts`          | ~434  | ESM to CJS transformation (traditional mode only)                        |
+| `lib/refiner.ts`                  | ~110  | Path compression, empty directory pruning                                |
+| `lib/common.ts`                   | ~369  | Path normalization, snapshot helpers, store constants                    |
