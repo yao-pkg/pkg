@@ -554,7 +554,14 @@ export async function exec(argv2: string[]) {
       }),
     );
 
-    if ((inputJson || configJson) && minTargetMajor >= 22) {
+    if ((inputJson || configJson) && minTargetMajor < 22) {
+      throw wasReported(
+        'Enhanced SEA mode requires Node >= 22 targets. ' +
+          `Minimum target version resolved to Node ${minTargetMajor}.`,
+      );
+    }
+
+    if (inputJson || configJson) {
       // Enhanced SEA mode — use walker pipeline
       const marker = buildMarker(configJson, config, inputJson, input);
 
@@ -568,7 +575,7 @@ export async function exec(argv2: string[]) {
         addition: isConfiguration(input) ? input : undefined,
       });
     } else {
-      // Simple SEA mode (backward compat: plain .js file or Node < 22)
+      // Simple SEA mode — plain .js file without package.json
       await sea(inputFin, {
         targets,
         signature: argv.signature,
