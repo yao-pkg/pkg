@@ -34,28 +34,10 @@ const expectedOutput =
   'readdir:data.json,index.js,package.json\n' +
   'readFile:ok\n';
 
-if (process.platform === 'linux') {
-  assert.equal(
-    utils.spawn.sync('./test-89-sea-fs-ops-linux', []),
-    expectedOutput,
-    'Output matches',
-  );
-} else if (process.platform === 'darwin') {
-  assert.equal(
-    utils.spawn.sync('./test-89-sea-fs-ops-macos', []),
-    expectedOutput,
-    'Output matches',
-  );
-} else if (process.platform === 'win32') {
-  assert.equal(
-    utils.spawn.sync('./test-89-sea-fs-ops-win.exe', []),
-    expectedOutput,
-    'Output matches',
-  );
-}
+utils.assertSeaOutput('test-89-sea-fs-ops', expectedOutput);
 
 try {
   utils.filesAfter(before, newcomers);
 } catch (_error) {
-  // noop
+  // noop — Windows EBUSY workaround
 }

@@ -73,6 +73,24 @@ export interface Target extends NodeTarget {
   fabricator: Target;
 }
 
+export interface Marker {
+  hasDictionary?: boolean;
+  activated?: boolean;
+  toplevel?: boolean;
+  public?: boolean;
+  hasDeployFiles?: boolean;
+  config?: PackageJson;
+  configPath: string;
+  base: string;
+}
+
+export interface WalkerParams {
+  publicToplevel?: boolean;
+  publicPackages?: string[];
+  noDictionary?: string[];
+  seaMode?: boolean;
+}
+
 export interface SeaEnhancedOptions {
   seaConfig?: {
     disableExperimentalSEAWarning?: boolean;
@@ -83,8 +101,8 @@ export interface SeaEnhancedOptions {
   targets: (NodeTarget & Partial<Target>)[];
   useLocalNode?: boolean;
   nodePath?: string;
-  marker: Record<string, unknown>;
-  params: Record<string, unknown>;
+  marker: Marker;
+  params: WalkerParams;
   addition?: string;
 }
 

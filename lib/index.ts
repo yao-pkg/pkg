@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { existsSync, readFileSync, copyFileSync } from 'fs';
 import { mkdir, readFile, rm, stat } from 'fs/promises';
 import minimist from 'minimist';
 import { need, system } from '@yao-pkg/pkg-fetch';
@@ -16,9 +16,9 @@ import { shutdown } from './fabricator';
 import walk, { Marker, WalkerParams } from './walker';
 import { Target, NodeTarget, SymLinks } from './types';
 import { CompressType } from './compress_type';
-import { patchMachOExecutable, signMachOExecutable } from './mach-o';
+import { signMachOExecutable } from './mach-o';
 import pkgOptions from './options';
-import sea, { seaEnhanced } from './sea';
+import sea, { seaEnhanced, signMacOSIfNeeded } from './sea';
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
@@ -26,6 +26,23 @@ const { version } = JSON.parse(
 
 function isConfiguration(file: string) {
   return isPackageJson(file) || file.endsWith('.config.json');
+}
+
+function buildMarker(
+  configJson: Record<string, unknown> | undefined,
+  config: string,
+  inputJson: Record<string, unknown> | undefined,
+  input: string,
+): Marker {
+  const marker: Marker = configJson
+    ? { config: configJson, base: path.dirname(config), configPath: config }
+    : {
+        config: inputJson || {},
+        base: path.dirname(input),
+        configPath: input,
+      };
+  marker.toplevel = true;
+  return marker;
 }
 
 // http://www.openwall.com/lists/musl/2012/12/08/4
@@ -529,25 +546,15 @@ export async function exec(argv2: string[]) {
   }
 
   if (argv.sea) {
-    const targetNodeMajor = parseInt(
-      targets[0].nodeRange.replace('node', ''),
-      10,
+    const minTargetMajor = Math.min(
+      ...targets.map((t) => parseInt(t.nodeRange.replace('node', ''), 10)),
     );
 
-    if ((inputJson || configJson) && targetNodeMajor >= 22) {
+    if ((inputJson || configJson) && minTargetMajor >= 22) {
       // Enhanced SEA mode — use walker pipeline
-      const marker: Record<string, unknown> = configJson
-        ? {
-            config: configJson,
-            base: path.dirname(config),
-            configPath: config,
-          }
-        : {
-            config: inputJson || {},
-            base: path.dirname(input),
-            configPath: input,
-          };
-      marker.toplevel = true;
+      const marker = buildMarker(configJson, config, inputJson, input);
+
+      pkgOptions.set(configJson?.pkg ?? inputJson?.pkg);
 
       await seaEnhanced(inputFin, {
         targets,
@@ -626,23 +633,8 @@ export async function exec(argv2: string[]) {
 
   let marker: Marker;
 
-  if (configJson) {
-    pkgOptions.set(configJson?.pkg);
-    marker = {
-      config: configJson,
-      base: path.dirname(config),
-      configPath: config,
-    };
-  } else {
-    pkgOptions.set(inputJson?.pkg);
-    marker = {
-      config: inputJson || {}, // not `inputBin` because only `input`
-      base: path.dirname(input), // is the place for `inputJson`
-      configPath: input,
-    };
-  }
-
-  marker.toplevel = true;
+  pkgOptions.set(configJson?.pkg ?? inputJson?.pkg);
+  marker = buildMarker(configJson, config, inputJson, input);
 
   // public
 
@@ -714,30 +706,7 @@ export async function exec(argv2: string[]) {
     });
 
     if (target.platform !== 'win' && target.output) {
-      if (argv.signature && target.platform === 'macos') {
-        // patch executable to allow code signing
-        const buf = patchMachOExecutable(readFileSync(target.output));
-        writeFileSync(target.output, buf);
-
-        try {
-          // sign executable ad-hoc to workaround the new mandatory signing requirement
-          // users can always replace the signature if necessary
-          signMachOExecutable(target.output);
-        } catch {
-          if (target.arch === 'arm64') {
-            log.warn('Unable to sign the macOS executable', [
-              'Due to the mandatory code signing requirement, before the',
-              'executable is distributed to end users, it must be signed.',
-              'Otherwise, it will be immediately killed by kernel on launch.',
-              'An ad-hoc signature is sufficient.',
-              'To do that, run pkg on a Mac, or transfer the executable to a Mac',
-              'and run "codesign --sign - <executable>", or (if you use Linux)',
-              'install "ldid" utility to PATH and then run pkg again',
-            ]);
-          }
-        }
-      }
-
+      await signMacOSIfNeeded(target.output, target, argv.signature);
       await plusx(target.output);
     }
   }

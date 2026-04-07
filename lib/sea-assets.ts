@@ -1,5 +1,4 @@
 import { mkdir, writeFile } from 'fs/promises';
-import path from 'path';
 import { dirname, join } from 'path';
 
 import { STORE_CONTENT, STORE_LINKS, STORE_STAT, snapshotify } from './common';
@@ -12,8 +11,6 @@ export interface SeaManifest {
     string,
     { size: number; isFile: boolean; isDirectory: boolean }
   >;
-  symlinks: Record<string, string>;
-  nativeAddons: string[];
 }
 
 export interface SeaAssetsResult {
@@ -27,20 +24,22 @@ export interface SeaAssetsResult {
  * Asset keys use refiner paths (no /snapshot prefix) because @platformatic/vfs
  * strips the mount prefix before passing paths to the provider. The entrypoint
  * in the manifest uses the snapshotified path for process.argv[1] compatibility.
+ *
+ * Always uses POSIX '/' separator for manifest paths so the same blob works
+ * regardless of build platform. The bootstrap normalizes at runtime.
  */
 export async function generateSeaAssets(
   records: FileRecords,
   entrypoint: string,
-  symLinks: SymLinks,
+  _symLinks: SymLinks,
   tmpDir: string,
 ): Promise<SeaAssetsResult> {
   const assets: Record<string, string> = {};
   const manifest: SeaManifest = {
-    entrypoint: snapshotify(entrypoint, path.sep),
+    // Always use '/' — the bootstrap normalizes for the runtime platform
+    entrypoint: snapshotify(entrypoint, '/'),
     directories: {},
     stats: {},
-    symlinks: symLinks,
-    nativeAddons: [],
   };
 
   let modifiedFileCount = 0;
@@ -70,11 +69,6 @@ export async function generateSeaAssets(
         // Unmodified file — point to source on disk
         assets[snap] = record.file;
       }
-
-      // Detect native addons
-      if (snap.endsWith('.node')) {
-        manifest.nativeAddons.push(snap);
-      }
     }
 
     // Collect directory entries
@@ -88,7 +82,7 @@ export async function generateSeaAssets(
     if (record[STORE_STAT]) {
       const stat = record[STORE_STAT];
       manifest.stats[snap] = {
-        size: stat.size || 0,
+        size: stat.size ?? 0,
         isFile: Boolean(stat.isFileValue),
         isDirectory: Boolean(stat.isDirectoryValue),
       };

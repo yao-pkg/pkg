@@ -17,7 +17,14 @@ const Module = require('module');
 // MANIFEST ////////////////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-const manifest = JSON.parse(sea.getAsset('__pkg_manifest__', 'utf8'));
+var manifest;
+try {
+  manifest = JSON.parse(sea.getAsset('__pkg_manifest__', 'utf8'));
+} catch (e) {
+  throw new Error(
+    'pkg: Failed to load VFS manifest from SEA assets: ' + e.message,
+  );
+}
 
 // /////////////////////////////////////////////////////////////////
 // VFS SETUP ///////////////////////////////////////////////////////
@@ -28,13 +35,19 @@ var vfsModule;
 try {
   vfsModule = require('node:vfs');
 } catch (_) {
-  vfsModule = require('@platformatic/vfs');
+  try {
+    vfsModule = require('@platformatic/vfs');
+  } catch (e) {
+    throw new Error(
+      'pkg: VFS polyfill (@platformatic/vfs) is not available: ' + e.message,
+    );
+  }
 }
 
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
 var MemoryProvider = vfsModule.MemoryProvider;
 
-// Custom provider that reads from SEA assets lazily (zero-copy via getRawAsset).
+// Custom provider that reads from SEA assets lazily.
 // Extends MemoryProvider for directory/stat support while lazily populating
 // file content from SEA assets on first access.
 class SEAProvider extends MemoryProvider {
@@ -45,11 +58,7 @@ class SEAProvider extends MemoryProvider {
 
     // Pre-populate directory structure from manifest
     for (var dir of Object.keys(seaManifest.directories)) {
-      try {
-        super.mkdirSync(dir, { recursive: true });
-      } catch (_) {
-        // directory may already exist
-      }
+      super.mkdirSync(dir, { recursive: true });
     }
   }
 
@@ -62,6 +71,7 @@ class SEAProvider extends MemoryProvider {
     if (this._loaded.has(filePath)) return;
     try {
       var raw = sea.getRawAsset(filePath);
+      // getRawAsset returns an ArrayBuffer — Buffer.from copies the data
       super.writeFileSync(filePath, Buffer.from(raw));
       this._loaded.add(filePath);
     } catch (_) {
@@ -84,20 +94,30 @@ class SEAProvider extends MemoryProvider {
   }
 
   existsSync(filePath) {
-    return filePath in this._manifest.stats;
+    if (filePath in this._manifest.stats) return true;
+    // Fall through to super for directories created via mkdirSync
+    try {
+      super.statSync(filePath);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }
 
 var provider = new SEAProvider(manifest);
 var virtualFs = new VirtualFileSystem(provider);
-virtualFs.mount('/snapshot', { overlay: true });
+
+var SNAPSHOT_PREFIX =
+  process.platform === 'win32' ? 'C:\\snapshot' : '/snapshot';
+
+// Mount at the appropriate prefix for the runtime platform
+virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
 
 // /////////////////////////////////////////////////////////////////
 // NATIVE ADDON EXTRACTION /////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-var SNAPSHOT_PREFIX =
-  process.platform === 'win32' ? 'C:\\snapshot' : '/snapshot';
 var nativeCacheBase =
   process.env.PKG_NATIVE_CACHE_PATH || path.join(os.homedir(), '.cache', 'pkg');
 
@@ -110,11 +130,7 @@ process.dlopen = function patchedDlopen(module_, filename, flags) {
     var hash = createHash('sha256').update(content).digest('hex').slice(0, 16);
     var cacheDir = path.join(nativeCacheBase, hash);
 
-    try {
-      fs.mkdirSync(cacheDir, { recursive: true });
-    } catch (_) {
-      // directory exists
-    }
+    fs.mkdirSync(cacheDir, { recursive: true });
 
     var extractedPath = path.join(cacheDir, path.basename(filename));
 
@@ -122,7 +138,7 @@ process.dlopen = function patchedDlopen(module_, filename, flags) {
       fs.statSync(extractedPath);
     } catch (_) {
       // Not cached yet — extract to real filesystem
-      fs.writeFileSync(extractedPath, content);
+      fs.writeFileSync(extractedPath, content, { mode: 0o755 });
     }
 
     return ancestorDlopen(module_, extractedPath, flags);
@@ -147,6 +163,9 @@ process.pkg = {
       return path.resolve.apply(path, args);
     },
   },
+  mount: function () {
+    throw new Error('process.pkg.mount is not supported in SEA mode');
+  },
 };
 
 // /////////////////////////////////////////////////////////////////
@@ -155,5 +174,9 @@ process.pkg = {
 
 process.argv[1] = manifest.entrypoint;
 Module._cache = Object.create(null);
-process.mainModule = undefined;
+try {
+  process.mainModule = undefined;
+} catch (_) {
+  // process.mainModule may become read-only in future Node.js versions
+}
 Module.runMain();

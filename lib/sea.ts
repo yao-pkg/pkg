@@ -1,7 +1,15 @@
-import { exec as cExec } from 'child_process';
+import { exec as cExec, execFile as cExecFile } from 'child_process';
 import util from 'util';
 import { basename, dirname, join, resolve } from 'path';
-import { copyFile, writeFile, rm, mkdir, stat, readFile } from 'fs/promises';
+import {
+  copyFile,
+  writeFile,
+  rm,
+  mkdir,
+  mkdtemp,
+  stat,
+  readFile,
+} from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { ReadableStream } from 'stream/web';
@@ -16,11 +24,12 @@ import {
   removeMachOExecutableSignature,
   signMachOExecutable,
 } from './mach-o';
-import walk, { Marker, WalkerParams } from './walker';
+import walk from './walker';
 import refine from './refiner';
 import { generateSeaAssets } from './sea-assets';
 
 const exec = util.promisify(cExec);
+const execFileAsync = util.promisify(cExecFile);
 
 /** Returns stat of path when exits, false otherwise */
 const exists = async (path: string) => {
@@ -334,19 +343,77 @@ async function bake(
   }
 }
 
+/** Patch and sign macOS executable if needed */
+export async function signMacOSIfNeeded(
+  output: string,
+  target: NodeTarget & Partial<Target>,
+  signature?: boolean,
+) {
+  if (!signature || target.platform !== 'macos') return;
+
+  const buf = patchMachOExecutable(await readFile(output));
+  await writeFile(output, buf);
+  try {
+    signMachOExecutable(output);
+  } catch {
+    if (target.arch === 'arm64') {
+      log.warn('Unable to sign the macOS executable', [
+        'Due to the mandatory code signing requirement, before the',
+        'executable is distributed to end users, it must be signed.',
+        'Otherwise, it will be immediately killed by kernel on launch.',
+        'An ad-hoc signature is sufficient.',
+        'To do that, run pkg on a Mac, or transfer the executable to a Mac',
+        'and run "codesign --sign - <executable>", or (if you use Linux)',
+        'install "ldid" utility to PATH and then run pkg again',
+      ]);
+    }
+  }
+}
+
+/** Run a callback inside a temporary directory, cleaning up afterwards */
+async function withSeaTmpDir<T>(
+  fn: (tmpDir: string) => Promise<T>,
+): Promise<T> {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'pkg-sea-'));
+  const previousDirectory = process.cwd();
+  try {
+    process.chdir(tmpDir);
+    return await fn(tmpDir);
+  } catch (error) {
+    throw new Error('Error while creating the executable', { cause: error });
+  } finally {
+    process.chdir(previousDirectory);
+    await rm(tmpDir, { recursive: true }).catch(() => {
+      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
+    });
+  }
+}
+
+/** Validate that the host Node.js version supports SEA */
+function assertSeaNodeVersion() {
+  const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
+  if (nodeMajor < 22) {
+    throw new Error(
+      `SEA support requires at least node v22.0.0, actual node version is ${process.version}`,
+    );
+  }
+  return nodeMajor;
+}
+
 /** Create NodeJS executable using the enhanced SEA pipeline (walker + refiner + assets) */
 export async function seaEnhanced(
   entryPoint: string,
   opts: SeaEnhancedOptions,
 ) {
+  const nodeMajor = assertSeaNodeVersion();
+
   entryPoint = resolve(process.cwd(), entryPoint);
 
   if (!(await exists(entryPoint))) {
     throw new Error(`Entrypoint path "${entryPoint}" does not exist`);
   }
 
-  const marker = opts.marker as unknown as Marker;
-  const params = (opts.params || {}) as WalkerParams;
+  const { marker, params = {} } = opts;
 
   // Run walker in SEA mode
   log.info('Walking dependencies...');
@@ -363,9 +430,6 @@ export async function seaEnhanced(
     symLinks,
   } = refine(walkResult.records, walkResult.entrypoint, walkResult.symLinks);
 
-  const tmpDir = join(tmpdir(), 'pkg-sea', `${Date.now()}`);
-  await mkdir(tmpDir, { recursive: true });
-
   // Resolve target outputs to absolute paths before chdir to tmpDir
   for (const target of opts.targets) {
     if (target.output) {
@@ -377,10 +441,7 @@ export async function seaEnhanced(
     opts.targets.map((target) => getNodejsExecutable(target, opts)),
   );
 
-  const previousDirectory = process.cwd();
-  try {
-    process.chdir(tmpDir);
-
+  await withSeaTmpDir(async (tmpDir) => {
     // Generate SEA assets from walker output
     log.info('Generating SEA assets...');
     const { assets, manifestPath } = await generateSeaAssets(
@@ -404,6 +465,7 @@ export async function seaEnhanced(
       output: blobPath,
       disableExperimentalSEAWarning: true,
       useCodeCache: opts.seaConfig?.useCodeCache ?? false,
+      // useSnapshot must be false — incompatible with the VFS-based approach
       useSnapshot: false,
       assets: {
         __pkg_manifest__: manifestPath,
@@ -415,84 +477,44 @@ export async function seaEnhanced(
     log.info('Creating sea-config.json file...');
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
-    // Detect Node version for build command
-    const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
+    // Generate the SEA blob
     if (nodeMajor >= 25) {
       log.info('Generating the blob using --build-sea...');
-      await exec(`node --build-sea "${seaConfigFilePath}"`);
+      await execFileAsync(process.execPath, ['--build-sea', seaConfigFilePath]);
     } else {
       log.info('Generating the blob...');
-      await exec(`node --experimental-sea-config "${seaConfigFilePath}"`);
+      await execFileAsync(process.execPath, [
+        '--experimental-sea-config',
+        seaConfigFilePath,
+      ]);
     }
 
     // Bake blob into each target executable
-    await Promise.allSettled(
+    await Promise.all(
       nodePaths.map(async (nodePath, i) => {
         const target = opts.targets[i];
         await bake(nodePath, target, blobPath);
-        const output = target.output!;
-        if (opts.signature && target.platform === 'macos') {
-          const buf = patchMachOExecutable(await readFile(output));
-          await writeFile(output, buf);
-          try {
-            signMachOExecutable(output);
-          } catch {
-            if (target.arch === 'arm64') {
-              log.warn('Unable to sign the macOS executable', [
-                'Due to the mandatory code signing requirement, before the',
-                'executable is distributed to end users, it must be signed.',
-                'Otherwise, it will be immediately killed by kernel on launch.',
-                'An ad-hoc signature is sufficient.',
-                'To do that, run pkg on a Mac, or transfer the executable to a Mac',
-                'and run "codesign --sign - <executable>", or (if you use Linux)',
-                'install "ldid" utility to PATH and then run pkg again',
-              ]);
-            }
-          }
-        }
+        await signMacOSIfNeeded(target.output!, target, opts.signature);
       }),
     );
-  } catch (error) {
-    throw new Error(`Error while creating the executable: ${error}`);
-  } finally {
-    await rm(tmpDir, { recursive: true }).catch(() => {
-      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
-    });
-    process.chdir(previousDirectory);
-  }
+  });
 }
 
 /** Create NodeJS executable using sea */
 export default async function sea(entryPoint: string, opts: SeaOptions) {
+  assertSeaNodeVersion();
+
   entryPoint = resolve(process.cwd(), entryPoint);
 
   if (!(await exists(entryPoint))) {
     throw new Error(`Entrypoint path "${entryPoint}" does not exist`);
   }
 
-  const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
-
-  // check node version, needs to be at least 20.0.0
-  if (nodeMajor < 20) {
-    throw new Error(
-      `SEA support requires as least node v20.0.0, actual node version is ${process.version}`,
-    );
-  }
-
   const nodePaths = await Promise.all(
     opts.targets.map((target) => getNodejsExecutable(target, opts)),
   );
 
-  // create a temporary directory for the processing work
-  const tmpDir = join(tmpdir(), 'pkg-sea', `${Date.now()}`);
-
-  await mkdir(tmpDir, { recursive: true });
-
-  const previousDirectory = process.cwd();
-  try {
-    // change working directory to the temp directory
-    process.chdir(tmpDir);
-
+  await withSeaTmpDir(async (tmpDir) => {
     // docs: https://nodejs.org/api/single-executable-applications.html
     const blobPath = join(tmpDir, 'sea-prep.blob');
     const seaConfigFilePath = join(tmpDir, 'sea-config.json');
@@ -509,45 +531,17 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
     log.info('Generating the blob...');
-    await exec(`node --experimental-sea-config "${seaConfigFilePath}"`);
+    await execFileAsync(process.execPath, [
+      '--experimental-sea-config',
+      seaConfigFilePath,
+    ]);
 
-    await Promise.allSettled(
+    await Promise.all(
       nodePaths.map(async (nodePath, i) => {
         const target = opts.targets[i];
         await bake(nodePath, target, blobPath);
-        const output = target.output!;
-        if (opts.signature && target.platform === 'macos') {
-          const buf = patchMachOExecutable(await readFile(output));
-          await writeFile(output, buf);
-
-          try {
-            // sign executable ad-hoc to workaround the new mandatory signing requirement
-            // users can always replace the signature if necessary
-            signMachOExecutable(output);
-          } catch {
-            if (target.arch === 'arm64') {
-              log.warn('Unable to sign the macOS executable', [
-                'Due to the mandatory code signing requirement, before the',
-                'executable is distributed to end users, it must be signed.',
-                'Otherwise, it will be immediately killed by kernel on launch.',
-                'An ad-hoc signature is sufficient.',
-                'To do that, run pkg on a Mac, or transfer the executable to a Mac',
-                'and run "codesign --sign - <executable>", or (if you use Linux)',
-                'install "ldid" utility to PATH and then run pkg again',
-              ]);
-            }
-          }
-        }
+        await signMacOSIfNeeded(target.output!, target, opts.signature);
       }),
     );
-  } catch (error) {
-    throw new Error(`Error while creating the executable: ${error}`);
-  } finally {
-    // cleanup the temp directory
-    await rm(tmpDir, { recursive: true }).catch(() => {
-      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
-    });
-
-    process.chdir(previousDirectory);
-  }
+  });
 }

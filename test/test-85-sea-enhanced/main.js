@@ -24,25 +24,10 @@ const before = utils.filesBefore(newcomers);
 
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
-if (process.platform === 'linux') {
-  assert.equal(
-    utils.spawn.sync('./test-85-sea-enhanced-linux', []),
-    'hello from lib\nmain: got message\n',
-    'Output matches',
-  );
-} else if (process.platform === 'darwin') {
-  assert.equal(
-    utils.spawn.sync('./test-85-sea-enhanced-macos', []),
-    'hello from lib\nmain: got message\n',
-    'Output matches',
-  );
-} else if (process.platform === 'win32') {
-  assert.equal(
-    utils.spawn.sync('./test-85-sea-enhanced-win.exe', []),
-    'hello from lib\nmain: got message\n',
-    'Output matches',
-  );
-}
+utils.assertSeaOutput(
+  'test-85-sea-enhanced',
+  'hello from lib\nmain: got message\n',
+);
 
 try {
   utils.filesAfter(before, newcomers);

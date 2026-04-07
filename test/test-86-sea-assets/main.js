@@ -24,30 +24,13 @@ const before = utils.filesBefore(newcomers);
 
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
-const expected = 'config:test-value\ndata:hello world\n';
-
-if (process.platform === 'linux') {
-  assert.equal(
-    utils.spawn.sync('./test-86-sea-assets-linux', []),
-    expected,
-    'Output matches',
-  );
-} else if (process.platform === 'darwin') {
-  assert.equal(
-    utils.spawn.sync('./test-86-sea-assets-macos', []),
-    expected,
-    'Output matches',
-  );
-} else if (process.platform === 'win32') {
-  assert.equal(
-    utils.spawn.sync('./test-86-sea-assets-win.exe', []),
-    expected,
-    'Output matches',
-  );
-}
+utils.assertSeaOutput(
+  'test-86-sea-assets',
+  'config:test-value\ndata:hello world\n',
+);
 
 try {
   utils.filesAfter(before, newcomers);
 } catch (_error) {
-  // noop
+  // noop — Windows EBUSY workaround
 }

@@ -26,6 +26,7 @@
     "@babel/parser": "^7.23.0",
     "@babel/traverse": "^7.23.0",
     "@babel/types": "^7.23.0",
+    "@platformatic/vfs": "^0.3.0",
     "@yao-pkg/pkg-fetch": "3.5.33",
     "esbuild": "^0.27.3",
     "into-stream": "^9.1.0",
@@ -41,16 +42,13 @@
     "tinyglobby": "^0.2.11",
     "unzipper": "^0.12.3"
   },
-  "optionalDependencies": {
-    "@platformatic/vfs": "^0.3.0"
-  },
   "devDependencies": {
     "@release-it/conventional-changelog": "^10.0.5",
     "@types/babel__generator": "^7.6.5",
     "@types/babel__traverse": "^7.20.3",
     "@types/minimist": "^1.2.2",
     "@types/multistream": "^4.1.0",
-    "@types/node": "^20.0.0",
+    "@types/node": "^22.0.0",
     "@types/picomatch": "^3.0.1",
     "@types/resolve": "^1.20.2",
     "@types/stream-meter": "^0.0.22",
@@ -76,7 +74,7 @@
   "scripts": {
     "clean": "rimraf lib-es5",
     "build": "npm run clean && tsc && npm run build:sea-bootstrap",
-    "build:sea-bootstrap": "node -e \"if(+process.version.slice(1).split('.')[0]>=22){require('child_process').execSync('npx esbuild prelude/sea-bootstrap.js --bundle --platform=node --target=node22 --outfile=prelude/sea-bootstrap.bundle.js --external:node:sea --external:node:fs --external:node:path --external:node:os --external:node:crypto --external:node:module --external:node:vfs',{stdio:'inherit'})}else{console.log('Skipping sea-bootstrap bundle (requires Node >= 22)')}\"",
+    "build:sea-bootstrap": "esbuild prelude/sea-bootstrap.js --bundle --platform=node --target=node22 --outfile=prelude/sea-bootstrap.bundle.js --external:node:sea --external:node:vfs",
     "start": "tsc --watch",
     "lint": "npm run lint:style && npm run lint:code",
     "lint:style": "prettier -c \"{lib,prelude,test}/**/*.{ts,js}\"",
@@ -84,8 +82,7 @@
     "fix": "npm run lint:style -- -w && npm run lint:code -- --fix",
     "prepare": "npm run build",
     "prepublishOnly": "npm run lint",
-    "test": "npm run build && npm run test:host && npm run test:20 && npm run test:22 && npm run test:24",
-    "test:20": "node test/test.js node20 no-npm",
+    "test": "npm run build && npm run test:host && npm run test:22 && npm run test:24",
     "test:22": "node test/test.js node22 no-npm",
     "test:24": "node test/test.js node24 no-npm",
     "test:host": "node test/test.js host only-npm",
@@ -104,7 +101,7 @@
   },
   "packageManager": "yarn@1.22.22",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "resolutions": {
     "lodash": "^4.17.23",

@@ -279,3 +279,20 @@ module.exports.shouldSkipPnpm = function () {
 
   return false;
 };
+
+/**
+ * Assert SEA executable output for the current platform.
+ * @param {string} testName - Base name of the test executable (e.g. 'test-85-sea-enhanced')
+ * @param {string} expected - Expected stdout output
+ */
+module.exports.assertSeaOutput = function (testName, expected) {
+  const platformSuffix = { linux: 'linux', darwin: 'macos', win32: 'win.exe' };
+  const suffix = platformSuffix[process.platform];
+  if (suffix) {
+    assert.equal(
+      module.exports.spawn.sync(`./${testName}-${suffix}`, []),
+      expected,
+      'Output matches',
+    );
+  }
+};

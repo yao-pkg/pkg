@@ -31,22 +31,15 @@ import {
   ConfigDictionary,
   FileRecord,
   FileRecords,
+  Marker,
   Patches,
   PackageJson,
   SymLinks,
+  WalkerParams,
 } from './types';
 import pkgOptions from './options';
 
-export interface Marker {
-  hasDictionary?: boolean;
-  activated?: boolean;
-  toplevel?: boolean;
-  public?: boolean;
-  hasDeployFiles?: boolean;
-  config?: PackageJson;
-  configPath: string;
-  base: string;
-}
+export type { Marker, WalkerParams };
 
 interface Task {
   file: string;
@@ -360,13 +353,6 @@ async function findCommonJunctionPoint(file: string, realFile: string) {
       );
     }
   }
-}
-
-export interface WalkerParams {
-  publicToplevel?: boolean;
-  publicPackages?: string[];
-  noDictionary?: string[];
-  seaMode?: boolean;
 }
 
 class Walker {
@@ -1011,7 +997,7 @@ class Walker {
         await stepRead(record);
         this.stepPatch(record);
 
-        if (store === STORE_BLOB) {
+        if (store === STORE_BLOB || this.params.seaMode) {
           stepStrip(record);
         }
       }
@@ -1132,8 +1118,9 @@ class Walker {
         await this.stepDerivatives(record, marker, derivatives2);
 
         // After dependencies are resolved, rewrite .mjs require paths to .js
-        // since the packer renames .mjs files to .js in the snapshot
-        if (record.wasTransformed && record.body) {
+        // since the packer renames .mjs files to .js in the snapshot.
+        // Skip in SEA mode — ESM-to-CJS transform is not applied there.
+        if (!this.params.seaMode && record.wasTransformed && record.body) {
           record.body = Buffer.from(
             rewriteMjsRequirePaths(record.body.toString('utf8')),
             'utf8',

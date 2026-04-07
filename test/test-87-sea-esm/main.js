@@ -5,8 +5,9 @@
 const assert = require('assert');
 const utils = require('../utils.js');
 
-// Enhanced SEA with ESM entry requires Node.js >= 25.7 (mainFormat: "module")
+// Enhanced SEA with ESM entry requires Node.js >= 26 (mainFormat: "module")
 // and the VFS polyfill's module hooks. Skip until node:vfs lands in core.
+// TODO: re-enable when node:vfs is available (https://github.com/nodejs/node/pull/61478)
 if (utils.getNodeMajorVersion() < 26) {
   return;
 }
@@ -25,30 +26,10 @@ const before = utils.filesBefore(newcomers);
 
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
-const expected = 'add:5\ngreeting:hello world\n';
-
-if (process.platform === 'linux') {
-  assert.equal(
-    utils.spawn.sync('./test-87-sea-esm-linux', []),
-    expected,
-    'Output matches',
-  );
-} else if (process.platform === 'darwin') {
-  assert.equal(
-    utils.spawn.sync('./test-87-sea-esm-macos', []),
-    expected,
-    'Output matches',
-  );
-} else if (process.platform === 'win32') {
-  assert.equal(
-    utils.spawn.sync('./test-87-sea-esm-win.exe', []),
-    expected,
-    'Output matches',
-  );
-}
+utils.assertSeaOutput('test-87-sea-esm', 'add:5\ngreeting:hello world\n');
 
 try {
   utils.filesAfter(before, newcomers);
 } catch (_error) {
-  // noop
+  // noop — Windows EBUSY workaround
 }

@@ -5,8 +5,8 @@
 const assert = require('assert');
 const utils = require('../utils.js');
 
-// sea is not supported on Node.js < 20
-if (utils.getNodeMajorVersion() < 20) {
+// sea is not supported on Node.js < 22
+if (utils.getNodeMajorVersion() < 22) {
   return;
 }
 
