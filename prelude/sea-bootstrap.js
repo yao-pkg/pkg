@@ -127,6 +127,34 @@ var SNAPSHOT_PREFIX =
 virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
 
 // /////////////////////////////////////////////////////////////////
+// PATH NORMALIZATION //////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// The manifest always stores paths with POSIX '/' separators so that
+// the same blob works regardless of build platform.  On Windows we
+// must convert them to the native format before handing them to
+// Node's module resolver or VFS lookups.
+function toPlatformPath(p) {
+  if (process.platform !== 'win32') return p;
+  // /snapshot/… → C:\snapshot\…
+  if (p.startsWith('/snapshot')) {
+    return 'C:' + p.replace(/\//g, '\\');
+  }
+  return p.replace(/\//g, '\\');
+}
+
+var entrypoint = toPlatformPath(manifest.entrypoint);
+
+// Normalise symlink map keys & values so the provider can match them
+if (process.platform === 'win32') {
+  var winSymlinks = {};
+  for (var sk in manifest.symlinks) {
+    winSymlinks[toPlatformPath(sk)] = toPlatformPath(manifest.symlinks[sk]);
+  }
+  manifest.symlinks = winSymlinks;
+}
+
+// /////////////////////////////////////////////////////////////////
 // SHARED PATCHES //////////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
@@ -140,16 +168,16 @@ function insideSnapshot(f) {
 shared.patchDlopen(insideSnapshot);
 
 // child_process patching (shared with traditional bootstrap)
-shared.patchChildProcess(manifest.entrypoint);
+shared.patchChildProcess(entrypoint);
 
 // process.pkg setup (shared with traditional bootstrap)
-shared.setupProcessPkg(manifest.entrypoint);
+shared.setupProcessPkg(entrypoint);
 
 // /////////////////////////////////////////////////////////////////
 // ENTRYPOINT //////////////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-process.argv[1] = manifest.entrypoint;
+process.argv[1] = entrypoint;
 Module._cache = Object.create(null);
 try {
   process.mainModule = undefined;
