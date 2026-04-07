@@ -12,6 +12,7 @@ export interface SeaManifest {
     { size: number; isFile: boolean; isDirectory: boolean }
   >;
   symlinks: Record<string, string>;
+  debug?: boolean;
 }
 
 export interface SeaAssetsResult {
@@ -46,6 +47,7 @@ export async function generateSeaAssets(
   entrypoint: string,
   symLinks: SymLinks,
   tmpDir: string,
+  options?: { debug?: boolean },
 ): Promise<SeaAssetsResult> {
   const assets: Record<string, string> = {};
 
@@ -63,6 +65,7 @@ export async function generateSeaAssets(
     directories: {},
     stats: {},
     symlinks: normalizedSymlinks,
+    ...(options?.debug ? { debug: true } : {}),
   };
 
   let modifiedFileCount = 0;

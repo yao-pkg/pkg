@@ -30,10 +30,18 @@ const sharedText = readFileSync(
   'utf8',
 );
 
-const diagnosticText = readFileSync(
-  require.resolve('../prelude/diagnostic.js'),
-  'utf8',
-);
+// When --debug is used, inject a small snippet that calls the shared
+// diagnostic + dumps the DICT path compression map (traditional-mode only).
+const diagnosticText = `
+(function() {
+  if (process.env.DEBUG_PKG === '2') {
+    console.log('------------------------------- path dictionary');
+    console.log(Object.entries(DICT));
+  }
+  var snapshotPrefix = process.platform === 'win32' ? 'C:\\\\snapshot' : '/snapshot';
+  REQUIRE_SHARED.installDiagnostic(snapshotPrefix);
+})();
+`;
 
 function itemsToText<T>(items: T[]) {
   const len = items.length;

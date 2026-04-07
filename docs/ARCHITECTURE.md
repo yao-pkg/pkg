@@ -300,6 +300,31 @@ Assets are loaded lazily via `sea.getRawAsset(key)` which returns a zero-copy `A
 
 **`setupProcessPkg(entrypoint)`** — Creates the `process.pkg` compatibility object with `entrypoint`, `defaultEntrypoint`, and `path.resolve()`.
 
+**`installDiagnostic(snapshotPrefix)`** — Installs runtime diagnostics triggered by the `DEBUG_PKG` environment variable. Available in both traditional and SEA modes, but **only when the binary was built with `--debug` / `-d`** (the diagnostic code is not included in release builds for security — it would expose the VFS tree contents).
+
+| Env Var       | Behavior                                                                                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DEBUG_PKG=1` | Dumps the virtual file system tree with file sizes, flags oversized files (default threshold: 5MB per file, 10MB per folder, configurable via `SIZE_LIMIT_PKG` / `FOLDER_LIMIT_PKG`) |
+| `DEBUG_PKG=2` | All of the above, plus wraps every `fs` and `fs.promises` method with `console.log` tracing (shows function name and string arguments for each call)                                 |
+
+Build and run with diagnostics:
+
+```bash
+# Build with debug enabled
+pkg . --debug                         # traditional mode
+pkg . --sea --debug                   # SEA mode
+
+# Run with diagnostics (only works if built with --debug)
+DEBUG_PKG=1 ./my-packaged-app         # dump VFS tree
+DEBUG_PKG=2 ./my-packaged-app         # dump VFS tree + trace all fs calls
+SIZE_LIMIT_PKG=1048576 DEBUG_PKG=1 ./my-packaged-app  # flag files > 1MB
+```
+
+**How it works per mode:**
+
+- **Traditional mode**: The packer injects `diagnostic.js` into the prelude only when `log.debugMode` is true. This code runs at startup and checks `DEBUG_PKG`.
+- **SEA mode**: The `--debug` flag sets `manifest.debug: true` in the SEA manifest at build time. The bootstrap checks this field and only calls `installDiagnostic` when it is set. Without `--debug`, the diagnostic code is present in the bundle but never executed.
+
 ---
 
 ## Performance Comparison

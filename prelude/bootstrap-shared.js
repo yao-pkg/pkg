@@ -264,8 +264,159 @@ function setupProcessPkg(entrypoint) {
   };
 }
 
+// /////////////////////////////////////////////////////////////////
+// RUNTIME DIAGNOSTICS /////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+function humanSize(bytes) {
+  var sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+
+  if (bytes === 0) return 'n/a';
+
+  var i = Math.floor(Math.log(bytes) / Math.log(1024));
+
+  if (i === 0) return bytes + ' ' + sizes[i];
+
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+}
+
+/**
+ * Install runtime diagnostics triggered by the DEBUG_PKG environment
+ * variable.  Works identically in both traditional and SEA modes.
+ *
+ *   DEBUG_PKG=1  — dump the virtual file system tree and oversized files
+ *   DEBUG_PKG=2  — also wrap every fs/fs.promises call with console.log
+ *
+ * @param {string} snapshotPrefix  The snapshot mount prefix ('/snapshot' or 'C:\\snapshot').
+ */
+function installDiagnostic(snapshotPrefix) {
+  if (!process.env.DEBUG_PKG) return;
+
+  var sizeLimit = process.env.SIZE_LIMIT_PKG
+    ? parseInt(process.env.SIZE_LIMIT_PKG, 10)
+    : 5 * 1024 * 1024;
+  var folderLimit = process.env.FOLDER_LIMIT_PKG
+    ? parseInt(process.env.FOLDER_LIMIT_PKG, 10)
+    : 10 * 1024 * 1024;
+
+  var overSized = [];
+
+  function dumpLevel(filename, level, tree) {
+    var totalSize = 0;
+    var d = fs.readdirSync(filename);
+    for (var j = 0; j < d.length; j += 1) {
+      var f = path.join(filename, d[j]);
+      var realPath = fs.realpathSync(f);
+      var isSymbolicLink = f !== realPath;
+
+      var s = fs.statSync(f);
+
+      if (s.isDirectory() && !isSymbolicLink) {
+        var tree1 = [];
+        var startIndex = overSized.length;
+        var folderSize = dumpLevel(f, level + 1, tree1);
+        totalSize += folderSize;
+        var str =
+          (' '.padStart(level * 2, ' ') + d[j]).padEnd(40, ' ') +
+          (humanSize(folderSize).padStart(10, ' ') +
+            (isSymbolicLink ? '=> ' + realPath : ' '));
+        tree.push(str);
+        tree1.forEach(function (x) {
+          tree.push(x);
+        });
+
+        if (folderSize > folderLimit) {
+          overSized.splice(startIndex, 0, str);
+        }
+      } else {
+        totalSize += s.size;
+        var str2 =
+          (' '.padStart(level * 2, ' ') + d[j]).padEnd(40, ' ') +
+          (humanSize(s.size).padStart(10, ' ') +
+            (isSymbolicLink ? '=> ' + realPath : ' '));
+
+        if (s.size > sizeLimit) {
+          overSized.push(str2);
+        }
+
+        tree.push(str2);
+      }
+    }
+    return totalSize;
+  }
+
+  function wrap(obj, name) {
+    var f = obj[name];
+    if (typeof f !== 'function') return;
+    obj[name] = function () {
+      var args1 = Array.prototype.slice.call(arguments);
+      console.log(
+        'fs.' + name,
+        args1.filter(function (x) {
+          return typeof x === 'string';
+        }),
+      );
+      return f.apply(this, args1);
+    };
+  }
+
+  console.log('------------------------------- virtual file system');
+  console.log(snapshotPrefix);
+
+  var tree = [];
+  var totalSize = dumpLevel(snapshotPrefix, 1, tree);
+  console.log(tree.join('\n'));
+  console.log('Total size = ', humanSize(totalSize));
+
+  if (overSized.length > 0) {
+    console.log('------------------------------- oversized files');
+    console.log(overSized.join('\n'));
+  }
+
+  if (process.env.DEBUG_PKG === '2') {
+    wrap(fs, 'openSync');
+    wrap(fs, 'open');
+    wrap(fs, 'readSync');
+    wrap(fs, 'read');
+    wrap(fs, 'readFile');
+    wrap(fs, 'writeSync');
+    wrap(fs, 'write');
+    wrap(fs, 'closeSync');
+    wrap(fs, 'readFileSync');
+    wrap(fs, 'close');
+    wrap(fs, 'readdirSync');
+    wrap(fs, 'readdir');
+    wrap(fs, 'realpathSync');
+    wrap(fs, 'realpath');
+    wrap(fs, 'statSync');
+    wrap(fs, 'stat');
+    wrap(fs, 'lstatSync');
+    wrap(fs, 'lstat');
+    wrap(fs, 'fstatSync');
+    wrap(fs, 'fstat');
+    wrap(fs, 'existsSync');
+    wrap(fs, 'exists');
+    wrap(fs, 'accessSync');
+    wrap(fs, 'access');
+
+    if (fs.promises) {
+      wrap(fs.promises, 'open');
+      wrap(fs.promises, 'read');
+      wrap(fs.promises, 'readFile');
+      wrap(fs.promises, 'write');
+      wrap(fs.promises, 'readdir');
+      wrap(fs.promises, 'realpath');
+      wrap(fs.promises, 'stat');
+      wrap(fs.promises, 'lstat');
+      wrap(fs.promises, 'access');
+      wrap(fs.promises, 'copyFile');
+    }
+  }
+}
+
 module.exports = {
   patchDlopen: patchDlopen,
   patchChildProcess: patchChildProcess,
   setupProcessPkg: setupProcessPkg,
+  installDiagnostic: installDiagnostic,
 };
