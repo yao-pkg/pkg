@@ -26,7 +26,6 @@
     "@babel/parser": "^7.23.0",
     "@babel/traverse": "^7.23.0",
     "@babel/types": "^7.23.0",
-    "@platformatic/vfs": "^0.3.0",
     "@yao-pkg/pkg-fetch": "3.5.33",
     "esbuild": "^0.27.3",
     "into-stream": "^9.1.0",
@@ -41,6 +40,9 @@
     "tar": "^7.5.7",
     "tinyglobby": "^0.2.11",
     "unzipper": "^0.12.3"
+  },
+  "optionalDependencies": {
+    "@platformatic/vfs": "^0.3.0"
   },
   "devDependencies": {
     "@release-it/conventional-changelog": "^10.0.5",
@@ -74,7 +76,7 @@
   "scripts": {
     "clean": "rimraf lib-es5",
     "build": "npm run clean && tsc && npm run build:sea-bootstrap",
-    "build:sea-bootstrap": "esbuild prelude/sea-bootstrap.js --bundle --platform=node --target=node22 --outfile=prelude/sea-bootstrap.bundle.js --external:node:sea --external:node:fs --external:node:path --external:node:os --external:node:crypto --external:node:module --external:node:vfs",
+    "build:sea-bootstrap": "node -e \"if(+process.version.slice(1).split('.')[0]>=22){require('child_process').execSync('npx esbuild prelude/sea-bootstrap.js --bundle --platform=node --target=node22 --outfile=prelude/sea-bootstrap.bundle.js --external:node:sea --external:node:fs --external:node:path --external:node:os --external:node:crypto --external:node:module --external:node:vfs',{stdio:'inherit'})}else{console.log('Skipping sea-bootstrap bundle (requires Node >= 22)')}\"",
     "start": "tsc --watch",
     "lint": "npm run lint:style && npm run lint:code",
     "lint:style": "prettier -c \"{lib,prelude,test}/**/*.{ts,js}\"",
