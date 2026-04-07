@@ -19,6 +19,18 @@ export interface SeaAssetsResult {
   manifestPath: string;
 }
 
+// Normalize a refiner path to a platform-independent POSIX key.
+// On Windows the refiner keeps the drive letter (e.g. 'D:\foo\bar.js');
+// we strip it and convert separators so all manifest/asset keys are POSIX
+// (e.g. '/foo/bar.js') — the bootstrap normalises VFS-received paths to
+// the same format before lookup.
+function toPosixKey(p: string): string {
+  if (process.platform === 'win32') {
+    return p.slice(2).replace(/\\/g, '/');
+  }
+  return p;
+}
+
 /**
  * Transform walker/refiner output into SEA-compatible asset map and manifest.
  *
@@ -56,6 +68,7 @@ export async function generateSeaAssets(
   for (const snap in records) {
     if (!records[snap]) continue;
     const record = records[snap];
+    const key = toPosixKey(snap);
 
     // Map file content to SEA asset
     if (record[STORE_CONTENT]) {
@@ -73,24 +86,22 @@ export async function generateSeaAssets(
             ? Buffer.from(record.body)
             : record.body;
         await writeFile(tempPath, content);
-        assets[snap] = tempPath;
+        assets[key] = tempPath;
       } else {
         // Unmodified file — point to source on disk
-        assets[snap] = record.file;
+        assets[key] = record.file;
       }
     }
 
     // Collect directory entries
     if (record[STORE_LINKS]) {
-      manifest.directories[snap] = [
-        ...new Set(record[STORE_LINKS] as string[]),
-      ];
+      manifest.directories[key] = [...new Set(record[STORE_LINKS] as string[])];
     }
 
     // Collect stat metadata
     if (record[STORE_STAT]) {
       const stat = record[STORE_STAT];
-      manifest.stats[snap] = {
+      manifest.stats[key] = {
         size: stat.size ?? 0,
         isFile: Boolean(stat.isFileValue),
         isDirectory: Boolean(stat.isDirectoryValue),
