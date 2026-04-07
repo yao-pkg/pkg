@@ -49,10 +49,12 @@ export async function generateSeaAssets(
 ): Promise<SeaAssetsResult> {
   const assets: Record<string, string> = {};
 
-  // Normalize symlink paths to use POSIX separators, matching other manifest paths
+  // Normalize symlink paths to use the same refiner-style POSIX keys as
+  // directories/stats/assets. Do not add the /snapshot prefix because the
+  // VFS provider receives paths after the mount prefix is stripped.
   const normalizedSymlinks: Record<string, string> = {};
   for (const src in symLinks) {
-    normalizedSymlinks[snapshotify(src, '/')] = snapshotify(symLinks[src], '/');
+    normalizedSymlinks[toPosixKey(src)] = toPosixKey(symLinks[src]);
   }
 
   const manifest: SeaManifest = {

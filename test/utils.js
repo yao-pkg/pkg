@@ -288,11 +288,15 @@ module.exports.shouldSkipPnpm = function () {
 module.exports.assertSeaOutput = function (testName, expected) {
   const platformSuffix = { linux: 'linux', darwin: 'macos', win32: 'win.exe' };
   const suffix = platformSuffix[process.platform];
-  if (suffix) {
-    assert.equal(
-      module.exports.spawn.sync(`./${testName}-${suffix}`, []),
-      expected,
-      'Output matches',
+  if (!suffix) {
+    console.log(
+      `  Skipping SEA assertion: unsupported platform '${process.platform}'`,
     );
+    return;
   }
+  assert.equal(
+    module.exports.spawn.sync(`./${testName}-${suffix}`, []),
+    expected,
+    'Output matches',
+  );
 };

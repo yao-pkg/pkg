@@ -58,7 +58,23 @@ function patchDlopen(insideSnapshot) {
         var destFolder = path.join(tmpFolder, path.basename(modulePkgFolder));
 
         if (!fs.existsSync(destFolder)) {
-          fs.cpSync(modulePkgFolder, destFolder, { recursive: true });
+          // Use patched fs primitives instead of fs.cpSync which may not
+          // be routed through the VFS in SEA mode.
+          (function cpRecursive(src, dest) {
+            var st = fs.statSync(src);
+            if (st.isDirectory()) {
+              fs.mkdirSync(dest, { recursive: true });
+              var entries = fs.readdirSync(src);
+              for (var i = 0; i < entries.length; i++) {
+                cpRecursive(
+                  path.join(src, entries[i]),
+                  path.join(dest, entries[i]),
+                );
+              }
+            } else {
+              fs.copyFileSync(src, dest);
+            }
+          })(modulePkgFolder, destFolder);
         }
         newPath = path.join(tmpFolder, modulePackagePath, moduleBaseName);
       } else {
