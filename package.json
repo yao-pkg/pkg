@@ -34,6 +34,7 @@
     "multistream": "^4.1.0",
     "picocolors": "^1.1.0",
     "picomatch": "^4.0.2",
+    "postject": "^1.0.0-alpha.6",
     "prebuild-install": "^7.1.1",
     "resolve": "^1.22.10",
     "resolve.exports": "^2.0.3",

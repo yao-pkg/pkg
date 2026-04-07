@@ -1,4 +1,4 @@
-import { exec as cExec, execFile as cExecFile } from 'child_process';
+import { execFile as cExecFile } from 'child_process';
 import util from 'util';
 import { basename, dirname, join, resolve } from 'path';
 import {
@@ -27,8 +27,8 @@ import {
 import walk from './walker';
 import refine from './refiner';
 import { generateSeaAssets } from './sea-assets';
+import { inject as postjectInject } from 'postject';
 
-const exec = util.promisify(cExec);
 const execFileAsync = util.promisify(cExecFile);
 
 /** Returns stat of path when exits, false otherwise */
@@ -337,14 +337,18 @@ async function bake(
     if (process.platform === 'darwin') {
       removeMachOExecutableSignature(outPath);
     }
-    await exec(
-      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`,
-    );
-  } else {
-    await exec(
-      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
-    );
   }
+
+  // Use postject JS API directly instead of spawning npx.
+  // This avoids two CI issues:
+  // 1. "Text file busy" race condition from concurrent npx invocations
+  // 2. "Argument is not a constructor" from npx downloading incompatible versions
+  const blobData = await readFile(blobPath);
+  await postjectInject(outPath, 'NODE_SEA_BLOB', blobData, {
+    sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
+    machoSegmentName: target.platform === 'macos' ? 'NODE_SEA' : undefined,
+    overwrite: true,
+  });
 }
 
 /** Patch and sign macOS executable if needed */
