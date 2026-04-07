@@ -997,7 +997,11 @@ class Walker {
         await stepRead(record);
         this.stepPatch(record);
 
-        if (store === STORE_BLOB || this.params.seaMode) {
+        if (
+          store === STORE_BLOB ||
+          (this.params.seaMode &&
+            (isDotJS(record.file) || isESMFile(record.file)))
+        ) {
           stepStrip(record);
         }
       }

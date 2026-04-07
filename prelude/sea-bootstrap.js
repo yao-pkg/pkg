@@ -1,4 +1,3 @@
-/* eslint-disable */
 'use strict';
 
 // SEA Bootstrap for pkg
@@ -60,9 +59,21 @@ class SEAProvider extends MemoryProvider {
     }
   }
 
+  _resolveSymlink(filePath) {
+    var target = this._manifest.symlinks[filePath];
+    return target || filePath;
+  }
+
   readFileSync(filePath, options) {
+    filePath = this._resolveSymlink(filePath);
     this._ensureLoaded(filePath);
     return super.readFileSync(filePath, options);
+  }
+
+  readlinkSync(filePath) {
+    var target = this._manifest.symlinks[filePath];
+    if (target) return target;
+    return super.readlinkSync(filePath);
   }
 
   _ensureLoaded(filePath) {
@@ -78,6 +89,7 @@ class SEAProvider extends MemoryProvider {
   }
 
   statSync(filePath) {
+    filePath = this._resolveSymlink(filePath);
     var meta = this._manifest.stats[filePath];
     if (meta && meta.isFile && !this._loaded.has(filePath)) {
       this._ensureLoaded(filePath);
@@ -92,6 +104,8 @@ class SEAProvider extends MemoryProvider {
   }
 
   existsSync(filePath) {
+    if (filePath in this._manifest.symlinks) return true;
+    filePath = this._resolveSymlink(filePath);
     if (filePath in this._manifest.stats) return true;
     // Fall through to super for directories created via mkdirSync
     try {

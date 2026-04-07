@@ -547,7 +547,11 @@ export async function exec(argv2: string[]) {
 
   if (argv.sea) {
     const minTargetMajor = Math.min(
-      ...targets.map((t) => parseInt(t.nodeRange.replace('node', ''), 10)),
+      ...targets.map((t) => {
+        const v = parseInt(t.nodeRange.replace('node', ''), 10);
+        // Treat unparseable ranges (e.g. "latest") as current host major
+        return Number.isNaN(v) ? parseInt(process.version.slice(1), 10) : v;
+      }),
     );
 
     if ((inputJson || configJson) && minTargetMajor >= 22) {

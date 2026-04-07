@@ -405,9 +405,9 @@ async function withSeaTmpDir<T>(
 /** Validate that the host Node.js version supports SEA */
 function assertSeaNodeVersion() {
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
-  if (nodeMajor < 20) {
+  if (nodeMajor < 22) {
     throw new Error(
-      `SEA support requires at least node v20.0.0, actual node version is ${process.version}`,
+      `SEA support requires at least node v22.0.0, actual node version is ${process.version}`,
     );
   }
   return nodeMajor;
@@ -491,6 +491,7 @@ export async function seaEnhanced(
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
     // Generate the SEA blob
+    // --build-sea is stable from Node 25; older versions use --experimental-sea-config
     if (nodeMajor >= 25) {
       log.info('Generating the blob using --build-sea...');
       await execFileAsync(process.execPath, ['--build-sea', seaConfigFilePath]);

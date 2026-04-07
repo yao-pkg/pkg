@@ -11,6 +11,7 @@ export interface SeaManifest {
     string,
     { size: number; isFile: boolean; isDirectory: boolean }
   >;
+  symlinks: Record<string, string>;
 }
 
 export interface SeaAssetsResult {
@@ -31,15 +32,23 @@ export interface SeaAssetsResult {
 export async function generateSeaAssets(
   records: FileRecords,
   entrypoint: string,
-  _symLinks: SymLinks,
+  symLinks: SymLinks,
   tmpDir: string,
 ): Promise<SeaAssetsResult> {
   const assets: Record<string, string> = {};
+
+  // Normalize symlink paths to use POSIX separators, matching other manifest paths
+  const normalizedSymlinks: Record<string, string> = {};
+  for (const src in symLinks) {
+    normalizedSymlinks[snapshotify(src, '/')] = snapshotify(symLinks[src], '/');
+  }
+
   const manifest: SeaManifest = {
     // Always use '/' — the bootstrap normalizes for the runtime platform
     entrypoint: snapshotify(entrypoint, '/'),
     directories: {},
     stats: {},
+    symlinks: normalizedSymlinks,
   };
 
   let modifiedFileCount = 0;
