@@ -47,7 +47,7 @@ After installing it, run `pkg --help` without arguments to see list of options:
     --no-native-build    skip native addons build
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli or GZip
-    --sea                (Experimental) compile give file using node's SEA feature. Requires node v22.0.0 or higher
+    --sea                (Experimental) compile using node's SEA feature. With package.json input and node >= 22, uses enhanced mode with full dependency walking and VFS
 
   Examples:
 

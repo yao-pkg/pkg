@@ -392,9 +392,9 @@ async function withSeaTmpDir<T>(
 /** Validate that the host Node.js version supports SEA */
 function assertSeaNodeVersion() {
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
-  if (nodeMajor < 22) {
+  if (nodeMajor < 20) {
     throw new Error(
-      `SEA support requires at least node v22.0.0, actual node version is ${process.version}`,
+      `SEA support requires at least node v20.0.0, actual node version is ${process.version}`,
     );
   }
   return nodeMajor;
