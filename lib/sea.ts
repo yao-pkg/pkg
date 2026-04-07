@@ -332,7 +332,11 @@ async function bake(
 
   log.info(`Injecting the blob into ${outPath}...`);
   if (target.platform === 'macos') {
-    removeMachOExecutableSignature(outPath);
+    // codesign is only available on macOS — skip signature removal when
+    // cross-compiling from another platform
+    if (process.platform === 'darwin') {
+      removeMachOExecutableSignature(outPath);
+    }
     await exec(
       `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`,
     );
@@ -380,7 +384,16 @@ async function withSeaTmpDir<T>(
     process.chdir(tmpDir);
     return await fn(tmpDir);
   } catch (error) {
-    throw new Error('Error while creating the executable', { cause: error });
+    const message = error instanceof Error ? error.message : String(error);
+    const wrapped = new Error(
+      `Error while creating the executable: ${message}`,
+      { cause: error },
+    );
+    // Preserve the original stack if available
+    if (error instanceof Error && error.stack) {
+      wrapped.stack = `${wrapped.message}\n  [cause]: ${error.stack}`;
+    }
+    throw wrapped;
   } finally {
     process.chdir(previousDirectory);
     await rm(tmpDir, { recursive: true }).catch(() => {
