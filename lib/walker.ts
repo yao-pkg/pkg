@@ -1116,7 +1116,11 @@ class Walker {
         }
       }
 
-      if (store === STORE_BLOB || this.params.seaMode) {
+      if (
+        store === STORE_BLOB ||
+        (this.params.seaMode &&
+          (isDotJS(record.file) || isESMFile(record.file)))
+      ) {
         const derivatives2: Derivative[] = [];
         stepDetect(record, marker, derivatives2);
         await this.stepDerivatives(record, marker, derivatives2);

@@ -74,7 +74,7 @@
   "scripts": {
     "clean": "rimraf lib-es5",
     "build": "npm run clean && tsc && npm run build:sea-bootstrap",
-    "build:sea-bootstrap": "esbuild prelude/sea-bootstrap.js --bundle --platform=node --target=node22 --outfile=prelude/sea-bootstrap.bundle.js --external:node:sea --external:node:vfs",
+    "build:sea-bootstrap": "node scripts/build-sea-bootstrap.js",
     "start": "tsc --watch",
     "lint": "npm run lint:style && npm run lint:code",
     "lint:style": "prettier -c \"{lib,prelude,test}/**/*.{ts,js}\"",
