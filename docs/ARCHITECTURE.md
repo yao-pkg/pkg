@@ -313,6 +313,10 @@ Assets are loaded lazily via `sea.getRawAsset(key)` which returns a zero-copy `A
 | **Module loading**   | Custom `require` implementation in bootstrap. Each module loaded from VFS via binary offset reads. Synchronous only                            | VFS polyfill patches `require`/`import` at module resolution level. 164+ fs functions intercepted. ESM module hooks supported natively                       |
 | **Native addons**    | Extracted to `~/.cache/pkg/<hash>/` on first load, SHA256-verified, persisted across runs                                                      | Same extraction strategy via shared `patchDlopen()`. Uses `fs.cpSync` for package folder copying                                                             |
 
+### Note on `--no-bytecode`
+
+Traditional mode supports a `--no-bytecode` flag that skips V8 bytecode compilation and includes source files as plain JavaScript. When used, the traditional mode's code protection profile becomes similar to enhanced SEA — source code is stored in plaintext inside the executable. However, the traditional binary format still provides compression (Brotli/GZip) and a custom VFS layout, making extraction less straightforward than with SEA's standard resource format. The `--no-bytecode` flag is useful for debugging, faster builds, or when bytecode cross-compilation is not possible (e.g., no QEMU available for cross-arch targets).
+
 ---
 
 ## Code Protection Comparison
