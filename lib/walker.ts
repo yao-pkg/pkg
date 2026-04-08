@@ -755,6 +755,7 @@ class Walker {
     }
 
     record.body = body;
+    record.bodyModified = true;
   }
 
   async stepDerivatives_ALIAS_AS_RELATIVE(
@@ -989,7 +990,8 @@ class Walker {
 
     if (
       store === STORE_BLOB ||
-      this.params.seaMode ||
+      (this.params.seaMode &&
+        (isDotJS(record.file) || isESMFile(record.file))) ||
       (store === STORE_CONTENT && isPackageJson(record.file)) ||
       this.hasPatch(record)
     ) {
@@ -1079,6 +1081,7 @@ class Walker {
               JSON.stringify(pkgContent, null, 2),
               'utf8',
             );
+            record.bodyModified = true;
           }
         } catch (_error) {
           // Ignore JSON parsing errors

@@ -77,8 +77,8 @@ export async function generateSeaAssets(
 
     // Map file content to SEA asset
     if (record[STORE_CONTENT]) {
-      if (record.body != null) {
-        // File was modified (patches, rewrites) — write to temp file
+      if (record.bodyModified) {
+        // File was intentionally modified (patches, package.json rewrites) — write to temp file
         const tempPath = join(
           tmpDir,
           'assets',
@@ -89,7 +89,7 @@ export async function generateSeaAssets(
         const content =
           typeof record.body === 'string'
             ? Buffer.from(record.body)
-            : record.body;
+            : record.body!;
         await writeFile(tempPath, content);
         assets[key] = tempPath;
       } else {
