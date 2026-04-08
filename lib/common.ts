@@ -189,6 +189,12 @@ export function substituteDenominator(f: string, denominator: number) {
   return f.slice(0, rootLength) + f.slice(denominator);
 }
 
+/**
+ * Converts a file path to a snapshot path by replacing slashes and injecting the snapshot prefix.
+ * @param file - The file path to convert
+ * @param slash - The slash character to use for replacement
+ * @returns The converted snapshot file path
+ */
 export function snapshotify(file: string, slash: string) {
   return injectSnapshot(replaceSlashes(file, slash));
 }

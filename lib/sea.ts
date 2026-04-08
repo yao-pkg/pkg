@@ -406,7 +406,11 @@ async function withSeaTmpDir<T>(
   }
 }
 
-/** Validate that the host Node.js version supports SEA */
+/**
+ * Validate that the host Node.js version supports SEA.
+ * Although node:sea is stable from Node 20, pkg requires 22+ to align with
+ * engines.node and the @platformatic/vfs dependency.
+ */
 function assertSeaNodeVersion() {
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
   if (nodeMajor < 22) {
