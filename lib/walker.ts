@@ -1004,7 +1004,11 @@ class Walker {
           (this.params.seaMode &&
             (isDotJS(record.file) || isESMFile(record.file)))
         ) {
+          const bodyBefore = record.body;
           stepStrip(record);
+          if (record.body !== bodyBefore) {
+            record.bodyModified = true;
+          }
         }
       }
 
