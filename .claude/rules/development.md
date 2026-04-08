@@ -25,9 +25,9 @@ npm run lint:style   # Prettier only
 
 ## TypeScript
 
-- Strict mode enabled. Target: ES2017. Module system: CommonJS.
+- Strict mode enabled. Target: ES2022. Module system: CommonJS.
 - Edit `lib/*.ts` only — never edit `lib-es5/*.js` directly.
-- Requires Node.js >= 20.0.0.
+- Requires Node.js >= 22.0.0.
 
 ## Dependencies
 

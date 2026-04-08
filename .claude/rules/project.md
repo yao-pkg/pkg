@@ -4,7 +4,7 @@ description: Project overview, structure, and key files for yao-pkg/pkg
 
 # Project Overview
 
-`pkg` packages Node.js projects into standalone executables for Linux, macOS, and Windows. It supports multiple Node.js versions (node20, node22+), virtual filesystem bundling, V8 bytecode compilation, native addons, and compression (Brotli, GZip).
+`pkg` packages Node.js projects into standalone executables for Linux, macOS, and Windows. It supports Node.js 22 and newer, virtual filesystem bundling, V8 bytecode compilation, native addons, and compression (Brotli, GZip).
 
 This is `yao-pkg/pkg` — a maintained fork of the archived `vercel/pkg`.
 
