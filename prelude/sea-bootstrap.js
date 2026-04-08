@@ -33,7 +33,7 @@ shared.patchDlopen(insideSnapshot);
 shared.patchChildProcess(entrypoint);
 
 // process.pkg setup (shared with traditional bootstrap)
-shared.setupProcessPkg(entrypoint);
+shared.setupProcessPkg(entrypoint, manifest.entrypoint);
 
 // /////////////////////////////////////////////////////////////////
 // DIAGNOSTICS /////////////////////////////////////////////////////
