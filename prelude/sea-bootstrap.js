@@ -130,6 +130,7 @@ if (manifest.debug) {
 if (perf.enabled) {
   perf._durations['vfs setup total'] =
     (perf._durations['manifest parse'] || 0n) +
+    (perf._durations['archive load'] || 0n) +
     (perf._durations['directory tree init'] || 0n) +
     (perf._durations['vfs mount + hooks'] || 0n);
 }

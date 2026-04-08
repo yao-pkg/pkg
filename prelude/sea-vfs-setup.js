@@ -35,16 +35,16 @@ var MemoryProvider = vfsModule.MemoryProvider;
 //   [pkg:perf] phase                 time
 //   [pkg:perf] ──────────────────────────────
 //   [pkg:perf] manifest parse       14.0ms
+//   [pkg:perf] archive load          1.2ms
 //   [pkg:perf] directory tree init  20.5ms
 //   [pkg:perf] vfs mount + hooks    3.3ms
-//   [pkg:perf] vfs setup total      38.6ms
-//   [pkg:perf] module loading     1730.1ms
+//   [pkg:perf] vfs setup total      39.8ms
+//   [pkg:perf] module loading      730.1ms
 //   [pkg:perf]
 //   [pkg:perf] counter                  value
 //   [pkg:perf] ──────────────────────────────
 //   [pkg:perf] files loaded               1776
 //   [pkg:perf] file cache entries       1776
-//   [pkg:perf] sea.getRawAsset()   1047.6ms
 //   [pkg:perf] statSync calls              0
 //   [pkg:perf] existsSync calls         1540
 //   [pkg:perf] readdirSync calls           0
@@ -101,6 +101,7 @@ var perf = {
     console.log(SEP);
     var phaseOrder = [
       'manifest parse',
+      'archive load',
       'directory tree init',
       'vfs mount + hooks',
       'vfs setup total',
@@ -119,7 +120,6 @@ var perf = {
     var counterOrder = [
       'files loaded',
       'file cache entries',
-      'sea.getRawAsset()',
       'statSync calls',
       'existsSync calls',
       'readdirSync calls',
@@ -224,7 +224,10 @@ function _makeStats(meta) {
 }
 
 /**
- * SEA asset provider — reads files lazily from the SEA binary.
+ * SEA asset provider — reads files from a single archive blob embedded in the
+ * SEA binary.  All file contents are packed into one asset ('__pkg_archive__')
+ * at build time; the manifest's `offsets` map provides [byteOffset, byteLength]
+ * for each file so readFileSync can extract them via zero-copy Buffer.subarray().
  *
  * Performance design:
  *
@@ -236,9 +239,9 @@ function _makeStats(meta) {
  *
  *   - existsSync()          O(1) manifest lookup.
  *
- *   - readFileSync()        sea.getRawAsset() with a Map cache.  Bypasses the
- *     MemoryProvider tree entirely.  Returns a Buffer copy to prevent cache
- *     corruption from callers mutating the buffer.
+ *   - readFileSync()        Zero-copy subarray from the archive with a Map
+ *     cache.  Bypasses the MemoryProvider tree entirely.  Returns a Buffer
+ *     copy to prevent callers from corrupting the archive.
  *
  *   - readdirSync()         Returns manifest directory entries directly.
  *
@@ -251,6 +254,19 @@ class SEAProvider extends MemoryProvider {
     super();
     this._manifest = seaManifest;
     this._fileCache = new Map();
+
+    // Load the single archive blob — zero-copy view of the SEA asset's
+    // ArrayBuffer.  All file contents are packed here; individual files
+    // are extracted via subarray() using manifest.offsets.
+    perf.start('archive load');
+    try {
+      this._archive = Buffer.from(sea.getRawAsset('__pkg_archive__'));
+    } catch (e) {
+      throw new Error(
+        'pkg: Failed to load archive from SEA assets: ' + e.message,
+      );
+    }
+    perf.end('archive load');
 
     // Populate MemoryProvider directory tree as a safety net for edge-case
     // fallbacks to super methods (e.g., readlinkSync for non-manifest paths).
@@ -272,27 +288,20 @@ class SEAProvider extends MemoryProvider {
 
   readFileSync(filePath, options) {
     var p = this._resolveSymlink(toManifestKey(filePath));
-    // Fast path: read from SEA asset with a Map cache, bypassing the
-    // MemoryProvider tree walk for both write and read.
+    // Fast path: zero-copy subarray from the archive with a Map cache,
+    // bypassing the MemoryProvider tree entirely.
     var buf = this._fileCache.get(p);
     if (buf === undefined) {
-      var raw;
-      try {
-        if (perf.enabled) var t0 = process.hrtime.bigint();
-        raw = sea.getRawAsset(p);
-        if (perf.enabled)
-          perf.addNs('sea.getRawAsset()', process.hrtime.bigint() - t0);
-      } catch (_) {
-        throw _enoent('open', filePath);
-      }
-      buf = Buffer.from(raw);
+      var entry = this._manifest.offsets[p];
+      if (!entry) throw _enoent('open', filePath);
+      buf = this._archive.subarray(entry[0], entry[0] + entry[1]);
       this._fileCache.set(p, buf);
       perf.count('files loaded');
     }
     var encoding =
       typeof options === 'string' ? options : options && options.encoding;
-    // Strings are immutable — safe to return directly from cache.
-    // Buffers must be copied to prevent callers from corrupting the cache.
+    // Strings are immutable — safe to derive from the archive view.
+    // Buffers must be copied to prevent callers from corrupting the archive.
     if (encoding) return buf.toString(encoding);
     var copy = Buffer.allocUnsafe(buf.length);
     buf.copy(copy);

@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from 'fs/promises';
-import { dirname, join } from 'path';
+import { createReadStream } from 'fs';
+import { open, writeFile } from 'fs/promises';
+import { join } from 'path';
 
 import {
   STORE_CONTENT,
@@ -18,6 +19,7 @@ export interface SeaManifest {
     { size: number; isFile: boolean; isDirectory: boolean }
   >;
   symlinks: Record<string, string>;
+  offsets: Record<string, [number, number]>;
   debug?: boolean;
 }
 
@@ -34,7 +36,11 @@ function toPosixKey(p: string): string {
 }
 
 /**
- * Transform walker/refiner output into SEA-compatible asset map and manifest.
+ * Transform walker/refiner output into a single SEA archive blob and manifest.
+ *
+ * All file contents are concatenated into one binary archive sorted by POSIX
+ * key.  The manifest contains an `offsets` map of key → [byteOffset, byteLength]
+ * so the runtime can extract individual files via zero-copy Buffer.subarray().
  *
  * Asset keys use refiner paths (no /snapshot prefix) because @platformatic/vfs
  * strips the mount prefix before passing paths to the provider. The entrypoint
@@ -50,8 +56,6 @@ export async function generateSeaAssets(
   tmpDir: string,
   options?: { debug?: boolean },
 ): Promise<SeaAssetsResult> {
-  const assets: Record<string, string> = {};
-
   // Normalize symlink paths to use the same refiner-style POSIX keys as
   // directories/stats/assets. Do not add the /snapshot prefix because the
   // VFS provider receives paths after the mount prefix is stripped.
@@ -66,36 +70,29 @@ export async function generateSeaAssets(
     directories: {},
     stats: {},
     symlinks: normalizedSymlinks,
+    offsets: {},
     ...(options?.debug ? { debug: true } : {}),
   };
 
-  let modifiedFileCount = 0;
+  // First pass: collect file entries and build manifest metadata
+  const entries: { key: string; source: Buffer | string }[] = [];
 
   for (const snap in records) {
     if (!records[snap]) continue;
     const record = records[snap];
     const key = toPosixKey(snap);
 
-    // Map file content to SEA asset
+    // Collect file content entry for the archive
     if (record[STORE_CONTENT]) {
       if (record.bodyModified) {
-        // File was intentionally modified (patches, package.json rewrites) — write to temp file
-        const tempPath = join(
-          tmpDir,
-          'assets',
-          `modified_${modifiedFileCount}`,
-        );
-        modifiedFileCount += 1;
-        await mkdir(dirname(tempPath), { recursive: true });
         const content =
           typeof record.body === 'string'
             ? Buffer.from(record.body)
             : record.body!;
-        await writeFile(tempPath, content);
-        assets[key] = tempPath;
+        entries.push({ key, source: content });
       } else {
-        // Unmodified file — point to source on disk
-        assets[key] = record.file;
+        // Unmodified file — will be streamed from disk
+        entries.push({ key, source: record.file });
       }
     }
 
@@ -106,17 +103,56 @@ export async function generateSeaAssets(
 
     // Collect stat metadata
     if (record[STORE_STAT]) {
-      const stat = record[STORE_STAT];
+      const s = record[STORE_STAT];
       manifest.stats[key] = {
-        size: stat.size ?? 0,
-        isFile: Boolean(stat.isFileValue),
-        isDirectory: Boolean(stat.isDirectoryValue),
+        size: s.size ?? 0,
+        isFile: Boolean(s.isFileValue),
+        isDirectory: Boolean(s.isDirectoryValue),
       };
     }
+  }
+
+  // Sort entries by key for deterministic archive output
+  entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+  // Stream-write the single archive blob
+  const archivePath = join(tmpDir, '__pkg_archive__');
+  const fd = await open(archivePath, 'w');
+  let offset = 0;
+
+  try {
+    for (const { key, source } of entries) {
+      let length: number;
+      if (Buffer.isBuffer(source)) {
+        // Modified file content already in memory
+        await fd.write(source);
+        length = source.length;
+      } else {
+        // Unmodified file — stream from disk, track actual bytes written
+        // (avoids stat→read race if the file changes between calls)
+        length = 0;
+        const stream = createReadStream(source);
+        for await (const chunk of stream) {
+          await fd.write(chunk as Buffer);
+          length += (chunk as Buffer).length;
+        }
+      }
+      manifest.offsets[key] = [offset, length];
+      // Fix manifest stat size to reflect actual content for modified files
+      if (manifest.stats[key]) {
+        manifest.stats[key].size = length;
+      }
+      offset += length;
+    }
+  } finally {
+    await fd.close();
   }
 
   const manifestPath = join(tmpDir, '__pkg_manifest__.json');
   await writeFile(manifestPath, JSON.stringify(manifest));
 
-  return { assets, manifestPath };
+  return {
+    assets: { __pkg_archive__: archivePath },
+    manifestPath,
+  };
 }
