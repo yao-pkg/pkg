@@ -423,7 +423,7 @@ function assertSeaNodeVersion() {
 
 /**
  * Generate the SEA blob from a sea-config.json file.
- * Uses --build-sea on Node >= 25 with fallback to --experimental-sea-config.
+ * Uses --build-sea on Node >= 25.5 with fallback to --experimental-sea-config.
  */
 async function generateSeaBlob(seaConfigFilePath: string, nodeMajor: number) {
   if (nodeMajor >= 25) {

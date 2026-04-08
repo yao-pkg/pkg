@@ -436,7 +436,7 @@ For users who require code protection with SEA mode:
 
 | Dependency             | Purpose                                                       | Status                                                                                 |
 | ---------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `node:sea` API         | Asset storage and retrieval in SEA executables                | Stable, Node 20+                                                                       |
+| `node:sea` API         | Asset storage and retrieval in SEA executables                | Stable, Node 20+ (pkg requires 22+, aligned with `engines.node`)                       |
 | `@platformatic/vfs`    | VFS polyfill — patches `fs`, `fs/promises`, and module loader | Published, Node 22+, maintained by Matteo Collina                                      |
 | `postject`             | Injects `NODE_SEA_BLOB` resource into executables             | Stable, used by Node.js project                                                        |
 | `--build-sea` flag     | Single-step SEA blob generation                               | Node 25.5+                                                                             |
