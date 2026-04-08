@@ -2,7 +2,7 @@
 name: performances-compare
 description: Run packaging performance benchmarks comparing Standard PKG vs SEA modes (with/without bundling) on a Node.js project. Default target is zwave-js-ui. Measures build time, binary size, and startup time.
 user-invocable: true
-disable-model-invocation: true
+disable-model-invocation: false
 argument-hint: [project-path]
 allowed-tools: Read Bash Grep Glob Agent Edit Write TaskCreate TaskUpdate TaskGet TaskList
 effort: high
