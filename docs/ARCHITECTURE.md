@@ -36,7 +36,7 @@ pkg single-file.js --sea       # Simple SEA mode (any single .js file)
 | Aspect        | Traditional          | Enhanced SEA        | Simple SEA          |
 | ------------- | -------------------- | ------------------- | ------------------- |
 | Walker        | Yes                  | Yes (seaMode)       | No                  |
-| VFS           | Custom binary format | @platformatic/vfs   | None                |
+| VFS           | Custom binary format | @roberts_lando/vfs  | None                |
 | Bytecode      | V8 compiled          | No (source as-is)   | No                  |
 | ESM transform | ESM to CJS           | No (native ESM)     | No                  |
 | Node.js API   | Binary patching      | Official `node:sea` | Official `node:sea` |
@@ -161,17 +161,19 @@ CLI (lib/index.ts)
   │   └─ Same as traditional (path compression, empty dir pruning)
   │
   ├─ SEA Asset Generator (lib/sea-assets.ts)
-  │   ├─ Map each STORE_CONTENT → SEA asset entry (snap_path → disk_path)
+  │   ├─ Concatenate all STORE_CONTENT files into a single __pkg_archive__ blob
   │   ├─ Build __pkg_manifest__.json:
-  │   │     { entrypoint, directories, stats, symlinks }
-  │   └─ Write modified files (patches) to temp dir
+  │   │     { entrypoint, directories, stats, symlinks, offsets }
+  │   │     offsets maps key → [byteOffset, byteLength] into the archive
+  │   └─ Write archive + manifest to temp dir
   │
   └─ SEA Orchestrator (lib/sea.ts → seaEnhanced())
       ├─ Copy pre-bundled sea-bootstrap.bundle.js to tmpDir
-      │     (built by scripts/build-sea-bootstrap.js which inlines
-      │      the worker thread bootstrap via esbuild `define`)
+      │     (built by scripts/build-sea-bootstrap.js — 2-step esbuild:
+      │      1. Bundle sea-worker-entry.js → string module
+      │      2. Bundle sea-bootstrap.js + VFS + worker string → bundle)
       ├─ Build sea-config.json:
-      │     { main, output, assets: { __pkg_manifest__, ...files } }
+      │     { main, output, assets: { __pkg_manifest__, __pkg_archive__ } }
       ├─ Generate blob:
       │     Node 25.5+:  node --build-sea sea-config.json
       │     Node 22-24:  node --experimental-sea-config sea-config.json
@@ -195,14 +197,20 @@ The SEA executable uses the official Node.js resource format:
 │   ┌──────────────────────────┐   │
 │   │ main: sea-bootstrap.js   │   │  ← Bundled bootstrap + VFS polyfill
 │   ├──────────────────────────┤   │
-│   │ Asset: __pkg_manifest__  │   │  ← JSON manifest (dirs, stats, symlinks)
-│   │ Asset: /app/index.js     │   │  ← Source code (plaintext)
-│   │ Asset: /app/lib/util.js  │   │  ← Source code
-│   │ Asset: /app/config.json  │   │  ← JSON asset
-│   │ ...                      │   │
+│   │ Asset: __pkg_manifest__  │   │  ← JSON: dirs, stats, symlinks, offsets
+│   ├──────────────────────────┤   │
+│   │ Asset: __pkg_archive__   │   │  ← Single binary blob containing ALL files
+│   │   ┌──────────────────┐   │   │
+│   │   │ /app/index.js    │   │   │  ← offset=0, length=1234
+│   │   │ /app/config.json │   │   │  ← offset=1234, length=567
+│   │   │ /app/lib/util.js │   │   │  ← offset=1801, length=890
+│   │   │ ...              │   │   │
+│   │   └──────────────────┘   │   │
 │   └──────────────────────────┘   │
 └──────────────────────────────────┘
 ```
+
+Files are sorted by key and concatenated into the archive. The manifest's `offsets` map (`key → [byteOffset, byteLength]`) enables zero-copy extraction via `Buffer.subarray()`.
 
 The resource is embedded using OS-native formats:
 
@@ -212,18 +220,22 @@ The resource is embedded using OS-native formats:
 
 ### SEA Runtime Bootstrap
 
-`prelude/sea-bootstrap.js` (~250 lines, bundled with `@platformatic/vfs` and the worker bootstrap into `sea-bootstrap.bundle.js`) executes as the SEA `main` entry:
+The SEA bootstrap is split into two files, bundled together by esbuild into `sea-bootstrap.bundle.js`:
 
-1. **Load manifest** — `JSON.parse(sea.getAsset('__pkg_manifest__', 'utf8'))`
-2. **Patch VFS for Windows** — On Windows, monkey-patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to convert Windows-native paths (e.g. `C:\snapshot\...`) to POSIX before the VFS processes them. This is needed because `@platformatic/vfs` internally uses `/` as the path separator in `isUnderMountPoint()`, but Node's `path.normalize()` converts to `\` on Windows
-3. **Initialize VFS** — Creates `SEAProvider` (extends `MemoryProvider`), always mounts at `/snapshot` (POSIX path, regardless of platform). The VFS module hooks use the `V:` sentinel drive for subsequent path resolution on Windows
-4. **Apply shared patches** — Calls `patchDlopen()`, `patchChildProcess()`, `setupProcessPkg()` from `bootstrap-shared.js`
-5. **Patch Worker threads** — Wraps `workerThreads.Worker` so workers spawned with `/snapshot/...` paths get a self-contained bootstrap (see [Worker Thread Support](#worker-thread-support))
-6. **Run entrypoint** — Sets `process.argv[1]`, calls `Module.runMain()`
+- **`prelude/sea-bootstrap.js`** (~158 lines) — Main entry: applies shared patches, sets up worker thread interception, runs the entrypoint
+- **`prelude/sea-vfs-setup.js`** (~434 lines) — VFS core: manifest parsing, `SEAProvider` class, archive loading, VFS mount, Windows path normalization. Shared by both main thread and worker threads
 
-The VFS polyfill (`@platformatic/vfs`) handles all `fs` and `fs/promises` patching automatically when `mount()` is called — intercepting 164+ functions including `readFile`, `readFileSync`, `stat`, `readdir`, `access`, `realpath`, `createReadStream`, `watch`, `open`, and their promise-based equivalents. It also hooks into the Node.js module resolution system for `require()` and `import`.
+Execution flow:
 
-**Windows path strategy:** Unlike the main thread's VFS approach (which uses `@platformatic/vfs` with automatic module hooks), the SEA bootstrap takes care to normalize all paths to POSIX before they reach the VFS. The `insideSnapshot()` helper checks for both `/snapshot` and `V:\snapshot` (the sentinel drive used by `@platformatic/vfs` module hooks on Windows).
+1. **VFS setup** (via `require('./sea-vfs-setup')`) — Loads manifest from `sea.getAsset('__pkg_manifest__', 'utf8')`, creates `SEAProvider` (extends `MemoryProvider`), loads `__pkg_archive__` blob, mounts at `/snapshot`. On Windows, patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to convert backslashes to POSIX
+2. **Apply shared patches** — Calls `patchDlopen()`, `patchChildProcess()`, `setupProcessPkg()` from `bootstrap-shared.js`
+3. **Diagnostics** — If `manifest.debug` is set (built with `--debug`), calls `installDiagnostic()`
+4. **Patch Worker threads** — Wraps `workerThreads.Worker` so workers spawned with `/snapshot/...` paths get the same VFS setup (see [Worker Thread Support](#worker-thread-support))
+5. **Run entrypoint** — Sets `process.argv[1]`, calls `Module.runMain()`
+
+The VFS polyfill (`@roberts_lando/vfs`) handles all `fs` and `fs/promises` patching automatically when `mount()` is called — intercepting 164+ functions including `readFile`, `readFileSync`, `stat`, `readdir`, `access`, `realpath`, `createReadStream`, `watch`, `open`, and their promise-based equivalents. It also hooks into the Node.js module resolution system for `require()` and `import`.
+
+**Windows path strategy:** The VFS always mounts at `/snapshot` (POSIX). On Windows, `sea-vfs-setup.js` patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to strip drive letters and convert `\` to `/` before the VFS processes them. The `insideSnapshot()` helper checks for `/snapshot`, `V:\snapshot` (sentinel drive used by `@roberts_lando/vfs` module hooks), and `C:\snapshot` (used by dlopen/child_process).
 
 ### VFS Provider Architecture
 
@@ -233,7 +245,7 @@ The VFS polyfill (`@platformatic/vfs`) handles all `fs` and `fs/promises` patchi
 └──────────────────────┬──────────────────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │ @platformatic/vfs          │
+         │ @roberts_lando/vfs          │
          │ (mounted at /snapshot,     │
          │  overlay: true)            │
          │                            │
@@ -241,33 +253,36 @@ The VFS polyfill (`@platformatic/vfs`) handles all `fs` and `fs/promises` patchi
          │ Calls provider method      │
          └─────────────┬──────────────┘
                        │
-         ┌─────────────▼──────────────┐
-         │ SEAProvider                 │
-         │ extends MemoryProvider      │
-         │                            │
-         │ readFileSync('/app/x.js')  │
-         │   → _ensureLoaded()        │
-         │   → sea.getRawAsset(key)   │  ← Zero-copy from executable memory
-         │   → super.writeFileSync()  │  ← Cache in MemoryProvider
-         │   → super.readFileSync()   │  ← Return cached content
-         └────────────────────────────┘
+         ┌─────────────▼──────────────────────┐
+         │ SEAProvider                         │
+         │ extends MemoryProvider              │
+         │ (defined in sea-vfs-setup.js)       │
+         │                                     │
+         │ readFileSync('/app/x.js')           │
+         │   → _resolveSymlink(key)            │
+         │   → _fileCache.get(key)             │  ← Map cache (fast path)
+         │   → _archive.subarray(off, off+len) │  ← Zero-copy from archive
+         │   → _fileCache.set(key, buf)        │  ← Cache for next access
+         │   → return Buffer copy              │  ← Copy to prevent mutation
+         └─────────────────────────────────────┘
 ```
 
-The `SEAProvider` implements lazy loading:
+The `SEAProvider` (in `prelude/sea-vfs-setup.js`) implements lazy loading from a single archive blob:
 
-| Method               | Behavior                                                                                 |
-| -------------------- | ---------------------------------------------------------------------------------------- |
-| `readFileSync(path)` | Resolve symlinks, lazy-load from SEA asset on first access, delegate to `MemoryProvider` |
-| `statSync(path)`     | Return metadata from manifest; trigger lazy-load for files                               |
-| `readdirSync(path)`  | Return directory entries from manifest                                                   |
-| `existsSync(path)`   | Check manifest symlinks and stats                                                        |
-| `readlinkSync(path)` | Return symlink target from manifest                                                      |
+| Method                     | Behavior                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `readFileSync(path)`       | Resolve symlinks, `subarray()` from archive via `offsets` map, cache in `Map` |
+| `statSync(path)`           | Return metadata from manifest `stats`                                         |
+| `internalModuleStat(path)` | Fast path for module resolution: returns 0 (file), 1 (dir), or -2 (not found) |
+| `readdirSync(path)`        | Return directory entries from manifest `directories`                          |
+| `existsSync(path)`         | O(1) check against manifest `stats`                                           |
+| `readlinkSync(path)`       | Return symlink target from manifest, fall back to `super.readlinkSync()`      |
 
-Assets are loaded lazily via `sea.getRawAsset(key)` which returns a zero-copy `ArrayBuffer` reference to the executable's memory-mapped region. The buffer is copied once into the `MemoryProvider` cache on first access.
+The entire archive is loaded once via `sea.getRawAsset('__pkg_archive__')` which returns a zero-copy `ArrayBuffer` reference to the executable's memory-mapped region. Individual files are extracted via `Buffer.subarray(offset, offset + length)` using the manifest's `offsets` map, then cached in a `Map` on first access. String results (when `encoding` is specified) are derived directly from the archive view; Buffer results are copied to prevent callers from corrupting the shared archive memory.
 
 ### Worker Thread Support
 
-Worker threads spawned from packaged applications don't inherit VFS hooks from the main thread — `@platformatic/vfs` only patches the main thread's `fs` and module system. The SEA bootstrap solves this by monkey-patching the `Worker` constructor:
+Worker threads spawned from packaged applications don't inherit VFS hooks from the main thread — `@roberts_lando/vfs` only patches the main thread's `fs` and module system. The SEA bootstrap solves this by monkey-patching the `Worker` constructor:
 
 ```
 workerThreads.Worker(filename, options)
@@ -276,46 +291,52 @@ workerThreads.Worker(filename, options)
   │
   └─ filename inside /snapshot:
        ├─ Read worker source from VFS via fs.readFileSync (intercepted)
-       ├─ Prepend self-contained worker bootstrap
-       │     (inlined at build time via WORKER_BOOTSTRAP_CODE)
-       ├─ Append __filename, __dirname, module.paths setup
+       ├─ Prepend worker VFS bootstrap (bundled sea-vfs-setup.js)
+       ├─ Wrap in Module._compile for correct require() resolution
+       │     (sets __filename, __dirname, module.paths from snapshot path)
        └─ Spawn with { eval: true } → worker runs in-memory
 ```
 
-**Worker Bootstrap (`prelude/sea-worker-bootstrap.js`, ~135 lines):**
+**Worker Entry (`prelude/sea-worker-entry.js`, 11 lines):**
 
-The worker bootstrap is a self-contained VFS implementation that reads directly from SEA assets via `node:sea`. It does NOT use `@platformatic/vfs` — instead it monkey-patches `fs` and `Module` directly, similar to the traditional bootstrap approach:
+The worker entry is minimal — it simply `require('./sea-vfs-setup')`, which sets up the same `SEAProvider` + `@roberts_lando/vfs` mount as the main thread. This means workers get the exact same VFS implementation (same archive blob, same `Buffer.subarray()` extraction, same 164+ fs function intercepts) with no code duplication.
 
-- **`fs.readFileSync`** — Intercepts snapshot paths, reads from SEA assets via `sea.getRawAsset(key)`
-- **`fs.existsSync`** — Checks manifest stats for snapshot paths
-- **`fs.statSync`** — Returns metadata from manifest for snapshot paths
-- **`fs.readdirSync`** — Returns directory entries from manifest
-- **`Module._resolveFilename`** — Resolves `require()` calls within the snapshot (handles relative paths, node_modules, package.json `main` fields, extension resolution)
-- **`Module._extensions['.js']` / `['.json']`** — Compiles/parses files from SEA assets
+**Build-time bundling:**
 
-This approach is necessary because `@platformatic/vfs` relies on module hooks and process-level patching that may not transfer cleanly to `eval`'d worker code.
-
-**Build-time inlining:**
-
-The worker bootstrap is inlined into the main bundle at build time by `scripts/build-sea-bootstrap.js`, which uses esbuild's `define` option to replace the `WORKER_BOOTSTRAP_CODE` placeholder with the stringified worker bootstrap source:
+The worker entry is bundled into a self-contained string at build time by `scripts/build-sea-bootstrap.js` (49 lines), using a 2-step esbuild process:
 
 ```javascript
-// scripts/build-sea-bootstrap.js
-require('esbuild').buildSync({
-  ...
-  define: {
-    WORKER_BOOTSTRAP_CODE: JSON.stringify(workerCode),
-  },
+// Step 1: Bundle sea-worker-entry.js → string module
+const workerResult = esbuild.buildSync({
+  entryPoints: ['prelude/sea-worker-entry.js'],
+  bundle: true,
+  platform: 'node',
+  target: 'node22',
+  write: false,
+  external: ['node:sea', 'node:vfs'],
+});
+// Write as: module.exports = "<bundled code>";
+fs.writeFileSync(
+  'prelude/_worker-bootstrap-string.js',
+  `module.exports = ${JSON.stringify(workerResult.outputFiles[0].text)};\n`,
+);
+
+// Step 2: Bundle sea-bootstrap.js (which require()s the string module)
+esbuild.buildSync({
+  entryPoints: ['prelude/sea-bootstrap.js'],
+  bundle: true,
+  outfile: 'prelude/sea-bootstrap.bundle.js',
+  external: ['node:sea', 'node:vfs'],
 });
 ```
 
-This keeps the worker bootstrap as a separate, readable source file while ensuring it ships as a single bundle.
+This approach keeps the worker VFS setup as a shared module (`sea-vfs-setup.js`) used by both the main thread and worker threads, while shipping everything as a single bundle.
 
 ---
 
 ## Shared Runtime Code
 
-`prelude/bootstrap-shared.js` (255 lines) contains runtime patches used by both bootstraps:
+`prelude/bootstrap-shared.js` (~438 lines) contains runtime patches used by both bootstraps:
 
 ### Injection Mechanisms
 
@@ -329,7 +350,7 @@ This keeps the worker bootstrap as a separate, readable source file while ensuri
   })();
   ```
 
-- **SEA bootstrap**: `require('./bootstrap-shared')` is resolved at build time by esbuild and bundled into `sea-bootstrap.bundle.js`.
+- **SEA bootstrap**: `require('./bootstrap-shared')` is resolved at build time by esbuild and bundled into `sea-bootstrap.bundle.js`. The shared module is also available to worker threads via the bundled `sea-vfs-setup.js`.
 
 ### Shared Functions
 
@@ -381,14 +402,14 @@ SIZE_LIMIT_PKG=1048576 DEBUG_PKG=1 ./my-packaged-app  # flag files > 1MB
 
 ## Performance Comparison
 
-| Aspect               | Traditional `pkg`                                                                                                                              | Enhanced SEA                                                                                                                                                 |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Startup time**     | V8 bytecode loads faster than parsing source — bytecode is pre-compiled. `vm.Script` with `cachedData` skips the parsing phase                 | `useCodeCache: true` provides similar optimization. Without it, every launch re-parses source from scratch                                                   |
-| **Memory footprint** | Payload accessed via file descriptor reads on demand at computed offsets. Files loaded only when accessed                                      | `sea.getRawAsset()` returns a zero-copy `ArrayBuffer` reference to the executable's mapped memory. With lazy `SEAProvider`, only accessed files are buffered |
-| **Executable size**  | Brotli/GZip compression reduces payload by 60-80%. Dictionary path compression adds 5-15% reduction                                            | SEA assets are stored uncompressed. Executable size will be larger for the same project                                                                      |
-| **Build time**       | V8 bytecode compilation spawns a Node.js process per file via fabricator. Cross-arch bytecode needs QEMU/Rosetta. Expensive for large projects | No bytecode step. Pipeline: walk deps, write assets, generate blob, inject. Significantly faster                                                             |
-| **Module loading**   | Custom `require` implementation in bootstrap. Each module loaded from VFS via binary offset reads. Synchronous only                            | VFS polyfill patches `require`/`import` at module resolution level. 164+ fs functions intercepted. ESM module hooks supported natively                       |
-| **Native addons**    | Extracted to `~/.cache/pkg/<hash>/` on first load, SHA256-verified, persisted across runs                                                      | Same extraction strategy via shared `patchDlopen()`. Uses `fs.cpSync` for package folder copying                                                             |
+| Aspect               | Traditional `pkg`                                                                                                                              | Enhanced SEA                                                                                                                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Startup time**     | V8 bytecode loads faster than parsing source — bytecode is pre-compiled. `vm.Script` with `cachedData` skips the parsing phase                 | `useCodeCache: true` provides similar optimization. Without it, every launch re-parses source from scratch                                                                               |
+| **Memory footprint** | Payload accessed via file descriptor reads on demand at computed offsets. Files loaded only when accessed                                      | `sea.getRawAsset('__pkg_archive__')` loads the entire archive as a zero-copy `ArrayBuffer`. Individual files are extracted via `Buffer.subarray()` and cached in a `Map` on first access |
+| **Executable size**  | Brotli/GZip compression reduces payload by 60-80%. Dictionary path compression adds 5-15% reduction                                            | Single archive blob is stored uncompressed. Executable size will be larger for the same project                                                                                          |
+| **Build time**       | V8 bytecode compilation spawns a Node.js process per file via fabricator. Cross-arch bytecode needs QEMU/Rosetta. Expensive for large projects | No bytecode step. Pipeline: walk deps, write assets, generate blob, inject. Significantly faster                                                                                         |
+| **Module loading**   | Custom `require` implementation in bootstrap. Each module loaded from VFS via binary offset reads. Synchronous only                            | VFS polyfill patches `require`/`import` at module resolution level. 164+ fs functions intercepted. ESM module hooks supported natively                                                   |
+| **Native addons**    | Extracted to `~/.cache/pkg/<hash>/` on first load, SHA256-verified, persisted across runs                                                      | Same extraction strategy via shared `patchDlopen()`. Uses `fs.cpSync` for package folder copying                                                                                         |
 
 ### Note on `--no-bytecode`
 
@@ -398,13 +419,13 @@ Traditional mode supports a `--no-bytecode` flag that skips V8 bytecode compilat
 
 ## Code Protection Comparison
 
-| Aspect                  | Traditional `pkg`                                                                                                        | Enhanced SEA                                                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Source code storage** | Can be fully stripped — `STORE_BLOB` with `sourceless: true` stores only V8 bytecode, no source recoverable              | Source code stored as SEA assets in plaintext. `useCodeCache: true` adds a code cache alongside source but does NOT strip it             |
-| **Reverse engineering** | V8 bytecode requires specialized tools (`v8-decompile`) to reverse. Not trivially readable                               | Standard text assets extractable from executable resource section using `readelf`/`xxd` or by searching for the `NODE_SEA_FUSE` sentinel |
-| **Binary format**       | Custom VFS format with offset-based access, optional Brotli/GZip compression, base36 dictionary path compression         | Standard OS resource format (PE `.rsrc`, ELF notes, Mach-O segments) — well-documented, easier to parse                                  |
-| **Payload location**    | Custom byte offsets injected via placeholder replacement. Requires understanding pkg's specific binary layout to extract | Standard `NODE_SEA_BLOB` resource name. `postject` uses OS-native resource embedding                                                     |
-| **Runtime access**      | Accessed via file descriptor reads at computed offsets. No standard tooling to extract                                   | Accessed via `sea.getAsset(key)` — official Node.js API, assets are first-class                                                          |
+| Aspect                  | Traditional `pkg`                                                                                                        | Enhanced SEA                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Source code storage** | Can be fully stripped — `STORE_BLOB` with `sourceless: true` stores only V8 bytecode, no source recoverable              | Source code stored as SEA assets in plaintext. `useCodeCache: true` adds a code cache alongside source but does NOT strip it       |
+| **Reverse engineering** | V8 bytecode requires specialized tools (`v8-decompile`) to reverse. Not trivially readable                               | Single archive blob extractable from executable resource section using `readelf`/`xxd`. Source files are concatenated in plaintext |
+| **Binary format**       | Custom VFS format with offset-based access, optional Brotli/GZip compression, base36 dictionary path compression         | Standard OS resource format (PE `.rsrc`, ELF notes, Mach-O segments) — well-documented, easier to parse                            |
+| **Payload location**    | Custom byte offsets injected via placeholder replacement. Requires understanding pkg's specific binary layout to extract | Standard `NODE_SEA_BLOB` resource name. `postject` uses OS-native resource embedding                                               |
+| **Runtime access**      | Accessed via file descriptor reads at computed offsets. No standard tooling to extract                                   | Archive loaded via `sea.getRawAsset()`, files extracted via `Buffer.subarray()` using manifest offsets                             |
 
 **Key takeaway**: Traditional `pkg` offers significantly stronger code protection through V8 bytecode compilation with source stripping. SEA mode stores source code in plaintext within the executable. This is a fundamental limitation of the Node.js SEA design — there is no `sourceless` equivalent.
 
@@ -434,13 +455,13 @@ For users who require code protection with SEA mode:
 
 ### Current (April 2026)
 
-| Dependency             | Purpose                                                       | Status                                                                                 |
-| ---------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `node:sea` API         | Asset storage and retrieval in SEA executables                | Stable, Node 20+ (pkg requires 22+, aligned with `engines.node`)                       |
-| `@platformatic/vfs`    | VFS polyfill — patches `fs`, `fs/promises`, and module loader | Published, Node 22+, maintained by Matteo Collina                                      |
-| `postject`             | Injects `NODE_SEA_BLOB` resource into executables             | Stable, used by Node.js project                                                        |
-| `--build-sea` flag     | Single-step SEA blob generation                               | Node 25.5+                                                                             |
-| `mainFormat: "module"` | ESM entry point in SEA config                                 | Node 25.7+ (merged via [nodejs/node#61813](https://github.com/nodejs/node/pull/61813)) |
+| Dependency             | Purpose                                                        | Status                                                                                 |
+| ---------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `node:sea` API         | Archive blob and manifest storage/retrieval in SEA executables | Stable, Node 20+ (pkg requires 22+, aligned with `engines.node`)                       |
+| `@roberts_lando/vfs`   | VFS polyfill — patches `fs`, `fs/promises`, and module loader  | Published, Node 22+, maintained by Matteo Collina                                      |
+| `postject`             | Injects `NODE_SEA_BLOB` resource into executables              | Stable, used by Node.js project                                                        |
+| `--build-sea` flag     | Single-step SEA blob generation                                | Node 25.5+                                                                             |
+| `mainFormat: "module"` | ESM entry point in SEA config                                  | Node 25.7+ (merged via [nodejs/node#61813](https://github.com/nodejs/node/pull/61813)) |
 
 ### Future
 
@@ -448,14 +469,14 @@ For users who require code protection with SEA mode:
 | ---------- | --------------------------------- | ----------------------------------------------------------------------------------- |
 | `node:vfs` | Native VFS module in Node.js core | Open PR [nodejs/node#61478](https://github.com/nodejs/node/pull/61478), 8 approvals |
 
-When `node:vfs` lands in Node.js core, `@platformatic/vfs` will be deprecated. The SEA bootstrap already includes a migration path:
+When `node:vfs` lands in Node.js core, `@roberts_lando/vfs` will be deprecated. `sea-vfs-setup.js` already includes a migration path:
 
 ```javascript
 var vfsModule;
 try {
   vfsModule = require('node:vfs'); // native, when available
 } catch (_) {
-  vfsModule = require('@platformatic/vfs'); // polyfill fallback
+  vfsModule = require('@roberts_lando/vfs'); // polyfill fallback
 }
 ```
 
@@ -465,20 +486,21 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 
 ## File Reference
 
-| File                              | Lines | Purpose                                                                  |
-| --------------------------------- | ----- | ------------------------------------------------------------------------ |
-| `prelude/bootstrap.js`            | ~1970 | Traditional runtime bootstrap (fs/module/process patching)               |
-| `prelude/bootstrap-shared.js`     | ~255  | Shared runtime patches (dlopen, child_process, process.pkg)              |
-| `prelude/sea-bootstrap.js`        | ~250  | SEA runtime bootstrap (VFS setup, lazy SEAProvider, worker patch)        |
-| `prelude/sea-worker-bootstrap.js` | ~135  | Self-contained worker thread bootstrap (fs/Module patching via node:sea) |
-| `scripts/build-sea-bootstrap.js`  | ~22   | Build script: bundles sea-bootstrap + inlines worker bootstrap           |
-| `lib/index.ts`                    | ~726  | CLI entry point, mode routing                                            |
-| `lib/walker.ts`                   | ~1304 | Dependency walker (with seaMode support)                                 |
-| `lib/packer.ts`                   | ~194  | Serializes walker output into stripes + prelude wrapper                  |
-| `lib/producer.ts`                 | ~601  | Assembles final binary (payload injection, compression)                  |
-| `lib/sea.ts`                      | ~561  | SEA orchestrator (seaEnhanced + simple sea)                              |
-| `lib/sea-assets.ts`               | ~105  | Generates SEA asset map + manifest JSON                                  |
-| `lib/fabricator.ts`               | ~173  | V8 bytecode compilation (traditional mode only)                          |
-| `lib/esm-transformer.ts`          | ~434  | ESM to CJS transformation (traditional mode only)                        |
-| `lib/refiner.ts`                  | ~110  | Path compression, empty directory pruning                                |
-| `lib/common.ts`                   | ~369  | Path normalization, snapshot helpers, store constants                    |
+| File                             | Lines | Purpose                                                                  |
+| -------------------------------- | ----- | ------------------------------------------------------------------------ |
+| `prelude/bootstrap.js`           | ~1970 | Traditional runtime bootstrap (fs/module/process patching)               |
+| `prelude/bootstrap-shared.js`    | ~438  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics) |
+| `prelude/sea-bootstrap.js`       | ~158  | SEA main entry (shared patches, worker thread interception, entrypoint)  |
+| `prelude/sea-vfs-setup.js`       | ~434  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches   |
+| `prelude/sea-worker-entry.js`    | ~11   | Worker thread entry: requires sea-vfs-setup.js for VFS in workers        |
+| `scripts/build-sea-bootstrap.js` | ~49   | Build script: 2-step esbuild bundling of SEA bootstrap + worker string   |
+| `lib/index.ts`                   | ~726  | CLI entry point, mode routing                                            |
+| `lib/walker.ts`                  | ~1311 | Dependency walker (with seaMode support)                                 |
+| `lib/packer.ts`                  | ~202  | Serializes walker output into stripes + prelude wrapper                  |
+| `lib/producer.ts`                | ~601  | Assembles final binary (payload injection, compression)                  |
+| `lib/sea.ts`                     | ~579  | SEA orchestrator (seaEnhanced + simple sea)                              |
+| `lib/sea-assets.ts`              | ~158  | Generates single archive blob + manifest with offsets                    |
+| `lib/fabricator.ts`              | ~173  | V8 bytecode compilation (traditional mode only)                          |
+| `lib/esm-transformer.ts`         | ~434  | ESM to CJS transformation (traditional mode only)                        |
+| `lib/refiner.ts`                 | ~110  | Path compression, empty directory pruning                                |
+| `lib/common.ts`                  | ~375  | Path normalization, snapshot helpers, store constants                    |
