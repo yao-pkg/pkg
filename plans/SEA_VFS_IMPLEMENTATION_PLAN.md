@@ -41,7 +41,7 @@ Evolve `--sea` into a full pipeline that reuses the existing walker for dependen
 | `--build-sea` (single-step build)                          | Stable    | Node 25.5+          | Replaces `--experimental-sea-config` + `postject`                   |
 | `mainFormat: "module"` (ESM entry)                         | Merged    | Node 25.7+          | [PR #61813](https://github.com/nodejs/node/pull/61813)              |
 | `node:vfs` (built-in VFS)                                  | Open PR   | TBD                 | [PR #61478](https://github.com/nodejs/node/pull/61478), 8 approvals |
-| `@platformatic/vfs` (polyfill)                             | Published | Node 22+            | Same author as PR #61478, will deprecate when core lands            |
+| `@roberts_lando/vfs` (polyfill)                            | Published | Node 22+            | Same author as PR #61478, will deprecate when core lands            |
 
 ---
 
@@ -71,7 +71,7 @@ Evolve `--sea` into a full pipeline that reuses the existing walker for dependen
 | **Memory footprint** | Payload accessed via file descriptor reads on demand (`readPayloadSync` at computed offsets). Files loaded only when accessed                             | SEA `getRawAsset()` returns a zero-copy `ArrayBuffer` reference to the executable's mapped memory — very efficient. With custom `SEAProvider`, memory usage is comparable                    |
 | **Executable size**  | Brotli/GZip compression available — can reduce payload by 60-80%. Dictionary path compression adds 5-15% reduction                                        | SEA assets are stored uncompressed. Executable size will be larger for the same project. Compression would require build-time compression + runtime decompression in bootstrap               |
 | **Build time**       | V8 bytecode compilation requires spawning a Node.js process per file via fabricator. Cross-arch bytecode needs QEMU/Rosetta. Expensive for large projects | No bytecode compilation step. Build is: walk deps + write assets + generate blob + inject. Significantly faster for large projects                                                           |
-| **Module loading**   | Custom `require` implementation in bootstrap. Each module loaded from VFS via offset reads. Synchronous                                                   | VFS polyfill patches `require`/`import` at module resolution level. `@platformatic/vfs` handles 164+ fs functions. Module hooks support ESM natively                                         |
+| **Module loading**   | Custom `require` implementation in bootstrap. Each module loaded from VFS via offset reads. Synchronous                                                   | VFS polyfill patches `require`/`import` at module resolution level. `@roberts_lando/vfs` handles 164+ fs functions. Module hooks support ESM natively                                        |
 | **Native addons**    | Extracted to `~/.cache/pkg/` on first load, SHA256-verified, persisted across runs (`bootstrap.js:155-242`)                                               | Same approach needed — extract from VFS to temp dir, load via `process.dlopen`. Can reuse identical caching strategy                                                                         |
 
 **Key takeaway**: SEA mode trades code protection for build speed and Node.js compatibility. The zero-copy asset access via `getRawAsset()` provides excellent runtime memory efficiency. Build times are substantially faster since there is no bytecode compilation step. However, executable size will be larger without compression support.
@@ -91,22 +91,22 @@ Evolve `--sea` into a full pipeline that reuses the existing walker for dependen
 
 ## Architecture Decisions
 
-### D1: Use `@platformatic/vfs` as VFS runtime
+### D1: Use `@roberts_lando/vfs` as VFS runtime
 
-Building a custom layer that patches 164+ fs functions + module resolution would duplicate `@platformatic/vfs`. The polyfill is maintained by the same author as `node:vfs` PR #61478. Migration path when `node:vfs` lands in core:
+Building a custom layer that patches 164+ fs functions + module resolution would duplicate `@roberts_lando/vfs`. The polyfill is maintained by the same author as `node:vfs` PR #61478. Migration path when `node:vfs` lands in core:
 
 ```javascript
 let vfs;
 try {
   vfs = require('node:vfs');
 } catch {
-  vfs = require('@platformatic/vfs');
+  vfs = require('@roberts_lando/vfs');
 }
 ```
 
 ### D2: Bundle VFS polyfill into self-contained SEA bootstrap at build time
 
-SEA `main` must be self-contained. Use `esbuild` (already a project dependency) to bundle `prelude/sea-bootstrap.js` + `@platformatic/vfs` into a single file at `pkg` build time.
+SEA `main` must be self-contained. Use `esbuild` (already a project dependency) to bundle `prelude/sea-bootstrap.js` + `@roberts_lando/vfs` into a single file at `pkg` build time.
 
 ### D3: Skip ESM-to-CJS transform and V8 bytecode in SEA mode
 
@@ -126,7 +126,7 @@ Enhanced mode activates when `--sea` is used with a package.json/directory input
 
 ### D7: Minimum target Node 22+ for enhanced SEA
 
-`@platformatic/vfs` requires Node >= 22. Node 20 reaches EOL April 2026.
+`@roberts_lando/vfs` requires Node >= 22. Node 20 reaches EOL April 2026.
 
 ---
 
@@ -140,7 +140,7 @@ Enhanced mode activates when `--sea` is used with a package.json/directory input
 
 **Changes:**
 
-1. Add `@platformatic/vfs` to `dependencies`
+1. Add `@roberts_lando/vfs` to `dependencies`
 2. Add `build:sea-bootstrap` script:
    ```json
    "build:sea-bootstrap": "esbuild prelude/sea-bootstrap.js --bundle --platform=node --target=node22 --outfile=prelude/sea-bootstrap.bundle.js --external:node:sea --external:node:fs --external:node:path --external:node:os --external:node:crypto --external:node:module --external:node:vfs"
@@ -217,7 +217,7 @@ export async function generateSeaAssets(
 
 **New file:** `prelude/sea-bootstrap.js`
 
-This becomes the SEA `main` entry. Bundled with `@platformatic/vfs` at build time.
+This becomes the SEA `main` entry. Bundled with `@roberts_lando/vfs` at build time.
 
 **Execution flow:**
 
@@ -447,13 +447,13 @@ Extract the extraction logic into `prelude/native-addon-extract.js`. Both bootst
 
 | Risk                                 | Impact                          | Mitigation                                                                                              |
 | ------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `@platformatic/vfs` bundle size      | Larger executable               | esbuild tree-shaking. Only import `MemoryProvider` + `VirtualFileSystem`. Measure before/after          |
+| `@roberts_lando/vfs` bundle size     | Larger executable               | esbuild tree-shaking. Only import `MemoryProvider` + `VirtualFileSystem`. Measure before/after          |
 | VFS startup latency (large projects) | Slow cold start                 | Custom `SEAProvider` with lazy `sea.getRawAsset()` — no upfront loading                                 |
 | Polyfill API instability             | Breaking changes                | Pin dependency version. Abstract VFS init behind internal interface                                     |
 | Cross-platform native addons         | Wrong `.node` binary for target | Warn when cross-compiling with native addons. Reuse `prebuild-install` logic from `lib/producer.ts:229` |
 | Large asset counts in SEA            | Unknown Node.js limits          | Test with 1000+ assets early. File a Node.js issue if limits discovered                                 |
 | Source code exposure in SEA          | IP concerns                     | Document clearly in README. Recommend traditional mode for code protection needs                        |
-| `node:vfs` lands with different API  | Migration friction              | Thin abstraction layer in bootstrap. `@platformatic/vfs` author aligns API with PR                      |
+| `node:vfs` lands with different API  | Migration friction              | Thin abstraction layer in bootstrap. `@roberts_lando/vfs` author aligns API with PR                     |
 
 ---
 

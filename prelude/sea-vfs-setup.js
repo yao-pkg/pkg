@@ -10,10 +10,10 @@ try {
   vfsModule = require('node:vfs');
 } catch (_) {
   try {
-    vfsModule = require('@platformatic/vfs');
+    vfsModule = require('@roberts_lando/vfs');
   } catch (e) {
     throw new Error(
-      'pkg: VFS polyfill (@platformatic/vfs) is not available: ' + e.message,
+      'pkg: VFS polyfill (@roberts_lando/vfs) is not available: ' + e.message,
     );
   }
 }
@@ -363,14 +363,14 @@ perf.start('vfs mount + hooks');
 var provider = new SEAProvider(manifest);
 var virtualFs = new VirtualFileSystem(provider);
 
-// Always mount with a POSIX prefix — @platformatic/vfs internally relies on
+// Always mount with a POSIX prefix — @roberts_lando/vfs internally relies on
 // '/' as path separator (isUnderMountPoint, getRelativePath, etc.).
 // Our prototype patches below convert Windows paths to POSIX before they
 // reach the VFS, and Node's VFS module hooks use the V: sentinel drive
 // for subsequent path resolution, which normalizeVFSPath already handles.
 var SNAPSHOT_PREFIX = '/snapshot';
 
-// On Windows, @platformatic/vfs normalises with path.normalize() which
+// On Windows, @roberts_lando/vfs normalises with path.normalize() which
 // uses backslashes, but isUnderMountPoint() uses '/'.  Patch to convert.
 if (process.platform === 'win32') {
   var _winToVFS = function (p) {

@@ -8,7 +8,7 @@ const esbuild = require('esbuild');
 const preludeDir = path.join(__dirname, '..', 'prelude');
 
 // Step 1: Bundle the worker entry (sea-worker-entry.js → string).
-// This bundles sea-vfs-setup.js + @platformatic/vfs into a single
+// This bundles sea-vfs-setup.js + @roberts_lando/vfs into a single
 // self-contained script that workers can eval.
 const workerResult = esbuild.buildSync({
   entryPoints: [path.join(preludeDir, 'sea-worker-entry.js')],
@@ -30,7 +30,7 @@ fs.writeFileSync(
 );
 
 // Step 2: Bundle the main bootstrap (sea-bootstrap.js).
-// This also bundles sea-vfs-setup.js + @platformatic/vfs + the worker
+// This also bundles sea-vfs-setup.js + @roberts_lando/vfs + the worker
 // string module into the final sea-bootstrap.bundle.js.
 try {
   esbuild.buildSync({

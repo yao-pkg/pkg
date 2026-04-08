@@ -464,11 +464,6 @@
   resolved "https://registry.npmjs.org/@phun-ky/typeof/-/typeof-2.0.3.tgz"
   integrity sha512-oeQJs1aa8Ghke8JIK9yuq/+KjMiaYeDZ38jx7MhkXncXlUKjqQ3wEm2X3qCKyjo+ZZofZj+WsEEiqkTtRuE2xQ==
 
-"@platformatic/vfs@^0.3.0":
-  version "0.3.0"
-  resolved "https://registry.npmjs.org/@platformatic/vfs/-/vfs-0.3.0.tgz"
-  integrity sha512-BGXVOAz59HYPZCgI9v/MtiTF/ng8YAWtkooxVwOPR3TatNgGy0WZ/t15ScqytiZi5NdSRqWNRfuAbXKeAlKDdQ==
-
 "@release-it/conventional-changelog@^10.0.5":
   version "10.0.5"
   resolved "https://registry.npmjs.org/@release-it/conventional-changelog/-/conventional-changelog-10.0.5.tgz"
@@ -481,6 +476,11 @@
     conventional-changelog-conventionalcommits "^9.1.0"
     conventional-recommended-bump "^11.2.0"
     semver "^7.7.3"
+
+"@roberts_lando/vfs@^0.3.0":
+  version "0.3.0"
+  resolved "https://registry.npmjs.org/@roberts_lando/vfs/-/vfs-0.3.0.tgz"
+  integrity sha512-lXOgbSdVWmqSng5QdAhUaD6mxkDXg93vc1t9a42Yy05N+HVxFj1EVk+yQ8EqQv/2xv4UbfX3AS3jast2iw8UXA==
 
 "@rtsao/scc@^1.1.0":
   version "1.1.0"

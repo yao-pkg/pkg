@@ -42,7 +42,7 @@ function toPosixKey(p: string): string {
  * key.  The manifest contains an `offsets` map of key → [byteOffset, byteLength]
  * so the runtime can extract individual files via zero-copy Buffer.subarray().
  *
- * Asset keys use refiner paths (no /snapshot prefix) because @platformatic/vfs
+ * Asset keys use refiner paths (no /snapshot prefix) because @roberts_lando/vfs
  * strips the mount prefix before passing paths to the provider. The entrypoint
  * in the manifest uses the snapshotified path for process.argv[1] compatibility.
  *

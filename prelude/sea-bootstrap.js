@@ -5,7 +5,7 @@
 // It sets up a Virtual File System from SEA-embedded assets so that
 // fs.readFileSync, require, import, etc. work transparently on packaged files.
 //
-// TODO: Remove the node_modules/@platformatic/vfs patches once
+// TODO: Remove the node_modules/@roberts_lando/vfs patches once
 // https://github.com/platformatic/vfs/pull/9 is merged and released.
 
 var path = require('path');
@@ -53,7 +53,7 @@ if (manifest.debug) {
 // Worker threads don't inherit VFS hooks from the main thread.
 // Monkey-patch the Worker constructor so that when a worker is spawned
 // with a /snapshot/... path, we inject a bundled VFS bootstrap that
-// reuses the same @platformatic/vfs module hooks as the main thread.
+// reuses the same @roberts_lando/vfs module hooks as the main thread.
 (function patchWorkerThreads() {
   var workerThreads;
   try {
@@ -68,7 +68,7 @@ if (manifest.debug) {
   var _fsForWorker = require('fs');
 
   // Worker bootstrap is bundled separately by esbuild from sea-worker-entry.js
-  // which requires the same sea-vfs-setup.js + @platformatic/vfs as the main
+  // which requires the same sea-vfs-setup.js + @roberts_lando/vfs as the main
   // thread — no hand-written VFS duplication.
   var workerBootstrap = require('./_worker-bootstrap-string');
 
