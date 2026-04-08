@@ -72,7 +72,9 @@ function patchDlopen(insideSnapshot) {
                 );
               }
             } else {
-              fs.copyFileSync(src, dest);
+              // Use readFileSync+writeFileSync instead of copyFileSync because
+              // copyFileSync may not be routed through the VFS in SEA mode.
+              fs.writeFileSync(dest, fs.readFileSync(src));
             }
           })(modulePkgFolder, destFolder);
         }
@@ -307,7 +309,12 @@ function installDiagnostic(snapshotPrefix) {
     var d = fs.readdirSync(filename);
     for (var j = 0; j < d.length; j += 1) {
       var f = path.join(filename, d[j]);
-      var realPath = fs.realpathSync(f);
+      var realPath;
+      try {
+        realPath = fs.realpathSync(f);
+      } catch (_) {
+        realPath = f;
+      }
       var isSymbolicLink = f !== realPath;
 
       var s = fs.statSync(f);
