@@ -1,33 +1,14 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with this repository.
-
-## Shared Instructions
-
-Project-level AI coding instructions are maintained in a single shared location:
-
-- **[`.github/copilot-instructions.md`](.github/copilot-instructions.md)** — the primary reference for project overview, architecture, development workflow, testing, coding standards, and contribution guidelines.
-
-Please read that file for full context before making changes.
-
 ## Quick Reference
 
 ```bash
-# Build (required before testing)
-npm run build
-
-# Lint and auto-fix
-npm run lint
-npm run fix
-
-# Run all tests
-npm test
-
-# Run tests for a specific Node.js version
-npm run test:20
-npm run test:22
-npm run test:24
-
-# Watch mode (rebuild on change)
-npm run start
+npm run build        # Build (required before testing)
+npm run lint         # Check lint + formatting
+npm run fix          # Auto-fix lint + formatting
+npm run start        # Watch mode (rebuild on change)
+npm run test:22      # Run tests for Node.js 22
 ```
+
+Detailed project rules are in `.claude/rules/` — they are loaded automatically.
+Shared instructions for GitHub Copilot are in `.github/copilot-instructions.md`.
