@@ -113,7 +113,7 @@ export function unlikelyJavascript(file: string): boolean {
   return false;
 }
 
-function replaceSlashes(file: string, slash: string) {
+export function replaceSlashes(file: string, slash: string) {
   if (/^.:\\/.test(file)) {
     if (slash === '/') {
       return file.slice(2).replace(/\\/g, '/');

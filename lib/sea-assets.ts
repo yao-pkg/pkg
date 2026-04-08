@@ -1,7 +1,13 @@
 import { mkdir, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 
-import { STORE_CONTENT, STORE_LINKS, STORE_STAT, snapshotify } from './common';
+import {
+  STORE_CONTENT,
+  STORE_LINKS,
+  STORE_STAT,
+  replaceSlashes,
+  snapshotify,
+} from './common';
 import { FileRecords, SymLinks } from './types';
 
 export interface SeaManifest {
@@ -21,15 +27,10 @@ export interface SeaAssetsResult {
 }
 
 // Normalize a refiner path to a platform-independent POSIX key.
-// On Windows the refiner keeps the drive letter (e.g. 'D:\foo\bar.js');
-// we strip it and convert separators so all manifest/asset keys are POSIX
-// (e.g. '/foo/bar.js') — the bootstrap normalises VFS-received paths to
-// the same format before lookup.
+// Reuses replaceSlashes from common.ts which strips the drive letter and
+// converts separators on Windows (e.g. 'D:\foo\bar.js' → '/foo/bar.js').
 function toPosixKey(p: string): string {
-  if (process.platform === 'win32') {
-    return p.slice(2).replace(/\\/g, '/');
-  }
-  return p;
+  return replaceSlashes(p, '/');
 }
 
 /**
