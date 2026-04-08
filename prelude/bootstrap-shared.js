@@ -290,6 +290,14 @@ function humanSize(bytes) {
  *   DEBUG_PKG=1  — dump the virtual file system tree and oversized files
  *   DEBUG_PKG=2  — also wrap every fs/fs.promises call with console.log
  *
+ * Note: DEBUG_PKG requires the binary to be built with --debug / -d.
+ *
+ * Additionally, for SEA binaries (any build, not just --debug):
+ *
+ *   DEBUG_PKG_PERF=1  — print VFS performance report at startup showing
+ *                        phase timings (manifest parse, module loading, etc.)
+ *                        and provider counters (files loaded, stat calls, etc.)
+ *
  * @param {string} snapshotPrefix  The snapshot mount prefix ('/snapshot' or 'C:\\snapshot').
  */
 function installDiagnostic(snapshotPrefix) {

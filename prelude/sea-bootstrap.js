@@ -17,6 +17,7 @@ var shared = require('./bootstrap-shared');
 // /////////////////////////////////////////////////////////////////
 
 var vfs = require('./sea-vfs-setup');
+var perf = vfs.perf;
 var manifest = vfs.manifest;
 var entrypoint = vfs.toPlatformPath(manifest.entrypoint);
 var insideSnapshot = vfs.insideSnapshot;
@@ -124,6 +125,15 @@ if (manifest.debug) {
 // ENTRYPOINT //////////////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
+// Sum VFS setup sub-phases into a single rollup.  This does NOT include the
+// shared patches (dlopen, child_process, etc.) or worker thread setup.
+if (perf.enabled) {
+  perf._durations['vfs setup total'] =
+    (perf._durations['manifest parse'] || 0n) +
+    (perf._durations['directory tree init'] || 0n) +
+    (perf._durations['vfs mount + hooks'] || 0n);
+}
+
 process.argv[1] = entrypoint;
 Module._cache = Object.create(null);
 try {
@@ -131,4 +141,17 @@ try {
 } catch (_) {
   // process.mainModule may become read-only in future Node.js versions
 }
+
+// Record the module loading phase — the time between runMain and the first
+// event loop tick is dominated by parsing/compiling JS and resolving imports.
+perf.start('module loading');
+if (perf.enabled) {
+  setTimeout(function () {
+    perf.end('module loading');
+    // file cache entries counter
+    perf.count('file cache entries', vfs.provider._fileCache.size);
+    perf.report();
+  }, 0);
+}
+
 Module.runMain();
