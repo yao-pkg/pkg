@@ -2187,8 +2187,22 @@ function payloadFileSync(pointer) {
   //   - Windows: C:\Users\John\.cache
   // Custom example: /opt/myapp/cache or C:\myapp\cache
   // Native addons will be extracted to: <PKG_NATIVE_CACHE_BASE>/pkg/<hash>
-  const PKG_NATIVE_CACHE_BASE =
+  //
+  // The cache path is resolved lazily on the first dlopen call and then frozen.
+  // This gives the application a window to set process.env.PKG_NATIVE_CACHE_PATH
+  // in its init code (before any native addon is loaded) without requiring it to
+  // be set before the process starts. Once resolved, the value cannot change.
+  const PKG_NATIVE_CACHE_DEFAULT =
     process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache');
+  let PKG_NATIVE_CACHE_BASE = null;
+
+  function getNativeCacheBase() {
+    if (PKG_NATIVE_CACHE_BASE === null) {
+      PKG_NATIVE_CACHE_BASE =
+        process.env.PKG_NATIVE_CACHE_PATH || PKG_NATIVE_CACHE_DEFAULT;
+    }
+    return PKG_NATIVE_CACHE_BASE;
+  }
 
   function revertMakingLong(f) {
     if (/^\\\\\?\\/.test(f)) return f.slice(4);
@@ -2209,7 +2223,7 @@ function payloadFileSync(pointer) {
       // the hash is needed to be sure we reload the module in case it changes
       const hash = createHash('sha256').update(moduleContent).digest('hex');
 
-      const tmpFolder = path.join(PKG_NATIVE_CACHE_BASE, 'pkg', hash);
+      const tmpFolder = path.join(getNativeCacheBase(), 'pkg', hash);
 
       fs.mkdirSync(tmpFolder, { recursive: true });
 
