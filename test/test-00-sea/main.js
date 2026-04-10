@@ -20,15 +20,7 @@ const before = utils.filesBefore(newcomers);
 
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
-// try to spawn one file based on the platform
-const platformSuffix = { linux: 'linux', darwin: 'macos', win32: 'win.exe' };
-const suffix = platformSuffix[process.platform];
-if (suffix) {
-  const actual = utils.spawn
-    .sync(`./test-sea-${suffix}`, [])
-    .replace(/\r\n/g, '\n'); // Normalize Windows CRLF
-  assert.equal(actual, 'Hello world\n', 'Output matches');
-}
+utils.assertSeaOutput('test-sea', 'Hello world\n');
 
 try {
   // FIXME: on windows this throws
