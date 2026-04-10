@@ -21,25 +21,13 @@ const before = utils.filesBefore(newcomers);
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
 // try to spawn one file based on the platform
-if (process.platform === 'linux') {
-  assert.equal(
-    utils.spawn.sync('./test-sea-linux', []),
-    'Hello world\n',
-    'Output matches',
-  );
-} else if (process.platform === 'darwin') {
-  assert.equal(
-    utils.spawn.sync('./test-sea-macos', []),
-    'Hello world\n',
-    'Output matches',
-  );
-} else if (process.platform === 'win32') {
-  // FIXME: output doesn't match on windows
-  // assert.equal(
-  //   utils.spawn.sync('./test-sea-win.exe', []),
-  //   'Hello world\n',
-  //   'Output matches',
-  // );
+const platformSuffix = { linux: 'linux', darwin: 'macos', win32: 'win.exe' };
+const suffix = platformSuffix[process.platform];
+if (suffix) {
+  const actual = utils.spawn
+    .sync(`./test-sea-${suffix}`, [])
+    .replace(/\r\n/g, '\n'); // Normalize Windows CRLF
+  assert.equal(actual, 'Hello world\n', 'Output matches');
 }
 
 try {

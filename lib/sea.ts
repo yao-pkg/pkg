@@ -431,7 +431,16 @@ async function generateSeaBlob(seaConfigFilePath: string, nodeMajor: number) {
       log.info('Generating the blob using --build-sea...');
       await execFileAsync(process.execPath, ['--build-sea', seaConfigFilePath]);
       return;
-    } catch {
+    } catch (err: unknown) {
+      // Only fall back if --build-sea is an unrecognized flag (exit code 9, "bad option").
+      // Rethrow real failures (invalid config, permission errors, etc.)
+      const isUnsupported =
+        err instanceof Error &&
+        (err.message.includes('bad option') ||
+          (err as NodeJS.ErrnoException & { status?: number }).status === 9);
+      if (!isUnsupported) {
+        throw err;
+      }
       log.info(
         '--build-sea not available, falling back to --experimental-sea-config...',
       );

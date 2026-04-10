@@ -294,9 +294,8 @@ module.exports.assertSeaOutput = function (testName, expected) {
     );
     return;
   }
-  assert.equal(
-    module.exports.spawn.sync(`./${testName}-${suffix}`, []),
-    expected,
-    'Output matches',
-  );
+  const actual = module.exports.spawn
+    .sync(`./${testName}-${suffix}`, [])
+    .replace(/\r\n/g, '\n'); // Normalize Windows CRLF
+  assert.equal(actual, expected, 'Output matches');
 };
