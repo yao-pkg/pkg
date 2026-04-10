@@ -2237,7 +2237,17 @@ function payloadFileSync(pointer) {
       } else {
         const tmpModulePath = path.join(tmpFolder, moduleBaseName);
 
-        if (!fs.existsSync(tmpModulePath)) {
+        if (fs.existsSync(tmpModulePath)) {
+          // Verify cached file integrity against snapshot content.
+          // The folder name encodes the expected hash, but the file inside could
+          // have been replaced (e.g. by a local user to inject malicious code).
+          const cachedContent = fs.readFileSync(tmpModulePath);
+          const cachedHash = createHash('sha256').update(cachedContent).digest('hex');
+          if (cachedHash !== hash) {
+            // Cached file was tampered with or corrupted — re-extract from snapshot
+            fs.copyFileSync(modulePath, tmpModulePath);
+          }
+        } else {
           fs.copyFileSync(modulePath, tmpModulePath);
         }
 
