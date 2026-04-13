@@ -373,7 +373,7 @@ This approach keeps the worker VFS setup as a shared module (`sea-vfs-setup.js`)
 
 **`setupProcessPkg(entrypoint)`** — Creates the `process.pkg` compatibility object with `entrypoint`, `defaultEntrypoint`, and `path.resolve()`.
 
-**`installDiagnostic(snapshotPrefix)`** — Installs runtime diagnostics triggered by the `DEBUG_PKG` environment variable. Available in both traditional and SEA modes, but **only when the binary was built with `--debug` / `-d`** (the diagnostic code is not included in release builds for security — it would expose the VFS tree contents).
+**`installDiagnostic(snapshotPrefix)`** — Installs runtime diagnostics triggered by the `DEBUG_PKG` environment variable. Available in both traditional and SEA modes. The implementation lives in `prelude/bootstrap-shared.js` and is always present in the runtime bootstrap, but it is **only invoked when the binary was built with `--debug` / `-d`** — release builds omit the entrypoint call, so the diagnostic handler never runs and cannot expose the VFS tree contents.
 
 | Env Var       | Behavior                                                                                                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -395,7 +395,7 @@ SIZE_LIMIT_PKG=1048576 DEBUG_PKG=1 ./my-packaged-app  # flag files > 1MB
 
 **How it works per mode:**
 
-- **Traditional mode**: The packer injects `diagnostic.js` into the prelude only when `log.debugMode` is true. This code runs at startup and checks `DEBUG_PKG`.
+- **Traditional mode**: `prelude/bootstrap-shared.js` (which defines `installDiagnostic`) is always bundled into the prelude via `REQUIRE_SHARED`. When `log.debugMode` is true, the packer additionally injects a small inline startup snippet that calls `REQUIRE_SHARED.installDiagnostic(snapshotPrefix)`. Without `--debug` that call is omitted and the diagnostic handler is never installed, so `DEBUG_PKG` has no effect.
 - **SEA mode**: The `--debug` flag sets `manifest.debug: true` in the SEA manifest at build time. The bootstrap checks this field and only calls `installDiagnostic` when it is set. Without `--debug`, the diagnostic code is present in the bundle but never executed.
 
 ---

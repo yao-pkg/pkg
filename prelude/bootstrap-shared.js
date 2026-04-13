@@ -17,6 +17,41 @@ var { homedir } = require('os');
 // NATIVE ADDON EXTRACTION /////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
+// Recursively copy src -> dest. For existing destination files, compare
+// SHA-256 hashes and skip identical ones to avoid redundant writes.
+//
+// IMPORTANT: Always run the copy — do NOT guard with existsSync on the folder.
+// OS temp cleanup or antivirus can delete files inside the cache directory while
+// leaving the directory structure intact. An existsSync check on the directory
+// would pass, but the actual .node/.so files inside would be missing, causing
+// "module not found" crashes. This was deliberately established in vercel/pkg
+// PR #1492 after production incidents. Per-file SHA-256 checksums (PR #1611)
+// make this efficient — unchanged files are skipped.
+// See also: https://github.com/vercel/pkg/issues/1589
+function cpRecursive(src, dest) {
+  var st = fs.statSync(src);
+  if (st.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    var entries = fs.readdirSync(src);
+    for (var i = 0; i < entries.length; i++) {
+      cpRecursive(path.join(src, entries[i]), path.join(dest, entries[i]));
+    }
+  } else {
+    // Use readFileSync+writeFileSync instead of copyFileSync because
+    // copyFileSync may not be routed through the VFS in SEA mode.
+    if (fs.existsSync(dest)) {
+      var srcContent = fs.readFileSync(src, { encoding: 'binary' });
+      var destContent = fs.readFileSync(dest, { encoding: 'binary' });
+      var srcHash = createHash('sha256').update(srcContent).digest('hex');
+      var destHash = createHash('sha256').update(destContent).digest('hex');
+      if (srcHash === destHash) {
+        return;
+      }
+    }
+    fs.writeFileSync(dest, fs.readFileSync(src));
+  }
+}
+
 /**
  * Patch process.dlopen to extract native addons from the snapshot to a
  * cache directory on the real filesystem before loading them.
@@ -57,44 +92,7 @@ function patchDlopen(insideSnapshot) {
         var modulePkgFolder = parts.slice(0, mIndex + 1).join(path.sep);
         var destFolder = path.join(tmpFolder, path.basename(modulePkgFolder));
 
-        // IMPORTANT: Always run the copy — do NOT guard with existsSync on the folder.
-        // OS temp cleanup or antivirus can delete files inside the cache directory while
-        // leaving the directory structure intact. An existsSync check on the directory
-        // would pass, but the actual .node/.so files inside would be missing, causing
-        // "module not found" crashes. This was deliberately established in vercel/pkg
-        // PR #1492 after production incidents. Per-file SHA-256 checksums (PR #1611)
-        // make this efficient — unchanged files are skipped.
-        // See also: https://github.com/vercel/pkg/issues/1589
-        (function cpRecursive(src, dest) {
-          var st = fs.statSync(src);
-          if (st.isDirectory()) {
-            fs.mkdirSync(dest, { recursive: true });
-            var entries = fs.readdirSync(src);
-            for (var i = 0; i < entries.length; i++) {
-              cpRecursive(
-                path.join(src, entries[i]),
-                path.join(dest, entries[i]),
-              );
-            }
-          } else {
-            // Use readFileSync+writeFileSync instead of copyFileSync because
-            // copyFileSync may not be routed through the VFS in SEA mode.
-            if (fs.existsSync(dest)) {
-              var srcContent = fs.readFileSync(src, { encoding: 'binary' });
-              var destContent = fs.readFileSync(dest, { encoding: 'binary' });
-              var srcHash = createHash('sha256')
-                .update(srcContent)
-                .digest('hex');
-              var destHash = createHash('sha256')
-                .update(destContent)
-                .digest('hex');
-              if (srcHash === destHash) {
-                return;
-              }
-            }
-            fs.writeFileSync(dest, fs.readFileSync(src));
-          }
-        })(modulePkgFolder, destFolder);
+        cpRecursive(modulePkgFolder, destFolder);
 
         newPath = path.join(tmpFolder, modulePackagePath, moduleBaseName);
       } else {
@@ -102,16 +100,16 @@ function patchDlopen(insideSnapshot) {
 
         // Same rationale as above — always verify the file is present and up-to-date,
         // never skip based on directory existence alone (see vercel/pkg PR #1492).
+        // Use writeFileSync with the already-read moduleContent instead of copyFileSync,
+        // because copyFileSync may not be routed through the VFS in SEA mode.
         if (fs.existsSync(tmpModulePath)) {
-          var sContent = fs.readFileSync(modulePath, { encoding: 'binary' });
-          var dContent = fs.readFileSync(tmpModulePath, { encoding: 'binary' });
-          var sHash = createHash('sha256').update(sContent).digest('hex');
+          var dContent = fs.readFileSync(tmpModulePath);
           var dHash = createHash('sha256').update(dContent).digest('hex');
-          if (sHash !== dHash) {
-            fs.copyFileSync(modulePath, tmpModulePath);
+          if (hash !== dHash) {
+            fs.writeFileSync(tmpModulePath, moduleContent);
           }
         } else {
-          fs.copyFileSync(modulePath, tmpModulePath);
+          fs.writeFileSync(tmpModulePath, moduleContent);
         }
 
         newPath = tmpModulePath;
