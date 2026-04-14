@@ -1,0 +1,68 @@
+/**
+ * pkg brand palette — sampled from logo
+ * box amber, heart pink, cream cardboard
+ */
+:root {
+  --vp-c-brand-1: #c87f0a;
+  --vp-c-brand-2: #e89b2c;
+  --vp-c-brand-3: #e89b2c;
+  --vp-c-brand-soft: rgba(232, 155, 44, 0.14);
+
+  --vp-c-brand-light: #f5c26b;
+  --vp-c-brand-lighter: #fbe4b3;
+  --vp-c-brand-dark: #b8750f;
+  --vp-c-brand-darker: #8a5508;
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: #e89b2c;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: #d68715;
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: #b8750f;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(
+    120deg,
+    #e89b2c 30%,
+    #ec7a96
+  );
+
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    #f5c26b 50%,
+    #ec7a96 50%
+  );
+  --vp-home-hero-image-filter: blur(44px);
+}
+
+.dark {
+  --vp-c-brand-1: #f5c26b;
+  --vp-c-brand-2: #e89b2c;
+  --vp-c-brand-3: #e89b2c;
+  --vp-c-brand-soft: rgba(245, 194, 107, 0.16);
+}
+
+@media (min-width: 640px) {
+  :root {
+    --vp-home-hero-image-filter: blur(56px);
+  }
+}
+
+@media (min-width: 960px) {
+  :root {
+    --vp-home-hero-image-filter: blur(68px);
+  }
+}
+
+/* rounded hero logo */
+.VPHero .image-container img {
+  border-radius: 24px;
+}
