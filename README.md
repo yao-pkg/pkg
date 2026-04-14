@@ -326,9 +326,8 @@ Enhanced SEA mode:
 - Bundles all files into a single archive blob with offset-based zero-copy access at runtime
 - Supports worker threads (VFS hooks are automatically injected into `/snapshot/...` workers)
 - Native addon extraction works the same as traditional mode
-- ESM entry points (`"type": "module"`) work on any supported Node target:
-  - Node >= 25.7: native `sea-config mainFormat: "module"`, full top-level await support
-  - Node 22–25.6: automatic dynamic `import()` fallback. Top-level await in the main module still works; `pkg` emits a build-time warning when this path is chosen because sync `require()` of ESM deps with top-level await will still fail — rebuild with a Node 25.7+ target to eliminate the limitation
+- ESM entry points (`"type": "module"`) work on every supported target (Node >= 22), **including entrypoints that use top-level await**. ESM entries are dispatched via `vm.Script` + `USE_MAIN_CONTEXT_DEFAULT_LOADER`, which routes dynamic `import()` through the default ESM loader — no Node-version split, no build-time warning. CJS entries go through `Module.runMain()`
+- `seaConfig.useSnapshot` is not supported in enhanced SEA mode (incompatible with the VFS bootstrap); set it to `false` or omit it. `useCodeCache` is forwarded as-is
 - Runtime diagnostics via `DEBUG_PKG` / `SIZE_LIMIT_PKG` / `FOLDER_LIMIT_PKG` work the same as in traditional mode, but only when the binary was built with `--debug` (release builds cannot be coerced into dumping the VFS tree)
 - Migration path to `node:vfs` when it lands in Node.js core
 
