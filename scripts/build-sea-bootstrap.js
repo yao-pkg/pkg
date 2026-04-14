@@ -29,9 +29,12 @@ fs.writeFileSync(
   `module.exports = ${JSON.stringify(workerCode)};\n`,
 );
 
-// Step 2: Bundle the CJS main bootstrap.
-// Native ESM SEA main (mainFormat:"module", Node 25.7+) is disabled pending
-// resolution of nodejs/node#62726 — see lib/sea.ts for details.
+// Step 2: Bundle both main bootstraps (CJS + ESM variants).
+// - sea-bootstrap.bundle.js: CJS wrapper (default, and fallback for targets
+//   that cannot use mainFormat:"module")
+// - sea-bootstrap-esm.bundle.mjs: ESM wrapper (used when target Node >= 25.7
+//   AND the embedder dynamic-import callback resolves non-builtin modules
+//   — see nodejs/node#62726 for the current upstream gate)
 try {
   esbuild.buildSync({
     entryPoints: [path.join(preludeDir, 'sea-bootstrap.js')],
@@ -41,6 +44,23 @@ try {
     format: 'cjs',
     outfile: path.join(preludeDir, 'sea-bootstrap.bundle.js'),
     external: ['node:sea', 'node:vfs'],
+  });
+
+  esbuild.buildSync({
+    entryPoints: [path.join(preludeDir, 'sea-bootstrap-esm.js')],
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'esm',
+    outfile: path.join(preludeDir, 'sea-bootstrap-esm.bundle.mjs'),
+    external: ['node:sea', 'node:vfs'],
+    // Polyfill `require` inside the ESM bundle so that the bundled CJS
+    // core (sea-bootstrap-core.js) can load Node builtins via its
+    // existing `require('path')` calls. Without this, esbuild's
+    // __require fallback throws "Dynamic require of X is not supported".
+    banner: {
+      js: "import { createRequire as __pkgCreateRequire } from 'module';\nconst require = __pkgCreateRequire(import.meta.url);",
+    },
   });
 } finally {
   // Clean up temp file
