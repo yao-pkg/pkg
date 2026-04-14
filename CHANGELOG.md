@@ -1,5 +1,23 @@
 # Changelog
 
+## [6.15.0](https://github.com/yao-pkg/pkg/compare/v6.14.2...v6.15.0) (2026-04-14)
+
+### Features
+
+- enhanced SEA mode with walker integration and VFS ([#229](https://github.com/yao-pkg/pkg/issues/229)) ([daf76c5](https://github.com/yao-pkg/pkg/commit/daf76c568807bfb2eeea978a28158f31e7c62eb7)), closes [#204](https://github.com/yao-pkg/pkg/issues/204) [#204](https://github.com/yao-pkg/pkg/issues/204) [#1492](https://github.com/yao-pkg/pkg/issues/1492) [#1611](https://github.com/yao-pkg/pkg/issues/1611) [nodejs/node#62726](https://github.com/nodejs/node/issues/62726) [nodejs/node#62726](https://github.com/nodejs/node/issues/62726)
+
+### Bug Fixes
+
+- update default release type to empty in workflow inputs ([073bc88](https://github.com/yao-pkg/pkg/commit/073bc8800470ff8426b18a50747bf920466cf2e8))
+
+### Chores
+
+- update Node.js version in release workflow to 22.22.1 ([985fbc7](https://github.com/yao-pkg/pkg/commit/985fbc777a939f2ea7d5249e7a7d8a5fb7d92618))
+
+### Documentation
+
+- update README with new npm badges and correct target node versions ([95f4f63](https://github.com/yao-pkg/pkg/commit/95f4f634cd940b2918a8f3def970ff623dac3739))
+
 ## [6.14.2](https://github.com/yao-pkg/pkg/compare/v6.14.1...v6.14.2) (2026-04-01)
 
 ### Features
