@@ -324,9 +324,12 @@ Enhanced SEA mode:
 
 - Walks dependencies like traditional mode, but skips V8 bytecode compilation and ESM-to-CJS transforms — files stay as-is
 - Bundles all files into a single archive blob with offset-based zero-copy access at runtime
-- Supports worker threads (VFS hooks are automatically injected)
+- Supports worker threads (VFS hooks are automatically injected into `/snapshot/...` workers)
 - Native addon extraction works the same as traditional mode
-- ESM entry points supported on Node 25.7+ (`mainFormat: "module"`)
+- ESM entry points (`"type": "module"`) work on any supported Node target:
+  - Node >= 25.7: native `sea-config mainFormat: "module"`, full top-level await support
+  - Node 22–25.6: automatic dynamic `import()` fallback. Top-level await in the main module still works; `pkg` emits a build-time warning when this path is chosen because sync `require()` of ESM deps with top-level await will still fail — rebuild with a Node 25.7+ target to eliminate the limitation
+- Runtime diagnostics via `DEBUG_PKG` / `SIZE_LIMIT_PKG` / `FOLDER_LIMIT_PKG` work the same as in traditional mode, but only when the binary was built with `--debug` (release builds cannot be coerced into dumping the VFS tree)
 - Migration path to `node:vfs` when it lands in Node.js core
 
 **Trade-offs vs traditional mode**: Enhanced SEA builds faster and uses official Node.js APIs, but stores source code in plaintext (no bytecode protection) and does not support compression. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed comparison.
