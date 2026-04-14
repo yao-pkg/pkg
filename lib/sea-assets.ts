@@ -12,6 +12,11 @@ import {
 } from './common';
 import { FileRecords, SymLinks } from './types';
 
+// Normalize a refiner path to a platform-independent POSIX key.
+// Strips drive letter and converts separators on Windows
+// (e.g. 'D:\\foo\\bar.js' → '/foo/bar.js').
+const toPosixKey = (p: string): string => replaceSlashes(p, '/');
+
 export interface SeaManifest {
   entrypoint: string;
   entryIsESM: boolean;
@@ -29,13 +34,6 @@ export interface SeaAssetsResult {
   assets: Record<string, string>;
   manifestPath: string;
   entryIsESM: boolean;
-}
-
-// Normalize a refiner path to a platform-independent POSIX key.
-// Reuses replaceSlashes from common.ts which strips the drive letter and
-// converts separators on Windows (e.g. 'D:\foo\bar.js' → '/foo/bar.js').
-function toPosixKey(p: string): string {
-  return replaceSlashes(p, '/');
 }
 
 /**
@@ -92,16 +90,37 @@ export async function generateSeaAssets(
     const record = records[snap];
     const key = toPosixKey(snap);
 
-    // Collect file content entry for the archive
+    // Collect file content entry for the archive.
+    //
+    // Prefer the in-memory body when present, fall back to disk streaming
+    // only when body was never loaded. This is safe because of an
+    // invariant maintained by walker.ts in SEA mode:
+    //
+    //   if (record.body != null) then it equals the bytes we want to
+    //   ship — either the original disk content (when stepRead loaded
+    //   it and nothing modified it) or an intentional rewrite (patches,
+    //   stripped shebang/BOM, package.json synthetic main, etc.).
+    //
+    // The ESM→CJS transform and `type: module → commonjs` rewrite are
+    // the only mutations that could diverge body from disk, and both
+    // are gated on `!seaMode` in walker.ts — so they never run here.
+    //
+    // Trusting the in-memory body has two upsides over re-streaming:
+    //   1. Avoids a redundant second read of every JS file (walker
+    //      already paid the I/O for strip/detect).
+    //   2. Race-safe: if a source file is modified mid-build, the
+    //      bytes we ship match the bytes walker scanned for require()
+    //      calls — detected deps cannot mismatch shipped content.
     if (record[STORE_CONTENT]) {
-      if (record.bodyModified) {
+      if (record.body != null) {
         const content =
           typeof record.body === 'string'
             ? Buffer.from(record.body)
-            : record.body!;
+            : record.body;
         entries.push({ key, source: content });
       } else {
-        // Unmodified file — will be streamed from disk
+        // body never loaded — stream straight from disk without
+        // pulling it through memory.
         entries.push({ key, source: record.file });
       }
     }

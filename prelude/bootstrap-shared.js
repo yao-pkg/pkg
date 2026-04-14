@@ -55,10 +55,11 @@ function cpRecursive(src, dest) {
     return;
   }
 
-  // Regular file: read once as a Buffer, hash the Buffer directly, and reuse
-  // the same Buffer for writeFileSync. Using readFileSync+writeFileSync
-  // instead of copyFileSync because copyFileSync may not be routed through
-  // the VFS in SEA mode.
+  // Regular file: read via fs.readFileSync (VFS-routed when src is inside
+  // the snapshot), hash the Buffer, then write the same Buffer to the real
+  // disk via writeFileSync. We avoid copyFileSync because VFS module hooks
+  // intercept readFile but may not intercept copyFile — a copyFileSync from
+  // a snapshot path would fail to resolve the source in SEA mode.
   var srcContent = fs.readFileSync(src);
   if (fs.existsSync(dest)) {
     var destContent = fs.readFileSync(dest);
@@ -119,8 +120,10 @@ function patchDlopen(insideSnapshot) {
 
         // Same rationale as above — always verify the file is present and up-to-date,
         // never skip based on directory existence alone (see vercel/pkg PR #1492).
-        // Use writeFileSync with the already-read moduleContent instead of copyFileSync,
-        // because copyFileSync may not be routed through the VFS in SEA mode.
+        // Use writeFileSync with the already-read moduleContent instead of
+        // copyFileSync because VFS module hooks intercept readFile but may not
+        // intercept copyFile — copying a snapshot path via copyFileSync would
+        // fail to find the source in SEA mode.
         if (fs.existsSync(tmpModulePath)) {
           var dContent = fs.readFileSync(tmpModulePath);
           var dHash = createHash('sha256').update(dContent).digest('hex');

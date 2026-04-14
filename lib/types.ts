@@ -4,7 +4,6 @@ export interface FileRecord {
   file: string;
   body?: Buffer | string;
   wasTransformed?: boolean; // Track if .mjs was transformed to CJS
-  bodyModified?: boolean; // Track if body was intentionally modified (patches, package.json rewrites)
   // This could be improved a bit. making this stricter opens up a lot of
   // changes that need to be made throughout the code though
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

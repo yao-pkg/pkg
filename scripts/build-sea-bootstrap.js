@@ -29,11 +29,9 @@ fs.writeFileSync(
   `module.exports = ${JSON.stringify(workerCode)};\n`,
 );
 
-// Step 2: Bundle both main bootstraps (CJS + ESM variants).
-// - sea-bootstrap.bundle.js: CJS wrapper (default, and fallback for ESM
-//   entrypoints on Node < 25.7 via dynamic import + warning)
-// - sea-bootstrap-esm.bundle.mjs: ESM wrapper (used when target Node >= 25.7
-//   and entrypoint is ESM — native top-level await support)
+// Step 2: Bundle the CJS main bootstrap.
+// Native ESM SEA main (mainFormat:"module", Node 25.7+) is disabled pending
+// resolution of nodejs/node#62726 — see lib/sea.ts for details.
 try {
   esbuild.buildSync({
     entryPoints: [path.join(preludeDir, 'sea-bootstrap.js')],
@@ -42,16 +40,6 @@ try {
     target: 'node22',
     format: 'cjs',
     outfile: path.join(preludeDir, 'sea-bootstrap.bundle.js'),
-    external: ['node:sea', 'node:vfs'],
-  });
-
-  esbuild.buildSync({
-    entryPoints: [path.join(preludeDir, 'sea-bootstrap-esm.js')],
-    bundle: true,
-    platform: 'node',
-    target: 'node22',
-    format: 'esm',
-    outfile: path.join(preludeDir, 'sea-bootstrap-esm.bundle.mjs'),
     external: ['node:sea', 'node:vfs'],
   });
 } finally {

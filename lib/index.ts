@@ -545,33 +545,42 @@ export async function exec(argv2: string[]) {
     }
   }
 
-  if (argv.sea) {
-    const minTargetMajor = Math.min(
-      ...targets.map((t) => {
-        const v = parseInt(t.nodeRange.replace('node', ''), 10);
-        // Treat unparseable ranges (e.g. "latest") as current host major
-        return Number.isNaN(v) ? parseInt(process.version.slice(1), 10) : v;
-      }),
-    );
+  // marker + options (shared between SEA and traditional pipelines)
+  pkgOptions.set(configJson?.pkg ?? inputJson?.pkg);
+  const marker = buildMarker(configJson, config, inputJson, input);
 
-    if ((inputJson || configJson) && minTargetMajor < 22) {
-      throw wasReported(
-        'Enhanced SEA mode requires Node >= 22 targets. ' +
-          `Minimum target version resolved to Node ${minTargetMajor}.`,
-      );
+  // public / no-dict flags (shared between SEA and traditional pipelines)
+  const params: WalkerParams = {};
+
+  if (argv.public) {
+    params.publicToplevel = true;
+  }
+
+  if (argv['public-packages']) {
+    params.publicPackages = argv['public-packages'].split(',');
+
+    if (params.publicPackages?.indexOf('*') !== -1) {
+      params.publicPackages = ['*'];
     }
+  }
 
+  if (argv['no-dict']) {
+    params.noDictionary = argv['no-dict'].split(',');
+
+    if (params.noDictionary?.indexOf('*') !== -1) {
+      params.noDictionary = ['*'];
+    }
+  }
+
+  if (argv.sea) {
     if (inputJson || configJson) {
-      // Enhanced SEA mode — use walker pipeline
-      const marker = buildMarker(configJson, config, inputJson, input);
-
-      pkgOptions.set(configJson?.pkg ?? inputJson?.pkg);
-
+      // Enhanced SEA mode — use walker pipeline.
+      // seaEnhanced validates the host Node version and minTargetMajor itself.
       await seaEnhanced(inputFin, {
         targets,
         signature: argv.signature,
         marker,
-        params: { seaMode: true },
+        params: { ...params, seaMode: true },
         addition: isConfiguration(input) ? input : undefined,
       });
     } else {
@@ -637,37 +646,6 @@ export async function exec(argv2: string[]) {
       if (f.platform !== 'win') {
         await plusx(f.binaryPath);
       }
-    }
-  }
-
-  // marker
-
-  let marker: Marker;
-
-  pkgOptions.set(configJson?.pkg ?? inputJson?.pkg);
-  marker = buildMarker(configJson, config, inputJson, input);
-
-  // public
-
-  const params: WalkerParams = {};
-
-  if (argv.public) {
-    params.publicToplevel = true;
-  }
-
-  if (argv['public-packages']) {
-    params.publicPackages = argv['public-packages'].split(',');
-
-    if (params.publicPackages?.indexOf('*') !== -1) {
-      params.publicPackages = ['*'];
-    }
-  }
-
-  if (argv['no-dict']) {
-    params.noDictionary = argv['no-dict'].split(',');
-
-    if (params.noDictionary?.indexOf('*') !== -1) {
-      params.noDictionary = ['*'];
     }
   }
 

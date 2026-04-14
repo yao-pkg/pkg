@@ -226,8 +226,16 @@ async function stepRead(record: FileRecord) {
   record.body = body;
 }
 
+// Strip BOM and shebang from the file body.
+//
+// IMPORTANT: leave `record.body` untouched on no-op. Reassigning it (e.g.
+// `record.body = body.toString('utf8')`) would convert Buffer → string even
+// when nothing was stripped, defeating the in-memory body reuse optimization
+// in `sea-assets.ts`: the SEA archive writer trusts that an unmodified body
+// equals the disk content byte-for-byte, so we must not silently retype it.
 function stepStrip(record: FileRecord) {
-  let body = (record.body || '').toString('utf8');
+  const original = (record.body || '').toString('utf8');
+  let body = original;
 
   if (/^\ufeff/.test(body)) {
     body = body.replace(/^\ufeff/, '');
@@ -237,7 +245,9 @@ function stepStrip(record: FileRecord) {
     body = body.replace(/^#![^\n]*\n/, '\n');
   }
 
-  record.body = body;
+  if (body !== original) {
+    record.body = body;
+  }
 }
 
 function stepDetect(
@@ -727,6 +737,12 @@ class Walker {
     return true;
   }
 
+  needsSeaRead(record: FileRecord): boolean {
+    return (
+      !!this.params.seaMode && (isDotJS(record.file) || isESMFile(record.file))
+    );
+  }
+
   stepPatch(record: FileRecord) {
     const patch = this.patches[record.file];
 
@@ -755,7 +771,6 @@ class Walker {
     }
 
     record.body = body;
-    record.bodyModified = true;
   }
 
   async stepDerivatives_ALIAS_AS_RELATIVE(
@@ -988,10 +1003,11 @@ class Walker {
       }
     }
 
+    const needsSeaRead = this.needsSeaRead(record);
+
     if (
       store === STORE_BLOB ||
-      (this.params.seaMode &&
-        (isDotJS(record.file) || isESMFile(record.file))) ||
+      needsSeaRead ||
       (store === STORE_CONTENT && isPackageJson(record.file)) ||
       this.hasPatch(record)
     ) {
@@ -999,16 +1015,8 @@ class Walker {
         await stepRead(record);
         this.stepPatch(record);
 
-        if (
-          store === STORE_BLOB ||
-          (this.params.seaMode &&
-            (isDotJS(record.file) || isESMFile(record.file)))
-        ) {
-          const bodyBefore = record.body;
+        if (store === STORE_BLOB || needsSeaRead) {
           stepStrip(record);
-          if (record.body !== bodyBefore) {
-            record.bodyModified = true;
-          }
         }
       }
 
@@ -1085,7 +1093,6 @@ class Walker {
               JSON.stringify(pkgContent, null, 2),
               'utf8',
             );
-            record.bodyModified = true;
           }
         } catch (_error) {
           // Ignore JSON parsing errors
@@ -1123,11 +1130,7 @@ class Walker {
         }
       }
 
-      if (
-        store === STORE_BLOB ||
-        (this.params.seaMode &&
-          (isDotJS(record.file) || isESMFile(record.file)))
-      ) {
+      if (store === STORE_BLOB || needsSeaRead) {
         const derivatives2: Derivative[] = [];
         stepDetect(record, marker, derivatives2);
         await this.stepDerivatives(record, marker, derivatives2);

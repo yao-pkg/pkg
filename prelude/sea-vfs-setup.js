@@ -89,6 +89,25 @@ var perf = {
     return (Number(ns) / 1e6).toFixed(1) + 'ms';
   },
 
+  /**
+   * Finalize perf tracking: end the `module loading` phase, aggregate
+   * the `vfs setup total`, capture the file-cache-entries counter from
+   * the provider, and print the report.  Called by each bootstrap
+   * dispatcher at the appropriate point so the module-loading phase
+   * timing reflects actual entrypoint completion.
+   */
+  finalize: function () {
+    if (!this.enabled) return;
+    this.end('module loading');
+    this._durations['vfs setup total'] =
+      (this._durations['manifest parse'] || 0n) +
+      (this._durations['archive load'] || 0n) +
+      (this._durations['directory tree init'] || 0n) +
+      (this._durations['vfs mount + hooks'] || 0n);
+    this._counters['file cache entries'] = provider.fileCacheSize;
+    this.report();
+  },
+
   /** Print the final performance report. */
   report: function () {
     if (!this.enabled) return;
@@ -277,13 +296,25 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p) {
+  _resolveSymlink(p, syscall) {
+    var original = p;
     for (var i = 0; i < 40; i++) {
       var target = this._manifest.symlinks[p];
       if (!target) return p;
       p = target;
     }
-    return p;
+    var err = new Error(
+      "ELOOP: too many symbolic links encountered, '" + original + "'",
+    );
+    err.code = 'ELOOP';
+    err.errno = -40;
+    err.syscall = syscall || 'stat';
+    err.path = original;
+    throw err;
+  }
+
+  get fileCacheSize() {
+    return this._fileCache.size;
   }
 
   readFileSync(filePath, options) {
@@ -403,22 +434,26 @@ function toPlatformPath(p) {
   return p.replace(/\//g, '\\');
 }
 
+// POSIX prefix matched on all platforms.  Windows VFS module hooks use the
+// V: sentinel drive while dlopen/child_process surface paths under C:, so
+// both drive forms (with either separator) are accepted on win32.
+var SNAPSHOT_PREFIXES_POSIX = [{ prefix: '/snapshot', sep: '/' }];
+var SNAPSHOT_PREFIXES_WIN = [
+  { prefix: 'V:\\snapshot', sep: '\\' },
+  { prefix: 'V:/snapshot', sep: '/' },
+  { prefix: 'C:\\snapshot', sep: '\\' },
+  { prefix: 'C:/snapshot', sep: '/' },
+];
+
 function insideSnapshot(f) {
   if (typeof f !== 'string') return false;
-  if (f.startsWith('/snapshot/') || f === '/snapshot') return true;
-  if (process.platform === 'win32') {
-    // Module hooks use the V: sentinel drive; dlopen/child_process use C:
-    if (
-      f.startsWith('V:\\snapshot\\') ||
-      f.startsWith('V:/snapshot/') ||
-      f === 'V:\\snapshot' ||
-      f === 'V:/snapshot' ||
-      f.startsWith('C:\\snapshot\\') ||
-      f.startsWith('C:/snapshot/') ||
-      f === 'C:\\snapshot' ||
-      f === 'C:/snapshot'
-    )
-      return true;
+  var prefixes =
+    process.platform === 'win32'
+      ? SNAPSHOT_PREFIXES_POSIX.concat(SNAPSHOT_PREFIXES_WIN)
+      : SNAPSHOT_PREFIXES_POSIX;
+  for (var i = 0; i < prefixes.length; i++) {
+    var p = prefixes[i].prefix;
+    if (f === p || f.startsWith(p + prefixes[i].sep)) return true;
   }
   return false;
 }

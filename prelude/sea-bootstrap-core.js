@@ -101,14 +101,6 @@ if (manifest.debug) {
 // ENTRYPOINT PREP /////////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-if (perf.enabled) {
-  perf._durations['vfs setup total'] =
-    (perf._durations['manifest parse'] || 0n) +
-    (perf._durations['archive load'] || 0n) +
-    (perf._durations['directory tree init'] || 0n) +
-    (perf._durations['vfs mount + hooks'] || 0n);
-}
-
 process.argv[1] = entrypoint;
 Module._cache = Object.create(null);
 try {
@@ -117,15 +109,10 @@ try {
   // process.mainModule may become read-only in future Node.js versions
 }
 
-// Start the module loading perf phase. Caller ends it after runMain/import.
+// Start the module loading perf phase. Each dispatcher is responsible for
+// calling perf.finalize() after the user entrypoint resolves so async /
+// top-level-await apps get accurate module loading timings.
 perf.start('module loading');
-if (perf.enabled) {
-  setTimeout(function () {
-    perf.end('module loading');
-    perf.count('file cache entries', vfs.provider._fileCache.size);
-    perf.report();
-  }, 0);
-}
 
 module.exports = {
   manifest: manifest,
