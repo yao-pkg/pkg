@@ -1,5 +1,5 @@
 import { createReadStream } from 'fs';
-import { open, writeFile } from 'fs/promises';
+import { FileHandle, open, writeFile } from 'fs/promises';
 import { join } from 'path';
 
 import {
@@ -15,7 +15,28 @@ import { FileRecords, SymLinks } from './types';
 // Normalize a refiner path to a platform-independent POSIX key.
 // Strips drive letter and converts separators on Windows
 // (e.g. 'D:\\foo\\bar.js' → '/foo/bar.js').
+//
+// Invariant: callers pass refiner-side snapshot paths (already platform-native
+// for the build host). replaceSlashes handles both '/' and '\\' inputs, so this
+// is safe whether the caller pre-normalized or not. The output is the canonical
+// key shape used everywhere in the manifest.
 const toPosixKey = (p: string): string => replaceSlashes(p, '/');
+
+// Write a buffer to fd, looping until the full payload is on disk.
+// FileHandle.write may return a short bytesWritten under filesystem pressure;
+// we MUST honor it because the manifest offsets are byte-exact and any drift
+// would corrupt every file after the short write.
+async function writeAll(fd: FileHandle, buf: Buffer): Promise<number> {
+  let written = 0;
+  while (written < buf.length) {
+    const { bytesWritten } = await fd.write(buf, written, buf.length - written);
+    if (bytesWritten === 0) {
+      throw new Error('pkg: short write to SEA archive blob');
+    }
+    written += bytesWritten;
+  }
+  return written;
+}
 
 export interface SeaManifest {
   entrypoint: string;
@@ -154,16 +175,14 @@ export async function generateSeaAssets(
       let length: number;
       if (Buffer.isBuffer(source)) {
         // Modified file content already in memory
-        await fd.write(source);
-        length = source.length;
+        length = await writeAll(fd, source);
       } else {
-        // Unmodified file — stream from disk, track actual bytes written
-        // (avoids stat→read race if the file changes between calls)
+        // Unmodified file — stream from disk, accumulate actual bytes
+        // written (avoids stat→read race if the file changes between calls)
         length = 0;
         const stream = createReadStream(source);
         for await (const chunk of stream) {
-          await fd.write(chunk as Buffer);
-          length += (chunk as Buffer).length;
+          length += await writeAll(fd, chunk as Buffer);
         }
       }
       manifest.offsets[key] = [offset, length];
