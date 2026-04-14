@@ -29,16 +29,29 @@ fs.writeFileSync(
   `module.exports = ${JSON.stringify(workerCode)};\n`,
 );
 
-// Step 2: Bundle the main bootstrap (sea-bootstrap.js).
-// This also bundles sea-vfs-setup.js + @roberts_lando/vfs + the worker
-// string module into the final sea-bootstrap.bundle.js.
+// Step 2: Bundle both main bootstraps (CJS + ESM variants).
+// - sea-bootstrap.bundle.js: CJS wrapper (default, and fallback for ESM
+//   entrypoints on Node < 25.7 via dynamic import + warning)
+// - sea-bootstrap-esm.bundle.mjs: ESM wrapper (used when target Node >= 25.7
+//   and entrypoint is ESM — native top-level await support)
 try {
   esbuild.buildSync({
     entryPoints: [path.join(preludeDir, 'sea-bootstrap.js')],
     bundle: true,
     platform: 'node',
     target: 'node22',
+    format: 'cjs',
     outfile: path.join(preludeDir, 'sea-bootstrap.bundle.js'),
+    external: ['node:sea', 'node:vfs'],
+  });
+
+  esbuild.buildSync({
+    entryPoints: [path.join(preludeDir, 'sea-bootstrap-esm.js')],
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'esm',
+    outfile: path.join(preludeDir, 'sea-bootstrap-esm.bundle.mjs'),
     external: ['node:sea', 'node:vfs'],
   });
 } finally {

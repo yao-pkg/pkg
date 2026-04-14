@@ -6,6 +6,7 @@ import {
   STORE_CONTENT,
   STORE_LINKS,
   STORE_STAT,
+  isESMFile,
   replaceSlashes,
   snapshotify,
 } from './common';
@@ -13,6 +14,7 @@ import { FileRecords, SymLinks } from './types';
 
 export interface SeaManifest {
   entrypoint: string;
+  entryIsESM: boolean;
   directories: Record<string, string[]>;
   stats: Record<
     string,
@@ -26,6 +28,7 @@ export interface SeaManifest {
 export interface SeaAssetsResult {
   assets: Record<string, string>;
   manifestPath: string;
+  entryIsESM: boolean;
 }
 
 // Normalize a refiner path to a platform-independent POSIX key.
@@ -64,9 +67,16 @@ export async function generateSeaAssets(
     normalizedSymlinks[toPosixKey(src)] = toPosixKey(symLinks[src]);
   }
 
+  // Detect if entrypoint is ESM via its real disk path
+  const entryRecord = records[entrypoint];
+  const entryIsESM = entryRecord
+    ? isESMFile(entryRecord.file)
+    : isESMFile(entrypoint);
+
   const manifest: SeaManifest = {
     // Always use '/' — the bootstrap normalizes for the runtime platform
     entrypoint: snapshotify(entrypoint, '/'),
+    entryIsESM,
     directories: {},
     stats: {},
     symlinks: normalizedSymlinks,
@@ -154,5 +164,6 @@ export async function generateSeaAssets(
   return {
     assets: { __pkg_archive__: archivePath },
     manifestPath,
+    entryIsESM,
   };
 }

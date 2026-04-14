@@ -220,18 +220,30 @@ The resource is embedded using OS-native formats:
 
 ### SEA Runtime Bootstrap
 
-The SEA bootstrap is split into two files, bundled together by esbuild into `sea-bootstrap.bundle.js`:
+The SEA bootstrap is split into a shared core plus two thin wrappers, all bundled by esbuild. `scripts/build-sea-bootstrap.js` produces both a CJS bundle and an ESM bundle — `lib/sea.ts` picks the right one per build based on the entrypoint format and the target Node version:
 
-- **`prelude/sea-bootstrap.js`** (~158 lines) — Main entry: applies shared patches, sets up worker thread interception, runs the entrypoint
-- **`prelude/sea-vfs-setup.js`** (~434 lines) — VFS core: manifest parsing, `SEAProvider` class, archive loading, VFS mount, Windows path normalization. Shared by both main thread and worker threads
+- **`prelude/sea-bootstrap-core.js`** — Shared setup: VFS mount, shared patches, worker thread interception, diagnostics. Exports `{ manifest, entrypoint }`. No entry execution — the wrapper decides how to run the entrypoint
+- **`prelude/sea-bootstrap.js`** — CJS wrapper. Requires the core, then either `Module.runMain()` (CJS entry) or dynamic `import(pathToFileURL(entrypoint))` (ESM entry fallback). Bundled to `sea-bootstrap.bundle.js`
+- **`prelude/sea-bootstrap-esm.js`** — ESM wrapper. Static `import core from './sea-bootstrap-core.js'` (esbuild handles the CJS→ESM interop), then a top-level `await import(pathToFileURL(core.entrypoint))`. Bundled to `sea-bootstrap-esm.bundle.mjs`
+- **`prelude/sea-vfs-setup.js`** — VFS core module consumed by `sea-bootstrap-core.js`: manifest parsing, `SEAProvider` class, archive loading, VFS mount, Windows path normalization. Shared by main thread and worker threads
 
-Execution flow:
+**Bootstrap selection (`lib/sea.ts`):**
+
+| Entry format | Min target Node | Bootstrap                      | `sea-config.json`           |
+| ------------ | --------------- | ------------------------------ | --------------------------- |
+| CJS          | any (≥ 22)      | `sea-bootstrap.bundle.js`      | default                     |
+| ESM          | ≥ 25.7          | `sea-bootstrap-esm.bundle.mjs` | `"mainFormat": "module"`    |
+| ESM          | < 25.7          | `sea-bootstrap.bundle.js`      | default (import() fallback) |
+
+**Top-level await (TLA):** ESM entrypoints can use TLA out of the box only on the native-ESM path (Node ≥ 25.7 + `mainFormat: "module"`). On older Node, the CJS bootstrap works around the `ERR_REQUIRE_ASYNC_MODULE` constraint of `Module.runMain()` by loading the entry via dynamic `import()` — TLA in the main module itself still works, but the main runs one microtask tick later than usual and any synchronous `require()` of an ESM dep with TLA will still fail. `lib/sea.ts` emits a build-time warning (`log.warn`) when it picks the fallback, pointing users at a Node 25.7+ target to eliminate the limitations. No runtime warning is emitted — the warning is build-time only to avoid polluting packaged app stderr.
+
+Execution flow (main thread):
 
 1. **VFS setup** (via `require('./sea-vfs-setup')`) — Loads manifest from `sea.getAsset('__pkg_manifest__', 'utf8')`, creates `SEAProvider` (extends `MemoryProvider`), loads `__pkg_archive__` blob, mounts at `/snapshot`. On Windows, patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to convert backslashes to POSIX
 2. **Apply shared patches** — Calls `patchDlopen()`, `patchChildProcess()`, `setupProcessPkg()` from `bootstrap-shared.js`
 3. **Diagnostics** — If `manifest.debug` is set (built with `--debug`), calls `installDiagnostic()`
 4. **Patch Worker threads** — Wraps `workerThreads.Worker` so workers spawned with `/snapshot/...` paths get the same VFS setup (see [Worker Thread Support](#worker-thread-support))
-5. **Run entrypoint** — Sets `process.argv[1]`, calls `Module.runMain()`
+5. **Run entrypoint** — The wrapper sets `process.argv[1]`, then calls either `Module.runMain()` (CJS) or `import(pathToFileURL(entrypoint))` (ESM, either natively in the ESM wrapper or as a fallback in the CJS wrapper)
 
 The VFS polyfill (`@roberts_lando/vfs`) handles all `fs` and `fs/promises` patching automatically when `mount()` is called — intercepting 164+ functions including `readFile`, `readFileSync`, `stat`, `readdir`, `access`, `realpath`, `createReadStream`, `watch`, `open`, and their promise-based equivalents. It also hooks into the Node.js module resolution system for `require()` and `import`.
 
@@ -303,10 +315,11 @@ The worker entry is minimal — it simply `require('./sea-vfs-setup')`, which se
 
 **Build-time bundling:**
 
-The worker entry is bundled into a self-contained string at build time by `scripts/build-sea-bootstrap.js` (49 lines), using a 2-step esbuild process:
+`scripts/build-sea-bootstrap.js` runs a 3-step esbuild process that produces two final bundles: the CJS main bundle and the ESM main bundle. Both consume the shared `sea-bootstrap-core.js` via esbuild's module graph, so there is no duplication:
 
 ```javascript
-// Step 1: Bundle sea-worker-entry.js → string module
+// Step 1: Bundle sea-worker-entry.js → string module (embedded in the worker
+// spawner as { eval: true } source).
 const workerResult = esbuild.buildSync({
   entryPoints: ['prelude/sea-worker-entry.js'],
   bundle: true,
@@ -315,22 +328,39 @@ const workerResult = esbuild.buildSync({
   write: false,
   external: ['node:sea', 'node:vfs'],
 });
-// Write as: module.exports = "<bundled code>";
 fs.writeFileSync(
   'prelude/_worker-bootstrap-string.js',
   `module.exports = ${JSON.stringify(workerResult.outputFiles[0].text)};\n`,
 );
 
-// Step 2: Bundle sea-bootstrap.js (which require()s the string module)
+// Step 2: Bundle the CJS main wrapper (used for CJS entries and for ESM
+// entries on Node < 25.7 — where it falls back to dynamic import()).
 esbuild.buildSync({
   entryPoints: ['prelude/sea-bootstrap.js'],
   bundle: true,
+  platform: 'node',
+  target: 'node22',
+  format: 'cjs',
   outfile: 'prelude/sea-bootstrap.bundle.js',
+  external: ['node:sea', 'node:vfs'],
+});
+
+// Step 3: Bundle the ESM main wrapper (used for ESM entries on Node ≥ 25.7,
+// together with sea-config mainFormat:"module"). esbuild handles the
+// CJS→ESM interop for the `import core from './sea-bootstrap-core.js'`
+// static import inside the ESM wrapper.
+esbuild.buildSync({
+  entryPoints: ['prelude/sea-bootstrap-esm.js'],
+  bundle: true,
+  platform: 'node',
+  target: 'node22',
+  format: 'esm',
+  outfile: 'prelude/sea-bootstrap-esm.bundle.mjs',
   external: ['node:sea', 'node:vfs'],
 });
 ```
 
-This approach keeps the worker VFS setup as a shared module (`sea-vfs-setup.js`) used by both the main thread and worker threads, while shipping everything as a single bundle.
+This keeps the VFS setup, shared patches, worker interception, and diagnostics all in one place (`sea-bootstrap-core.js` + `sea-vfs-setup.js`), while shipping the right runtime format for the target Node version.
 
 ---
 
@@ -490,15 +520,17 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | -------------------------------- | ----- | ------------------------------------------------------------------------ |
 | `prelude/bootstrap.js`           | ~1970 | Traditional runtime bootstrap (fs/module/process patching)               |
 | `prelude/bootstrap-shared.js`    | ~438  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics) |
-| `prelude/sea-bootstrap.js`       | ~158  | SEA main entry (shared patches, worker thread interception, entrypoint)  |
+| `prelude/sea-bootstrap.js`       | ~23   | CJS wrapper: Module.runMain() or dynamic import() fallback for ESM       |
+| `prelude/sea-bootstrap-esm.js`   | ~18   | ESM wrapper: top-level await import(entrypoint) (Node ≥ 25.7 path)       |
+| `prelude/sea-bootstrap-core.js`  | ~134  | Shared setup: VFS, patches, worker interception, diagnostics             |
 | `prelude/sea-vfs-setup.js`       | ~434  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches   |
 | `prelude/sea-worker-entry.js`    | ~11   | Worker thread entry: requires sea-vfs-setup.js for VFS in workers        |
-| `scripts/build-sea-bootstrap.js` | ~49   | Build script: 2-step esbuild bundling of SEA bootstrap + worker string   |
+| `scripts/build-sea-bootstrap.js` | ~62   | Build script: 3-step esbuild bundling (worker string + CJS + ESM)        |
 | `lib/index.ts`                   | ~726  | CLI entry point, mode routing                                            |
 | `lib/walker.ts`                  | ~1311 | Dependency walker (with seaMode support)                                 |
 | `lib/packer.ts`                  | ~202  | Serializes walker output into stripes + prelude wrapper                  |
 | `lib/producer.ts`                | ~601  | Assembles final binary (payload injection, compression)                  |
-| `lib/sea.ts`                     | ~579  | SEA orchestrator (seaEnhanced + simple sea)                              |
+| `lib/sea.ts`                     | ~623  | SEA orchestrator (seaEnhanced + simple sea, dual-bootstrap selection)    |
 | `lib/sea-assets.ts`              | ~158  | Generates single archive blob + manifest with offsets                    |
 | `lib/fabricator.ts`              | ~173  | V8 bytecode compilation (traditional mode only)                          |
 | `lib/esm-transformer.ts`         | ~434  | ESM to CJS transformation (traditional mode only)                        |

@@ -494,10 +494,18 @@ export async function seaEnhanced(
     opts.targets.map((target) => getNodejsExecutable(target, opts)),
   );
 
+  // Smallest target Node major version across all targets — decides whether
+  // we can use sea-config mainFormat:"module" (requires Node >= 25.7).
+  const minTargetMajor = Math.min(
+    ...opts.targets.map(
+      (t) => parseInt(t.nodeRange.replace('node', ''), 10) || 0,
+    ),
+  );
+
   await withSeaTmpDir(async (tmpDir) => {
     // Generate SEA assets from walker output
     log.info('Generating SEA assets...');
-    const { assets, manifestPath } = await generateSeaAssets(
+    const { assets, manifestPath, entryIsESM } = await generateSeaAssets(
       records,
       refinedEntry,
       symLinks,
@@ -505,16 +513,37 @@ export async function seaEnhanced(
       { debug: log.debugMode },
     );
 
-    // Copy bundled bootstrap
-    const bootstrapPath = join(tmpDir, 'sea-main.js');
+    // Use native ESM SEA main only if: entry is ESM AND all targets support
+    // mainFormat:"module" (Node >= 25.7, from nodejs/node#61813).
+    const useNativeEsmMain = entryIsESM && minTargetMajor >= 25;
+
+    if (entryIsESM && !useNativeEsmMain) {
+      log.warn(
+        'ESM entrypoint detected with target Node.js < 25.7. Falling back to dynamic import() in a CJS bootstrap. Limitations:',
+        [
+          '- The main module runs one microtask tick later than usual.',
+          '- Synchronous require() of ESM deps with top-level await will fail.',
+          '- Rebuild with a Node 25.7+ target to use native sea-config mainFormat:"module".',
+        ],
+      );
+    }
+
+    // Copy the appropriate bundled bootstrap
+    const bootstrapFile = useNativeEsmMain
+      ? 'sea-bootstrap-esm.bundle.mjs'
+      : 'sea-bootstrap.bundle.js';
+    const bootstrapPath = join(
+      tmpDir,
+      useNativeEsmMain ? 'sea-main.mjs' : 'sea-main.js',
+    );
     await copyFile(
-      join(__dirname, '..', 'prelude', 'sea-bootstrap.bundle.js'),
+      join(__dirname, '..', 'prelude', bootstrapFile),
       bootstrapPath,
     );
 
     // Build sea-config.json
     const blobPath = join(tmpDir, 'sea-prep.blob');
-    const seaConfig = {
+    const seaConfig: Record<string, unknown> = {
       main: bootstrapPath,
       output: blobPath,
       disableExperimentalSEAWarning: true,
@@ -526,6 +555,12 @@ export async function seaEnhanced(
         ...assets,
       },
     };
+
+    if (useNativeEsmMain) {
+      // Requires Node 25.7+ — makes the SEA main execute as ESM, enabling
+      // native top-level await and sync-import of ESM deps via module hooks.
+      seaConfig.mainFormat = 'module';
+    }
 
     const seaConfigFilePath = join(tmpDir, 'sea-config.json');
     log.info('Creating sea-config.json file...');

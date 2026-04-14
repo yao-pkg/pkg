@@ -29,27 +29,46 @@ var { homedir } = require('os');
 // make this efficient — unchanged files are skipped.
 // See also: https://github.com/vercel/pkg/issues/1589
 function cpRecursive(src, dest) {
-  var st = fs.statSync(src);
+  // lstatSync (not statSync) so we detect symlinks instead of following them.
+  // Following could recurse into the symlink target, loop forever, or copy
+  // unrelated content that lives outside the addon package tree.
+  var st = fs.lstatSync(src);
+
+  if (st.isSymbolicLink()) {
+    // Recreate the symlink at the destination instead of dereferencing it.
+    var target = fs.readlinkSync(src);
+    try {
+      fs.unlinkSync(dest);
+    } catch (_) {
+      /* dest may not exist */
+    }
+    fs.symlinkSync(target, dest);
+    return;
+  }
+
   if (st.isDirectory()) {
     fs.mkdirSync(dest, { recursive: true });
     var entries = fs.readdirSync(src);
     for (var i = 0; i < entries.length; i++) {
       cpRecursive(path.join(src, entries[i]), path.join(dest, entries[i]));
     }
-  } else {
-    // Use readFileSync+writeFileSync instead of copyFileSync because
-    // copyFileSync may not be routed through the VFS in SEA mode.
-    if (fs.existsSync(dest)) {
-      var srcContent = fs.readFileSync(src, { encoding: 'binary' });
-      var destContent = fs.readFileSync(dest, { encoding: 'binary' });
-      var srcHash = createHash('sha256').update(srcContent).digest('hex');
-      var destHash = createHash('sha256').update(destContent).digest('hex');
-      if (srcHash === destHash) {
-        return;
-      }
-    }
-    fs.writeFileSync(dest, fs.readFileSync(src));
+    return;
   }
+
+  // Regular file: read once as a Buffer, hash the Buffer directly, and reuse
+  // the same Buffer for writeFileSync. Using readFileSync+writeFileSync
+  // instead of copyFileSync because copyFileSync may not be routed through
+  // the VFS in SEA mode.
+  var srcContent = fs.readFileSync(src);
+  if (fs.existsSync(dest)) {
+    var destContent = fs.readFileSync(dest);
+    var srcHash = createHash('sha256').update(srcContent).digest('hex');
+    var destHash = createHash('sha256').update(destContent).digest('hex');
+    if (srcHash === destHash) {
+      return;
+    }
+  }
+  fs.writeFileSync(dest, srcContent);
 }
 
 /**
