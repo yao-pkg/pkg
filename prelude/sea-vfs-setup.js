@@ -21,6 +21,10 @@ try {
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
 var MemoryProvider = vfsModule.MemoryProvider;
 
+// Matches the typical Linux SYMLOOP_MAX. Bounds the symlink resolution
+// loop so a manifest cycle (or a corrupt manifest) cannot hang startup.
+var MAX_SYMLINK_DEPTH = 40;
+
 // /////////////////////////////////////////////////////////////////
 // PERFORMANCE INSTRUMENTATION /////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
@@ -104,7 +108,9 @@ var perf = {
       (this._durations['archive load'] || 0n) +
       (this._durations['directory tree init'] || 0n) +
       (this._durations['vfs mount + hooks'] || 0n);
-    this._counters['file cache entries'] = provider.fileCacheSize;
+    if (this._provider) {
+      this._counters['file cache entries'] = this._provider.fileCacheSize;
+    }
     this.report();
   },
 
@@ -298,7 +304,7 @@ class SEAProvider extends MemoryProvider {
 
   _resolveSymlink(p, syscall) {
     var original = p;
-    for (var i = 0; i < 40; i++) {
+    for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
       var target = this._manifest.symlinks[p];
       if (!target) return p;
       p = target;
@@ -325,7 +331,31 @@ class SEAProvider extends MemoryProvider {
     if (buf === undefined) {
       var entry = this._manifest.offsets[p];
       if (!entry) throw _enoent('open', filePath);
-      buf = this._archive.subarray(entry[0], entry[0] + entry[1]);
+      var off = entry[0];
+      var len = entry[1];
+      // Validate before subarray — Buffer.subarray clamps silently, so a
+      // corrupt manifest would otherwise return truncated bytes instead of
+      // surfacing the corruption.
+      if (
+        typeof off !== 'number' ||
+        typeof len !== 'number' ||
+        off < 0 ||
+        len < 0 ||
+        off + len > this._archive.length
+      ) {
+        throw new Error(
+          'pkg: corrupt SEA manifest — entry [' +
+            off +
+            ',' +
+            len +
+            '] out of bounds for archive of ' +
+            this._archive.length +
+            ' bytes (file: ' +
+            filePath +
+            ')',
+        );
+      }
+      buf = this._archive.subarray(off, off + len);
       this._fileCache.set(p, buf);
       perf.count('files loaded');
     }
@@ -392,6 +422,9 @@ class SEAProvider extends MemoryProvider {
 
 perf.start('vfs mount + hooks');
 var provider = new SEAProvider(manifest);
+// Hand the provider to the perf tracker so finalize() doesn't reach out to
+// a module-scope reference — keeps perf self-contained for testing.
+perf._provider = provider;
 var virtualFs = new VirtualFileSystem(provider);
 
 // Always mount with a POSIX prefix — @roberts_lando/vfs internally relies on

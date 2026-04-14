@@ -42,8 +42,23 @@ function cpRecursive(src, dest) {
     } catch (_) {
       /* dest may not exist */
     }
-    fs.symlinkSync(target, dest);
-    return;
+    try {
+      fs.symlinkSync(target, dest);
+      return;
+    } catch (e) {
+      // Windows requires admin privileges or developer mode to create
+      // symlinks. Fall back to copying the resolved target so native addon
+      // extraction still succeeds — the duplicated content is the lesser
+      // evil compared to a hard load failure.
+      if (e && (e.code === 'EPERM' || e.code === 'EACCES')) {
+        var resolved = path.isAbsolute(target)
+          ? target
+          : path.join(path.dirname(src), target);
+        cpRecursive(resolved, dest);
+        return;
+      }
+      throw e;
+    }
   }
 
   if (st.isDirectory()) {
