@@ -34,8 +34,4 @@ const expected =
 
 utils.assertSeaOutput('test-85-sea-enhanced', expected);
 
-try {
-  utils.filesAfter(before, newcomers);
-} catch (_error) {
-  // noop — Windows EBUSY workaround
-}
+utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

@@ -442,6 +442,31 @@ function resolveMinTargetMajor(
 }
 
 /**
+ * SEA prep blobs are Node-major specific (e.g. Node 25.8 added an
+ * exec_argv_extension header field), so a single blob cannot be safely
+ * baked into binaries of different Node majors. Reject mixed-major target
+ * lists up front instead of silently producing broken executables.
+ */
+function assertSingleTargetMajor(
+  targets: (NodeTarget & Partial<Target>)[],
+): void {
+  const hostMajor = parseInt(process.version.slice(1), 10);
+  const majors = new Set(
+    targets.map((t) => {
+      const v = parseInt(t.nodeRange.replace('node', ''), 10);
+      return Number.isNaN(v) ? hostMajor : v;
+    }),
+  );
+  if (majors.size > 1) {
+    throw wasReported(
+      `SEA mode cannot mix Node.js majors in a single run ` +
+        `(got ${[...majors].sort((a, b) => a - b).join(', ')}). ` +
+        `Run pkg once per Node major.`,
+    );
+  }
+}
+
+/**
  * Pick the node binary used to generate the SEA prep blob.
  *
  * The blob layout is node-version specific (e.g. Node 25.8 added an
@@ -460,8 +485,9 @@ function resolveMinTargetMajor(
  *     cross-major + cross-platform build will fail at spawn time — pkg
  *     has no way to produce a host-platform binary of the target major.
  *
- * All targets share a single node major (validated in bin.ts), so
- * inspecting only nodePaths[0] is sufficient.
+ * All targets share a single node major (enforced by
+ * {@link assertSingleTargetMajor}), so inspecting only nodePaths[0] is
+ * sufficient.
  */
 function pickBlobGeneratorBinary(
   minTargetMajor: number,
@@ -515,6 +541,8 @@ export async function seaEnhanced(
         'Remove it from seaConfig, or use simple --sea without a package.json.',
     );
   }
+
+  assertSingleTargetMajor(opts.targets);
 
   const minTargetMajor = resolveMinTargetMajor(opts.targets);
   if (minTargetMajor < 22) {
@@ -632,6 +660,7 @@ export async function seaEnhanced(
 /** Create NodeJS executable using sea */
 export default async function sea(entryPoint: string, opts: SeaOptions) {
   assertHostSeaNodeVersion();
+  assertSingleTargetMajor(opts.targets);
 
   entryPoint = resolve(process.cwd(), entryPoint);
 

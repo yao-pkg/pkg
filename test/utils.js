@@ -209,8 +209,12 @@ module.exports.filesBefore = function (n) {
  * after the test are the same as before the test.
  * @param {string[]} before Files that should exist
  * @param {string[]} newComers New files produced by test that should be removed
+ * @param {{ tolerateWindowsEbusy?: boolean }} [options] When
+ *   `tolerateWindowsEbusy` is true, EBUSY failures on win32 during cleanup
+ *   are swallowed. SEA tests need this because Windows briefly keeps a
+ *   handle on an executable after the spawned process has exited.
  */
-module.exports.filesAfter = function (before, newComers) {
+module.exports.filesAfter = function (before, newComers, options) {
   // actual files in the directory
   const a = globSync('**/*').sort();
 
@@ -241,8 +245,21 @@ module.exports.filesAfter = function (before, newComers) {
   }
 
   // remove the files that should not exist
+  const tolerateWindowsEbusy = options && options.tolerateWindowsEbusy === true;
   for (const ni of newComers) {
-    module.exports.vacuum.sync(ni);
+    try {
+      module.exports.vacuum.sync(ni);
+    } catch (error) {
+      if (
+        tolerateWindowsEbusy &&
+        process.platform === 'win32' &&
+        error &&
+        error.code === 'EBUSY'
+      ) {
+        continue;
+      }
+      throw error;
+    }
   }
 };
 

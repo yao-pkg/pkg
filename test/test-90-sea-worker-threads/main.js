@@ -32,8 +32,4 @@ const expected =
 
 utils.assertSeaOutput('test-90-sea-worker-threads', expected);
 
-try {
-  utils.filesAfter(before, newcomers);
-} catch (_error) {
-  // noop — Windows EBUSY workaround
-}
+utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

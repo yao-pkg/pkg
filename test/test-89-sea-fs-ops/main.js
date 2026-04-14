@@ -38,8 +38,4 @@ const expectedOutput =
 
 utils.assertSeaOutput('test-89-sea-fs-ops', expectedOutput);
 
-try {
-  utils.filesAfter(before, newcomers);
-} catch (_error) {
-  // noop — Windows EBUSY workaround
-}
+utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

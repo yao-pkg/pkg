@@ -28,8 +28,4 @@ utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
 utils.assertSeaOutput('test-87-sea-esm', 'add:5\ngreeting:hello world\n');
 
-try {
-  utils.filesAfter(before, newcomers);
-} catch (_error) {
-  // noop — Windows EBUSY workaround
-}
+utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

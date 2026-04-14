@@ -29,8 +29,4 @@ utils.assertSeaOutput(
   'config:test-value\ndata:hello world\n',
 );
 
-try {
-  utils.filesAfter(before, newcomers);
-} catch (_error) {
-  // noop — Windows EBUSY workaround
-}
+utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

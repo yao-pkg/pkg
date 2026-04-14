@@ -38,13 +38,15 @@ if (manifest.entryIsESM) {
   var url = require('url');
 
   // Suppress the ExperimentalWarning emitted once on first use of
-  // vm.USE_MAIN_CONTEXT_DEFAULT_LOADER. We chain it onto the original
-  // emitWarning so every other warning still reaches listeners.
+  // vm.USE_MAIN_CONTEXT_DEFAULT_LOADER. Restore the original emitWarning
+  // as soon as we swallow it so user code doesn't observe a wrapped
+  // emitWarning for the rest of the process lifetime.
   var origEmitWarning = process.emitWarning;
   process.emitWarning = function (warning) {
     var msg =
       typeof warning === 'string' ? warning : warning && warning.message;
     if (msg && msg.indexOf('vm.USE_MAIN_CONTEXT_DEFAULT_LOADER') !== -1) {
+      process.emitWarning = origEmitWarning;
       return;
     }
     return origEmitWarning.apply(this, arguments);
