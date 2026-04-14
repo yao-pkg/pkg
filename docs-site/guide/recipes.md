@@ -1,6 +1,6 @@
 ---
 title: Recipes
-description: Copy-paste solutions for common pkg tasks — cross-compile, compression, native addons, SEA mode, CI builds, Windows metadata.
+description: Copy-paste solutions for common pkg tasks — cross-compile, compression, native addons, SEA mode, CI builds.
 ---
 
 # Recipes
@@ -136,20 +136,6 @@ await exec([
 ```
 
 See [API](/guide/api) for full usage.
-
-## Inject Windows metadata + icon after packaging
-
-```sh
-pkg -t node22-win-x64 -o dist/app.exe .
-npx resedit dist/app.exe dist/app.exe \
-  --icon 1,assets/icon.ico \
-  --company-name "ACME Corp" \
-  --product-name "ACME Tool" \
-  --file-description "ACME Tool CLI" \
-  --file-version 1.0.0.0
-```
-
-See [Windows metadata](/guide/advanced-windows-metadata).
 
 ## Bake V8 heap limit into the binary
 

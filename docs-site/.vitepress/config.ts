@@ -150,7 +150,8 @@ export default withMermaid({
     outline: { level: [2, 4] },
   },
   mermaid: {
-    theme: 'default',
+    // theme intentionally unset — vitepress-plugin-mermaid auto-switches
+    // between 'default' (light) and 'dark' based on VitePress appearance
   },
   mermaidPlugin: {
     class: 'mermaid-diagram',

@@ -71,15 +71,49 @@
   }
 }
 
-/* mermaid diagram sizing */
+/* mermaid diagram sizing + dark-mode readability */
 .mermaid-diagram {
-  margin: 1.5rem 0;
+  margin: 1.75rem 0;
+  padding: 1rem;
   text-align: center;
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  overflow-x: auto;
 }
 
 .mermaid-diagram svg {
-  max-width: 100%;
+  width: 100%;
+  max-width: 960px;
   height: auto;
+  min-height: 220px;
+}
+
+/* bump label contrast and font-size so diagrams stay legible at full width */
+.mermaid-diagram svg .nodeLabel,
+.mermaid-diagram svg .edgeLabel,
+.mermaid-diagram svg .cluster-label,
+.mermaid-diagram svg text {
+  font-size: 15px !important;
+}
+
+/* dark mode: force readable label colors — mermaid's dark theme
+   sometimes leaves inherited fills that blend into the background */
+.dark .mermaid-diagram svg .nodeLabel,
+.dark .mermaid-diagram svg .edgeLabel,
+.dark .mermaid-diagram svg .cluster-label,
+.dark .mermaid-diagram svg text {
+  color: var(--vp-c-text-1) !important;
+  fill: var(--vp-c-text-1) !important;
+}
+
+.dark .mermaid-diagram svg .edgeLabel {
+  background-color: var(--vp-c-bg-soft) !important;
+}
+
+.dark .mermaid-diagram svg .edgePath path,
+.dark .mermaid-diagram svg .flowchart-link {
+  stroke: var(--vp-c-text-2) !important;
 }
 
 /* fork banner callout on the landing page */

@@ -12,32 +12,25 @@ This document describes how `pkg` packages Node.js applications into standalone 
 Both modes start from the same project and end with a single executable, but they take very different paths through the build pipeline:
 
 ```mermaid
-flowchart LR
-    P[package.json + src/]
+flowchart TD
+    P["package.json + src/"]
 
-    subgraph TR[Traditional mode]
-        direction TB
-        T1[Walker] --> T2[Bytecode fabricator]
-        T2 --> T3[Packer + stripes]
-        T3 --> T4[Payload injection]
-    end
+    P --> T1["Traditional: Walker"]
+    P --> S1["Enhanced SEA: Walker seaMode"]
 
-    subgraph SE[Enhanced SEA mode]
-        direction TB
-        S1[Walker seaMode] --> S2[Asset blob + manifest]
-        S2 --> S3[node --experimental-sea-config]
-        S3 --> S4[postject inject]
-    end
+    T1 --> T2["Bytecode fabricator"]
+    T2 --> T3["Packer + stripes"]
+    T3 --> T4["Payload injection"]
+    T4 --> TB["Patched Node.js binary<br/>with custom VFS"]
 
-    P --> T1
-    P --> S1
+    S1 --> S2["Asset blob + manifest"]
+    S2 --> S3["node --experimental-sea-config"]
+    S3 --> S4["postject inject"]
+    S4 --> SB["Stock Node.js binary<br/>with NODE_SEA_BLOB"]
 
-    T4 --> TB[Patched Node.js binary<br/>with custom VFS]
-    S4 --> SB[Stock Node.js binary<br/>with NODE_SEA_BLOB]
-
-    style P fill:#fff3e0,stroke:#e89b2c
-    style TB fill:#fce4ec,stroke:#ec7a96
-    style SB fill:#e8f5e9,stroke:#66bb6a
+    style P stroke:#e89b2c,stroke-width:2px
+    style TB stroke:#ec7a96,stroke-width:2px
+    style SB stroke:#66bb6a,stroke-width:2px
 ```
 
 ## Table of Contents
@@ -104,8 +97,8 @@ flowchart TD
     WALK --> PARSE --> ESM --> BYTE --> COLLECT
     COLLECT --> REFINE --> PACK --> PROD --> OUT
 
-    style CLI fill:#fff3e0,stroke:#e89b2c
-    style OUT fill:#fce4ec,stroke:#ec7a96
+    style CLI stroke:#e89b2c,stroke-width:2px
+    style OUT stroke:#ec7a96,stroke-width:2px
 ```
 
 Detailed pipeline:
@@ -228,8 +221,8 @@ flowchart TD
     SEA --> BOOT --> BLOB
     BLOB --> INJ --> OUT
 
-    style CLI fill:#fff3e0,stroke:#e89b2c
-    style OUT fill:#e8f5e9,stroke:#66bb6a
+    style CLI stroke:#e89b2c,stroke-width:2px
+    style OUT stroke:#66bb6a,stroke-width:2px
 ```
 
 Detailed pipeline:
@@ -359,8 +352,8 @@ flowchart TD
     C1 -- yes --> C2
     C1 -- no --> A --> C3 --> OUT
 
-    style U fill:#fff3e0,stroke:#e89b2c
-    style A fill:#e8f5e9,stroke:#66bb6a
+    style U stroke:#e89b2c,stroke-width:2px
+    style A stroke:#66bb6a,stroke-width:2px
 ```
 
 ASCII version:

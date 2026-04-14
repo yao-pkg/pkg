@@ -41,8 +41,8 @@ flowchart LR
     E --> G[Single executable]
     F --> G
 
-    style A fill:#fff3e0,stroke:#e89b2c
-    style G fill:#e8f5e9,stroke:#66bb6a
+    style A stroke:#e89b2c,stroke-width:2px
+    style G stroke:#66bb6a,stroke-width:2px
 ```
 
 The walker follows `require` / `import` from your entry file, pulls in every dependency, optionally compiles JavaScript to V8 bytecode (Standard) or keeps source (SEA), and injects the whole bundle into a Node.js binary.

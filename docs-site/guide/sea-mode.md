@@ -96,17 +96,9 @@ Not supported in enhanced SEA mode (incompatible with the VFS bootstrap). Set it
 
 ## Trade-offs vs Standard mode
 
-Enhanced SEA builds faster and uses **official Node.js APIs**, but stores source code in plaintext (no bytecode protection) and does not support compression.
+Enhanced SEA builds faster and uses **official Node.js APIs**, but stores source in plaintext and skips compression. Workers, native addons, ESM, cross-compile and targets all work the same.
 
-| What you give up        | Why                                        |
-| ----------------------- | ------------------------------------------ |
-| V8 bytecode             | SEA loads plaintext sources via VFS        |
-| Brotli / GZip payload   | No compression stage in the SEA asset path |
-| `seaConfig.useSnapshot` | Incompatible with the VFS bootstrap        |
-
-Everything else — workers, native addons, ESM, cross-compile, targets — works the same.
-
-For the full comparison, see **[SEA vs Standard](/guide/sea-vs-standard)**.
+For the full feature matrix and decision guide, see **[SEA vs Standard](/guide/sea-vs-standard)**.
 
 ## Next steps
 
