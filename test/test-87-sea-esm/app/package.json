@@ -1,0 +1,7 @@
+{
+  "name": "test-87-sea-esm",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "bin": "index.mjs"
+}

@@ -20,27 +20,7 @@ const before = utils.filesBefore(newcomers);
 
 utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
 
-// try to spawn one file based on the platform
-if (process.platform === 'linux') {
-  assert.equal(
-    utils.spawn.sync('./test-sea-linux', []),
-    'Hello world\n',
-    'Output matches',
-  );
-} else if (process.platform === 'darwin') {
-  assert.equal(
-    utils.spawn.sync('./test-sea-macos', []),
-    'Hello world\n',
-    'Output matches',
-  );
-} else if (process.platform === 'win32') {
-  // FIXME: output doesn't match on windows
-  // assert.equal(
-  //   utils.spawn.sync('./test-sea-win.exe', []),
-  //   'Hello world\n',
-  //   'Output matches',
-  // );
-}
+utils.assertSeaOutput('test-sea', 'Hello world\n');
 
 try {
   // FIXME: on windows this throws

@@ -31,22 +31,15 @@ import {
   ConfigDictionary,
   FileRecord,
   FileRecords,
+  Marker,
   Patches,
   PackageJson,
   SymLinks,
+  WalkerParams,
 } from './types';
 import pkgOptions from './options';
 
-export interface Marker {
-  hasDictionary?: boolean;
-  activated?: boolean;
-  toplevel?: boolean;
-  public?: boolean;
-  hasDeployFiles?: boolean;
-  config?: PackageJson;
-  configPath: string;
-  base: string;
-}
+export type { Marker, WalkerParams };
 
 interface Task {
   file: string;
@@ -233,8 +226,16 @@ async function stepRead(record: FileRecord) {
   record.body = body;
 }
 
+// Strip BOM and shebang from the file body.
+//
+// IMPORTANT: leave `record.body` untouched on no-op. Reassigning it (e.g.
+// `record.body = body.toString('utf8')`) would convert Buffer → string even
+// when nothing was stripped, defeating the in-memory body reuse optimization
+// in `sea-assets.ts`: the SEA archive writer trusts that an unmodified body
+// equals the disk content byte-for-byte, so we must not silently retype it.
 function stepStrip(record: FileRecord) {
-  let body = (record.body || '').toString('utf8');
+  const original = (record.body || '').toString('utf8');
+  let body = original;
 
   if (/^\ufeff/.test(body)) {
     body = body.replace(/^\ufeff/, '');
@@ -244,7 +245,9 @@ function stepStrip(record: FileRecord) {
     body = body.replace(/^#![^\n]*\n/, '\n');
   }
 
-  record.body = body;
+  if (body !== original) {
+    record.body = body;
+  }
 }
 
 function stepDetect(
@@ -360,12 +363,6 @@ async function findCommonJunctionPoint(file: string, realFile: string) {
       );
     }
   }
-}
-
-export interface WalkerParams {
-  publicToplevel?: boolean;
-  publicPackages?: string[];
-  noDictionary?: string[];
 }
 
 class Walker {
@@ -497,6 +494,12 @@ class Walker {
     }
 
     assert(task.store === STORE_BLOB || task.store === STORE_CONTENT);
+
+    // In SEA mode, always store as content (no V8 bytecode compilation)
+    if (this.params.seaMode && task.store === STORE_BLOB) {
+      task.store = STORE_CONTENT;
+    }
+
     assert(typeof task.file === 'string');
     const realFile = toNormalizedRealPath(task.file);
 
@@ -732,6 +735,12 @@ class Walker {
     }
 
     return true;
+  }
+
+  needsSeaRead(record: FileRecord): boolean {
+    return (
+      !!this.params.seaMode && (isDotJS(record.file) || isESMFile(record.file))
+    );
   }
 
   stepPatch(record: FileRecord) {
@@ -994,8 +1003,11 @@ class Walker {
       }
     }
 
+    const needsSeaRead = this.needsSeaRead(record);
+
     if (
       store === STORE_BLOB ||
+      needsSeaRead ||
       (store === STORE_CONTENT && isPackageJson(record.file)) ||
       this.hasPatch(record)
     ) {
@@ -1003,7 +1015,7 @@ class Walker {
         await stepRead(record);
         this.stepPatch(record);
 
-        if (store === STORE_BLOB) {
+        if (store === STORE_BLOB || needsSeaRead) {
           stepStrip(record);
         }
       }
@@ -1070,7 +1082,7 @@ class Walker {
 
           // If package has "type": "module", we need to change it to "commonjs"
           // because we transform all ESM files to CJS before bytecode compilation
-          if (pkgContent.type === 'module') {
+          if (pkgContent.type === 'module' && !this.params.seaMode) {
             pkgContent.type = 'commonjs';
             modified = true;
           }
@@ -1091,6 +1103,7 @@ class Walker {
       // Check all JS-like files (.js, .mjs, .cjs) but only transform ESM ones
       if (
         store === STORE_BLOB &&
+        !this.params.seaMode &&
         record.body &&
         (isDotJS(record.file) || record.file.endsWith('.mjs'))
       ) {
@@ -1117,14 +1130,15 @@ class Walker {
         }
       }
 
-      if (store === STORE_BLOB) {
+      if (store === STORE_BLOB || needsSeaRead) {
         const derivatives2: Derivative[] = [];
         stepDetect(record, marker, derivatives2);
         await this.stepDerivatives(record, marker, derivatives2);
 
         // After dependencies are resolved, rewrite .mjs require paths to .js
-        // since the packer renames .mjs files to .js in the snapshot
-        if (record.wasTransformed && record.body) {
+        // since the packer renames .mjs files to .js in the snapshot.
+        // Skip in SEA mode — ESM-to-CJS transform is not applied there.
+        if (!this.params.seaMode && record.wasTransformed && record.body) {
           record.body = Buffer.from(
             rewriteMjsRequirePaths(record.body.toString('utf8')),
             'utf8',

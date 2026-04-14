@@ -1,0 +1,7 @@
+{
+  "name": "test-91-sea-esm-entry",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "bin": "index.mjs"
+}

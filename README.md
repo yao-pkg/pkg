@@ -47,7 +47,7 @@ After installing it, run `pkg --help` without arguments to see list of options:
     --no-native-build    skip native addons build
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli or GZip
-    --sea                (Experimental) compile give file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
+    --sea                (Experimental) compile using node's SEA feature. With package.json input and node >= 22, uses enhanced mode with full dependency walking and VFS
 
   Examples:
 
@@ -58,7 +58,7 @@ After installing it, run `pkg --help` without arguments to see list of options:
   – Makes executable for particular target machine
     $ pkg -t node22-win-arm64 index.js
   – Makes executables for target machines of your choice
-    $ pkg -t node20-linux,node22-linux,node22-win index.js
+    $ pkg -t node22-linux,node24-linux,node24-win index.js
   – Bakes '--expose-gc' and '--max-heap-size=34' into executable
     $ pkg --options "expose-gc,max-heap-size=34" index.js
   – Consider packageA and packageB to be public
@@ -87,9 +87,9 @@ The entrypoint of your project is a mandatory CLI argument. It may be:
 `pkg` can generate executables for several target machines at a
 time. You can specify a comma-separated list of targets via `--targets`
 option. A canonical target consists of 3 elements, separated by
-dashes, for example `node20-macos-x64` or `node22-linux-arm64`:
+dashes, for example `node22-macos-x64` or `node24-linux-arm64`:
 
-- **nodeRange** node20, node22, node24 or latest
+- **nodeRange** node22, node24 or latest
 - **platform** alpine, linux, linuxstatic, win, macos, (freebsd)
 - **arch** x64, arm64, (armv6, armv7)
 
@@ -103,7 +103,7 @@ Pre-compiled Node.js binaries for some unsupported architectures and
 instructions for using them are available in the [pkg-binaries](https://github.com/yao-pkg/pkg-binaries)
 project.
 
-You may omit any element (and specify just `node14` for example).
+You may omit any element (and specify just `node22` for example).
 The omitted elements will be taken from current platform or
 system-wide Node.js installation (its version and arch).
 There is also an alias `host`, that means that all 3 elements
@@ -153,13 +153,13 @@ your `package.json` file.
   "pkg": {
     "scripts": "build/**/*.js",
     "assets": "views/**/*",
-    "targets": [ "node22-linux-arm64" ],
+    "targets": ["node22-linux-arm64"],
     "outputPath": "dist"
   }
 ```
 
 The above example will include everything in `assets/` and
-every .js file in `build/`, build only for `node14-linux-arm64`,
+every .js file in `build/`, build only for `node22-linux-arm64`,
 and place the executable inside `dist/`.
 
 You may also specify arrays of globs:
@@ -302,6 +302,36 @@ This option can reduce the size of the embedded file system by up to 60%.
 The startup time of the application might be reduced slightly.
 
 `-C` can be used as a shortcut for `--compress`.
+
+### SEA Mode (Single Executable Application)
+
+The `--sea` flag uses Node.js [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) to package your project. There are two variants:
+
+**Simple SEA** — For a single pre-bundled `.js` file (Node 22+):
+
+```sh
+pkg --sea index.js
+```
+
+**Enhanced SEA** — Automatically used when the input has a `package.json` and all targets are Node >= 22. Uses the full dependency walker with [`@roberts_lando/vfs`](https://github.com/robertsLando/vfs) for transparent `fs`/`require`/`import` support:
+
+```sh
+pkg . --sea                    # walks dependencies, builds VFS
+pkg . --sea -t node24-linux    # target specific platform
+```
+
+Enhanced SEA mode:
+
+- Walks dependencies like traditional mode, but skips V8 bytecode compilation and ESM-to-CJS transforms — files stay as-is
+- Bundles all files into a single archive blob with offset-based zero-copy access at runtime
+- Supports worker threads (VFS hooks are automatically injected into `/snapshot/...` workers)
+- Native addon extraction works the same as traditional mode
+- ESM entry points (`"type": "module"`) work on every supported target (Node >= 22), **including entrypoints that use top-level await**. ESM entries are dispatched via `vm.Script` + `USE_MAIN_CONTEXT_DEFAULT_LOADER`, which routes dynamic `import()` through the default ESM loader — no Node-version split, no build-time warning. CJS entries go through `Module.runMain()`
+- `seaConfig.useSnapshot` is not supported in enhanced SEA mode (incompatible with the VFS bootstrap); set it to `false` or omit it. `useCodeCache` is forwarded as-is
+- Runtime diagnostics via `DEBUG_PKG` / `SIZE_LIMIT_PKG` / `FOLDER_LIMIT_PKG` work the same as in traditional mode, but only when the binary was built with `--debug` (release builds cannot be coerced into dumping the VFS tree)
+- Migration path to `node:vfs` when it lands in Node.js core
+
+**Trade-offs vs traditional mode**: Enhanced SEA builds faster and uses official Node.js APIs, but stores source code in plaintext (no bytecode protection) and does not support compression. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed comparison.
 
 ### Environment
 

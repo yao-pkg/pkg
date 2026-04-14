@@ -73,4 +73,37 @@ export interface Target extends NodeTarget {
   fabricator: Target;
 }
 
+export interface Marker {
+  hasDictionary?: boolean;
+  activated?: boolean;
+  toplevel?: boolean;
+  public?: boolean;
+  hasDeployFiles?: boolean;
+  config?: PackageJson;
+  configPath: string;
+  base: string;
+}
+
+export interface WalkerParams {
+  publicToplevel?: boolean;
+  publicPackages?: string[];
+  noDictionary?: string[];
+  seaMode?: boolean;
+}
+
+export interface SeaEnhancedOptions {
+  seaConfig?: {
+    disableExperimentalSEAWarning?: boolean;
+    useSnapshot?: boolean;
+    useCodeCache?: boolean;
+  };
+  signature?: boolean;
+  targets: (NodeTarget & Partial<Target>)[];
+  useLocalNode?: boolean;
+  nodePath?: string;
+  marker: Marker;
+  params: WalkerParams;
+  addition?: string;
+}
+
 export type SymLinks = Record<string, string>;

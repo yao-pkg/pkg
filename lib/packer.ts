@@ -25,10 +25,23 @@ const bootstrapText = readFileSync(
 
 const commonText = readFileSync(require.resolve('./common'), 'utf8');
 
-const diagnosticText = readFileSync(
-  require.resolve('../prelude/diagnostic.js'),
+const sharedText = readFileSync(
+  require.resolve('../prelude/bootstrap-shared.js'),
   'utf8',
 );
+
+// When --debug is used, inject a small snippet that calls the shared
+// diagnostic + dumps the DICT path compression map (traditional-mode only).
+const diagnosticText = `
+(function() {
+  if (process.env.DEBUG_PKG === '2') {
+    console.log('------------------------------- path dictionary');
+    console.log(Object.entries(DICT));
+  }
+  var snapshotPrefix = process.platform === 'win32' ? 'C:\\\\snapshot' : '/snapshot';
+  REQUIRE_SHARED.installDiagnostic(snapshotPrefix);
+})();
+`;
 
 function itemsToText<T>(items: T[]) {
   const len = items.length;
@@ -169,10 +182,11 @@ export default function packer({
     }
   }
   const prelude =
-    `return (function (REQUIRE_COMMON, VIRTUAL_FILESYSTEM, DEFAULT_ENTRYPOINT, SYMLINKS, DICT, DOCOMPRESS) {
+    `return (function (REQUIRE_COMMON, REQUIRE_SHARED, VIRTUAL_FILESYSTEM, DEFAULT_ENTRYPOINT, SYMLINKS, DICT, DOCOMPRESS) {
         ${bootstrapText}${
           log.debugMode ? diagnosticText : ''
         }\n})(function (exports) {\n${commonText}\n},\n` +
+    `(function () { var module = { exports: {} };\n${sharedText}\nreturn module.exports; })(),\n` +
     `%VIRTUAL_FILESYSTEM%` +
     `\n,\n` +
     `%DEFAULT_ENTRYPOINT%` +

@@ -1,0 +1,6 @@
+{
+  "name": "test-85-sea-enhanced",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js"
+}

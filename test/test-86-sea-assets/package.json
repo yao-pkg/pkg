@@ -1,0 +1,12 @@
+{
+  "name": "test-86-sea-assets",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js",
+  "pkg": {
+    "assets": [
+      "config.json",
+      "data.txt"
+    ]
+  }
+}

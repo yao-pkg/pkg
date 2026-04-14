@@ -1,7 +1,15 @@
-import { exec as cExec } from 'child_process';
+import { execFile as cExecFile } from 'child_process';
 import util from 'util';
 import { basename, dirname, join, resolve } from 'path';
-import { copyFile, writeFile, rm, mkdir, stat, readFile } from 'fs/promises';
+import {
+  copyFile,
+  writeFile,
+  rm,
+  mkdir,
+  mkdtemp,
+  stat,
+  readFile,
+} from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { ReadableStream } from 'stream/web';
@@ -9,15 +17,19 @@ import { createHash } from 'crypto';
 import { homedir, tmpdir } from 'os';
 import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
-import { log } from './log';
-import { NodeTarget, Target } from './types';
+import { log, wasReported } from './log';
+import { NodeTarget, Target, SeaEnhancedOptions } from './types';
 import {
   patchMachOExecutable,
   removeMachOExecutableSignature,
   signMachOExecutable,
 } from './mach-o';
+import walk from './walker';
+import refine from './refiner';
+import { generateSeaAssets } from './sea-assets';
+import { inject as postjectInject } from 'postject';
 
-const exec = util.promisify(cExec);
+const execFileAsync = util.promisify(cExecFile);
 
 /** Returns stat of path when exits, false otherwise */
 const exists = async (path: string) => {
@@ -299,7 +311,7 @@ async function getNodejsExecutable(
 async function bake(
   nodePath: string,
   target: NodeTarget & Partial<Target>,
-  blobPath: string,
+  blobData: Buffer,
 ) {
   const outPath = resolve(process.cwd(), target.output as string);
 
@@ -320,48 +332,347 @@ async function bake(
 
   log.info(`Injecting the blob into ${outPath}...`);
   if (target.platform === 'macos') {
-    removeMachOExecutableSignature(outPath);
-    await exec(
-      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`,
+    // codesign is only available on macOS — skip signature removal when
+    // cross-compiling from another platform
+    if (process.platform === 'darwin') {
+      removeMachOExecutableSignature(outPath);
+    }
+  }
+
+  // Use postject JS API directly instead of spawning npx.
+  // This avoids two CI issues:
+  // 1. "Text file busy" race condition from concurrent npx invocations
+  // 2. "Argument is not a constructor" from npx downloading incompatible versions
+  await postjectInject(outPath, 'NODE_SEA_BLOB', blobData, {
+    sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
+    machoSegmentName: target.platform === 'macos' ? 'NODE_SEA' : undefined,
+    overwrite: true,
+  });
+}
+
+/** Patch and sign macOS executable if needed */
+export async function signMacOSIfNeeded(
+  output: string,
+  target: NodeTarget & Partial<Target>,
+  signature?: boolean,
+) {
+  if (!signature || target.platform !== 'macos') return;
+
+  const buf = patchMachOExecutable(await readFile(output));
+  await writeFile(output, buf);
+  try {
+    signMachOExecutable(output);
+  } catch {
+    if (target.arch === 'arm64') {
+      log.warn('Unable to sign the macOS executable', [
+        'Due to the mandatory code signing requirement, before the',
+        'executable is distributed to end users, it must be signed.',
+        'Otherwise, it will be immediately killed by kernel on launch.',
+        'An ad-hoc signature is sufficient.',
+        'To do that, run pkg on a Mac, or transfer the executable to a Mac',
+        'and run "codesign --sign - <executable>", or (if you use Linux)',
+        'install "ldid" utility to PATH and then run pkg again',
+      ]);
+    }
+  }
+}
+
+/** Run a callback inside a temporary directory, cleaning up afterwards */
+async function withSeaTmpDir<T>(
+  fn: (tmpDir: string) => Promise<T>,
+): Promise<T> {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'pkg-sea-'));
+  const previousDirectory = process.cwd();
+  try {
+    process.chdir(tmpDir);
+    return await fn(tmpDir);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const wrapped = new Error(
+      `Error while creating the executable: ${message}`,
+      { cause: error },
     );
-  } else {
-    await exec(
-      `npx postject "${outPath}" NODE_SEA_BLOB "${blobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
+    // Preserve the original stack if available
+    if (error instanceof Error && error.stack) {
+      wrapped.stack = `${wrapped.message}\n  [cause]: ${error.stack}`;
+    }
+    throw wrapped;
+  } finally {
+    process.chdir(previousDirectory);
+    await rm(tmpDir, { recursive: true }).catch(() => {
+      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
+    });
+  }
+}
+
+/**
+ * Validate that the host Node.js version running pkg supports SEA.
+ * Although node:sea is stable from Node 20, pkg requires 22+ to align with
+ * engines.node and the @roberts_lando/vfs dependency.
+ *
+ * Host-only check — target Node majors are validated via
+ * {@link resolveMinTargetMajor}.
+ */
+function assertHostSeaNodeVersion() {
+  const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
+  if (nodeMajor < 22) {
+    throw new Error(
+      `SEA support requires at least node v22.0.0, actual node version is ${process.version}`,
+    );
+  }
+  return nodeMajor;
+}
+
+/**
+ * Resolve the smallest target Node.js major version across a target list.
+ * Unparseable ranges (e.g. "latest") fall back to the host major so pkg on
+ * Node 25 treats "latest" as 25.
+ */
+function resolveMinTargetMajor(
+  targets: (NodeTarget & Partial<Target>)[],
+): number {
+  const hostMajor = parseInt(process.version.slice(1), 10);
+  if (targets.length === 0) return hostMajor;
+  return Math.min(
+    ...targets.map((t) => {
+      const v = parseInt(t.nodeRange.replace('node', ''), 10);
+      return Number.isNaN(v) ? hostMajor : v;
+    }),
+  );
+}
+
+/**
+ * SEA prep blobs are Node-major specific (e.g. Node 25.8 added an
+ * exec_argv_extension header field), so a single blob cannot be safely
+ * baked into binaries of different Node majors. Reject mixed-major target
+ * lists up front instead of silently producing broken executables.
+ */
+function assertSingleTargetMajor(
+  targets: (NodeTarget & Partial<Target>)[],
+): void {
+  const hostMajor = parseInt(process.version.slice(1), 10);
+  const majors = new Set(
+    targets.map((t) => {
+      const v = parseInt(t.nodeRange.replace('node', ''), 10);
+      return Number.isNaN(v) ? hostMajor : v;
+    }),
+  );
+  if (majors.size > 1) {
+    throw wasReported(
+      `SEA mode cannot mix Node.js majors in a single run ` +
+        `(got ${[...majors].sort((a, b) => a - b).join(', ')}). ` +
+        `Run pkg once per Node major.`,
     );
   }
 }
 
-/** Create NodeJS executable using sea */
-export default async function sea(entryPoint: string, opts: SeaOptions) {
+/**
+ * Pick the node binary used to generate the SEA prep blob.
+ *
+ * The blob layout is node-version specific (e.g. Node 25.8 added an
+ * exec_argv_extension header field), so it must be generated by a node
+ * major that matches the target — otherwise the target cannot deserialize
+ * it. The blob itself is platform/arch-agnostic.
+ *
+ * Rule:
+ *   - host major === minTargetMajor  → use process.execPath. Always
+ *     executable regardless of target platform/arch, so this is the only
+ *     path that works for cross-platform builds (e.g. Linux x64 host
+ *     producing a Windows x64 SEA).
+ *   - otherwise                      → use nodePaths[0], the downloaded
+ *     target-platform binary. Matches the target major but requires host
+ *     to be able to execute it (same platform/arch, or QEMU/Rosetta). A
+ *     cross-major + cross-platform build will fail at spawn time — pkg
+ *     has no way to produce a host-platform binary of the target major.
+ *
+ * All targets share a single node major (enforced by
+ * {@link assertSingleTargetMajor}), so inspecting only nodePaths[0] is
+ * sufficient.
+ */
+function pickBlobGeneratorBinary(
+  minTargetMajor: number,
+  nodePaths: string[],
+): string {
+  const hostMajor = parseInt(process.version.slice(1), 10);
+  if (hostMajor === minTargetMajor) return process.execPath;
+  return nodePaths[0];
+}
+
+/**
+ * Generate the SEA prep blob from a sea-config.json file.
+ *
+ * Uses --experimental-sea-config (not --build-sea): --build-sea produces
+ * a finished executable and bypasses the prep-blob + postject flow that
+ * pkg relies on for multi-target support and for injecting custom
+ * bootstraps into downloaded node binaries.
+ */
+async function generateSeaBlob(
+  seaConfigFilePath: string,
+  generatorBinary: string,
+) {
+  log.info('Generating the blob...');
+  await execFileAsync(generatorBinary, [
+    '--experimental-sea-config',
+    seaConfigFilePath,
+  ]);
+}
+
+/** Create NodeJS executable using the enhanced SEA pipeline (walker + refiner + assets) */
+export async function seaEnhanced(
+  entryPoint: string,
+  opts: SeaEnhancedOptions,
+) {
+  assertHostSeaNodeVersion();
+
+  // useSnapshot is incompatible with the enhanced VFS bootstrap: SEA's
+  // snapshot mode runs the main script at build time inside a V8 startup
+  // snapshot context and expects the runtime entry to be registered via
+  // v8.startupSnapshot.setDeserializeMainFunction(). Our bootstrap doesn't
+  // do that, and at build time `sea.getRawAsset('__pkg_archive__')` does
+  // not exist yet (we're running plain Node to generate the blob, not
+  // inside a SEA binary), so snapshot construction would fail outright.
+  //
+  // useCodeCache, on the other hand, only caches V8 bytecode for the
+  // bootstrap script — it speeds up bootstrap parsing without affecting
+  // the runtime VFS path. It is forwarded to sea-config below.
+  if (opts.seaConfig?.useSnapshot === true) {
+    throw wasReported(
+      'Enhanced SEA mode does not support useSnapshot. ' +
+        'Remove it from seaConfig, or use simple --sea without a package.json.',
+    );
+  }
+
+  assertSingleTargetMajor(opts.targets);
+
+  const minTargetMajor = resolveMinTargetMajor(opts.targets);
+  if (minTargetMajor < 22) {
+    throw wasReported(
+      `Enhanced SEA mode requires Node >= 22 targets. ` +
+        `Minimum target version resolved to Node ${minTargetMajor}.`,
+    );
+  }
+
   entryPoint = resolve(process.cwd(), entryPoint);
 
   if (!(await exists(entryPoint))) {
     throw new Error(`Entrypoint path "${entryPoint}" does not exist`);
   }
 
-  const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
+  const { marker, params = {} } = opts;
 
-  // check node version, needs to be at least 20.0.0
-  if (nodeMajor < 20) {
-    throw new Error(
-      `SEA support requires as least node v20.0.0, actual node version is ${process.version}`,
-    );
+  // Run walker in SEA mode
+  log.info('Walking dependencies...');
+  const walkResult = await walk(marker, entryPoint, opts.addition, {
+    ...params,
+    seaMode: true,
+  });
+
+  // Refine (path compression, empty dir pruning)
+  log.info('Refining file records...');
+  const {
+    records,
+    entrypoint: refinedEntry,
+    symLinks,
+  } = refine(walkResult.records, walkResult.entrypoint, walkResult.symLinks);
+
+  // Resolve target outputs to absolute paths before chdir to tmpDir
+  for (const target of opts.targets) {
+    if (target.output) {
+      target.output = resolve(process.cwd(), target.output);
+    }
   }
 
   const nodePaths = await Promise.all(
     opts.targets.map((target) => getNodejsExecutable(target, opts)),
   );
 
-  // create a temporary directory for the processing work
-  const tmpDir = join(tmpdir(), 'pkg-sea', `${Date.now()}`);
+  await withSeaTmpDir(async (tmpDir) => {
+    // Generate SEA assets from walker output
+    log.info('Generating SEA assets...');
+    const { assets, manifestPath } = await generateSeaAssets(
+      records,
+      refinedEntry,
+      symLinks,
+      tmpDir,
+      { debug: log.debugMode },
+    );
 
-  await mkdir(tmpDir, { recursive: true });
+    // Always use the CJS bootstrap. Native ESM SEA main
+    // (sea-config mainFormat:"module", Node 25.7+ / nodejs/node#61813)
+    // cannot dynamically import the user entry on Node 25.5+ because
+    // the embedder dynamic-import callback only resolves builtin
+    // modules (see nodejs/node#62726). The CJS bootstrap handles ESM
+    // entries with top-level await by dispatching through a vm.Script
+    // compiled with USE_MAIN_CONTEXT_DEFAULT_LOADER, which is routed
+    // to the default ESM loader.
+    const bootstrapPath = join(tmpDir, 'sea-main.js');
+    await copyFile(
+      join(__dirname, '..', 'prelude', 'sea-bootstrap.bundle.js'),
+      bootstrapPath,
+    );
 
-  const previousDirectory = process.cwd();
-  try {
-    // change working directory to the temp directory
-    process.chdir(tmpDir);
+    // Build sea-config.json.
+    //
+    // useCodeCache is forwarded from the user's seaConfig (defaulting to
+    // false to match upstream Node defaults). It only affects bootstrap
+    // parse speed — the runtime VFS path is unaffected.
+    //
+    // useSnapshot is hard-forced to false: it is incompatible with the
+    // enhanced VFS bootstrap (see guard above) and an explicit `true`
+    // already throws earlier — this is just a defensive default.
+    const blobPath = join(tmpDir, 'sea-prep.blob');
+    const seaConfig: Record<string, unknown> = {
+      main: bootstrapPath,
+      output: blobPath,
+      disableExperimentalSEAWarning: true,
+      useCodeCache: opts.seaConfig?.useCodeCache ?? false,
+      useSnapshot: false,
+      assets: {
+        __pkg_manifest__: manifestPath,
+        ...assets,
+      },
+    };
 
+    const seaConfigFilePath = join(tmpDir, 'sea-config.json');
+    log.info('Creating sea-config.json file...');
+    await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
+
+    await generateSeaBlob(
+      seaConfigFilePath,
+      pickBlobGeneratorBinary(minTargetMajor, nodePaths),
+    );
+
+    // Read the blob once and share the buffer across all targets — avoids
+    // N redundant disk reads and N peak buffer copies on multi-target builds.
+    const blobData = await readFile(blobPath);
+
+    // Bake blob into each target executable
+    await Promise.all(
+      nodePaths.map(async (nodePath, i) => {
+        const target = opts.targets[i];
+        await bake(nodePath, target, blobData);
+        await signMacOSIfNeeded(target.output!, target, opts.signature);
+      }),
+    );
+  });
+}
+
+/** Create NodeJS executable using sea */
+export default async function sea(entryPoint: string, opts: SeaOptions) {
+  assertHostSeaNodeVersion();
+  assertSingleTargetMajor(opts.targets);
+
+  entryPoint = resolve(process.cwd(), entryPoint);
+
+  if (!(await exists(entryPoint))) {
+    throw new Error(`Entrypoint path "${entryPoint}" does not exist`);
+  }
+
+  const nodePaths = await Promise.all(
+    opts.targets.map((target) => getNodejsExecutable(target, opts)),
+  );
+
+  await withSeaTmpDir(async (tmpDir) => {
     // docs: https://nodejs.org/api/single-executable-applications.html
     const blobPath = join(tmpDir, 'sea-prep.blob');
     const seaConfigFilePath = join(tmpDir, 'sea-config.json');
@@ -377,46 +688,19 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     log.info('Creating sea-config.json file...');
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
-    log.info('Generating the blob...');
-    await exec(`node --experimental-sea-config "${seaConfigFilePath}"`);
+    await generateSeaBlob(
+      seaConfigFilePath,
+      pickBlobGeneratorBinary(resolveMinTargetMajor(opts.targets), nodePaths),
+    );
 
-    await Promise.allSettled(
+    const blobData = await readFile(blobPath);
+
+    await Promise.all(
       nodePaths.map(async (nodePath, i) => {
         const target = opts.targets[i];
-        await bake(nodePath, target, blobPath);
-        const output = target.output!;
-        if (opts.signature && target.platform === 'macos') {
-          const buf = patchMachOExecutable(await readFile(output));
-          await writeFile(output, buf);
-
-          try {
-            // sign executable ad-hoc to workaround the new mandatory signing requirement
-            // users can always replace the signature if necessary
-            signMachOExecutable(output);
-          } catch {
-            if (target.arch === 'arm64') {
-              log.warn('Unable to sign the macOS executable', [
-                'Due to the mandatory code signing requirement, before the',
-                'executable is distributed to end users, it must be signed.',
-                'Otherwise, it will be immediately killed by kernel on launch.',
-                'An ad-hoc signature is sufficient.',
-                'To do that, run pkg on a Mac, or transfer the executable to a Mac',
-                'and run "codesign --sign - <executable>", or (if you use Linux)',
-                'install "ldid" utility to PATH and then run pkg again',
-              ]);
-            }
-          }
-        }
+        await bake(nodePath, target, blobData);
+        await signMacOSIfNeeded(target.output!, target, opts.signature);
       }),
     );
-  } catch (error) {
-    throw new Error(`Error while creating the executable: ${error}`);
-  } finally {
-    // cleanup the temp directory
-    await rm(tmpDir, { recursive: true }).catch(() => {
-      log.warn(`Failed to cleanup the temp directory ${tmpDir}`);
-    });
-
-    process.chdir(previousDirectory);
-  }
+  });
 }
