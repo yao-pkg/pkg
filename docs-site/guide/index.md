@@ -1,3 +1,8 @@
+---
+title: What is pkg?
+description: pkg packages Node.js projects into single self-contained executables for Linux, macOS, and Windows — no runtime install required on the target machine.
+---
+
 # What is pkg?
 
 `pkg` is a command-line tool that packages your Node.js project into a **single self-contained executable**. The resulting binary runs on devices that don't have Node.js installed, ship no `node_modules`, and boot like any other native CLI tool.
@@ -24,9 +29,31 @@ This is **`yao-pkg/pkg`** — the actively maintained fork of the archived `verc
 
 Standard mode is battle-tested and still required when you need bytecode source protection or compression. **SEA mode is the recommended default for new projects** that don't need those features — it runs on stock Node.js, builds faster, and is where the project is heading. See [SEA vs Standard](/guide/sea-vs-standard) for the full comparison and the roadmap for going patch-free.
 
+## How it works
+
+```mermaid
+flowchart LR
+    A[Your Node.js project] --> B[pkg walker]
+    B --> C[Bundled payload]
+    C --> D{Mode}
+    D -- Standard --> E[Patched Node.js + custom VFS]
+    D -- Enhanced SEA --> F[Stock Node.js + NODE_SEA_BLOB]
+    E --> G[Single executable]
+    F --> G
+
+    style A fill:#fff3e0,stroke:#e89b2c
+    style G fill:#e8f5e9,stroke:#66bb6a
+```
+
+The walker follows `require` / `import` from your entry file, pulls in every dependency, optionally compiles JavaScript to V8 bytecode (Standard) or keeps source (SEA), and injects the whole bundle into a Node.js binary.
+
+Want the full story? See [Architecture](/architecture).
+
 ## Next steps
 
 - [Getting started](/guide/getting-started) — install and build your first binary
 - [Targets](/guide/targets) — cross-compile for other platforms
 - [Configuration](/guide/configuration) — scripts, assets, and the `pkg` property in `package.json`
 - [SEA vs Standard](/guide/sea-vs-standard) — which mode to pick
+- [Recipes](/guide/recipes) — copy-paste solutions
+- [Migration from vercel/pkg](/guide/migration)

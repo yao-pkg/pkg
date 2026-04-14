@@ -1,5 +1,7 @@
 ---
 layout: home
+title: pkg — Node.js to single executable
+description: Ship your Node.js project as one self-contained binary. No runtime install. No npm. Cross-compiled for Linux, macOS, and Windows.
 
 hero:
   name: pkg
@@ -40,6 +42,20 @@ features:
     details: Opt into Node.js Single Executable Applications for stock-binary packaging. No patched Node.js, faster builds.
 ---
 
+<div class="fork-banner">
+<strong>Looking for <code>vercel/pkg</code>?</strong> This is <a href="https://github.com/yao-pkg/pkg"><code>yao-pkg/pkg</code></a> — the actively maintained fork. The original <code>vercel/pkg</code> is archived. <code>@yao-pkg/pkg</code> is a drop-in replacement — rename the dep and keep shipping. See the <a href="/pkg/guide/migration">migration guide</a>.
+</div>
+
+<div style="max-width: 960px; margin: 2rem auto 0; padding: 0 1.5rem; text-align: center;">
+
+<a href="https://www.npmjs.com/package/@yao-pkg/pkg"><img src="https://img.shields.io/npm/v/@yao-pkg/pkg?color=e89b2c&label=npm" alt="npm version" /></a>
+<a href="https://www.npmjs.com/package/@yao-pkg/pkg"><img src="https://img.shields.io/npm/dm/@yao-pkg/pkg?color=e89b2c&label=downloads" alt="npm downloads" /></a>
+<a href="https://github.com/yao-pkg/pkg/stargazers"><img src="https://img.shields.io/github/stars/yao-pkg/pkg?color=e89b2c&label=stars" alt="GitHub stars" /></a>
+<a href="https://github.com/yao-pkg/pkg/actions/workflows/ci.yml"><img src="https://github.com/yao-pkg/pkg/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+<a href="https://github.com/yao-pkg/pkg/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@yao-pkg/pkg?color=e89b2c" alt="license" /></a>
+
+</div>
+
 <div style="max-width: 960px; margin: 3rem auto 0; padding: 0 1.5rem;">
 
 ## Quick install
@@ -48,13 +64,28 @@ features:
 npm install -g @yao-pkg/pkg
 ```
 
+Requires **Node.js >= 22** on the build host.
+
 ## Your first binary
 
-```sh
+::: code-group
+
+```sh [CLI, entry file]
+pkg index.js
+```
+
+```sh [CLI, package.json]
 pkg .
 ```
 
-That's it. `pkg` reads `package.json`, follows the `bin` entry, walks your dependencies, and spits out executables for Linux, macOS, and Windows.
+```sh [Node.js API]
+const { exec } = require('@yao-pkg/pkg');
+await exec(['index.js', '--target', 'host', '--output', 'app']);
+```
+
+:::
+
+`pkg` reads `package.json`, follows the `bin` entry, walks your dependencies, and produces executables for Linux, macOS, and Windows.
 
 Want to target a specific platform?
 
@@ -62,10 +93,29 @@ Want to target a specific platform?
 pkg -t node22-linux-arm64 index.js
 ```
 
+## Two packaging modes
+
+::: code-group
+
+```sh [Standard (default)]
+# Patched Node.js (pkg-fetch), V8 bytecode, compression, full source protection
+pkg .
+```
+
+```sh [Enhanced SEA]
+# Stock Node.js, full dep walker, VFS runtime, faster builds, no patches
+pkg . --sea
+```
+
+:::
+
+**Standard** when you need bytecode protection or compression.
+**SEA** for everything else — stock binaries, no patch maintenance, stays on upstream Node.js. See [SEA vs Standard](/guide/sea-vs-standard).
+
 ## Why pkg?
 
 - **Commercial apps** — ship without sources
-- **CLI tools** — distribute a single binary, no npm install on user machines
+- **CLI tools** — distribute one binary, no npm install on user machines
 - **Demos & trials** — no runtime, no dependencies to break
 - **Self-extracting installers** — one file, portable
 - **Edge & containers** — smaller, faster deploys

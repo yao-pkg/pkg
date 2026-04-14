@@ -1,3 +1,8 @@
+---
+title: Contributing
+description: Local development setup for pkg itself — build, test, release — plus how to hack on this docs site.
+---
+
 # PKG Development
 
 This document aims to help you get started with `pkg` development.
@@ -80,3 +85,62 @@ Explaining the code above:
 - `test-79-npm`: It's the only test runned when using `only-npm`. It install and tests all node modules listed inside that dir and verifies if they are working correctly.
 - `test-42-fetch-all`: Foreach known node version verifies there is a patch existing for it using pkg-fetch.
 - `test-46-multi-arch`: Tries to cross-compile a binary for all known architectures.
+
+## Hacking on this docs site
+
+The documentation you're reading lives under `docs-site/` and is built with [VitePress](https://vitepress.dev). It's a separate npm workspace from `pkg` itself — its own `package.json` and lockfile.
+
+```bash
+cd docs-site
+npm install           # first time only
+npm run docs:dev      # hot-reload dev server on http://localhost:5173/pkg/
+```
+
+Build a production snapshot and preview it:
+
+```bash
+npm run docs:build    # outputs to .vitepress/dist
+npm run docs:preview
+```
+
+### Structure
+
+- `docs-site/index.md` — landing page (home layout)
+- `docs-site/guide/*.md` — user guide
+- `docs-site/architecture.md` — architecture deep-dive
+- `docs-site/development.md` — this page
+- `docs-site/.vitepress/config.ts` — sidebar, nav, mermaid config, version injection
+- `docs-site/.vitepress/theme/custom.css` — pkg brand palette + overrides
+
+Each content page should start with frontmatter providing a `title` and `description` — they feed the `<title>`/`<meta description>` tags and improve search indexing.
+
+### Mermaid diagrams
+
+Mermaid is wired via [`vitepress-plugin-mermaid`](https://www.npmjs.com/package/vitepress-plugin-mermaid). Use fenced blocks with the `mermaid` language:
+
+````md
+```mermaid
+flowchart LR
+  A --> B --> C
+```
+````
+
+### Adding a new page
+
+1. Create the markdown file with frontmatter (`title`, `description`)
+2. Add a sidebar entry in `docs-site/.vitepress/config.ts` under the appropriate group
+3. Link to it from related pages so it's discoverable by navigation, not just the sidebar
+4. Run `npm run docs:build` — VitePress fails the build on dead links, so any typos surface immediately
+
+### Canonical sources
+
+Two repo-root files are now **stubs** that point at their docs-site counterparts:
+
+- `DEVELOPMENT.md` → `docs-site/development.md`
+- `docs/ARCHITECTURE.md` → `docs-site/architecture.md`
+
+Never edit the stubs — edit the `docs-site/` versions. The stubs exist only for GitHub repo browsers that land on the root `.md` files.
+
+### CI
+
+`.github/workflows/docs.yml` runs the VitePress build on every PR that touches `docs-site/**` and deploys to GitHub Pages on every push to `main`. If your PR breaks the docs build, CI will flag it before merge.

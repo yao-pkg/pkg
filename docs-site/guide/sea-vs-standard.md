@@ -1,3 +1,8 @@
+---
+title: SEA vs Standard
+description: The full comparison between Standard mode (patched Node.js, bytecode, compression) and Enhanced SEA mode (stock Node.js, faster builds, zero patches).
+---
+
 # SEA vs Standard
 
 `pkg` supports two packaging modes. The single biggest difference isn't a feature toggle — it's **what Node.js binary they run on**.

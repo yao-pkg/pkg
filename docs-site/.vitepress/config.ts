@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitepress';
+import { withMermaid } from 'vitepress-plugin-mermaid';
 
 const pkg = JSON.parse(
   readFileSync(
@@ -9,13 +9,17 @@ const pkg = JSON.parse(
   ),
 ) as { version: string };
 
-export default defineConfig({
+export default withMermaid({
   title: 'pkg',
-  description: 'Package Node.js projects into single executables',
+  description:
+    'Package Node.js projects into single executables — no runtime, no npm, cross-compiled for Linux, macOS, and Windows.',
   lang: 'en-US',
   base: '/pkg/',
   cleanUrls: true,
   lastUpdated: true,
+  sitemap: {
+    hostname: 'https://yao-pkg.github.io/pkg/',
+  },
   head: [
     ['link', { rel: 'icon', type: 'image/png', href: '/pkg/logo.png' }],
     ['meta', { name: 'theme-color', content: '#E89B2C' }],
@@ -38,22 +42,22 @@ export default defineConfig({
         content: 'https://yao-pkg.github.io/pkg/logo.png',
       },
     ],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],
   themeConfig: {
     logo: '/logo.png',
     siteTitle: 'pkg',
     nav: [
       { text: 'Guide', link: '/guide/getting-started', activeMatch: '/guide/' },
+      { text: 'Recipes', link: '/guide/recipes' },
       { text: 'SEA vs Standard', link: '/guide/sea-vs-standard' },
       { text: 'Architecture', link: '/architecture' },
-      { text: 'Contributing', link: '/development' },
       {
         text: `v${pkg.version}`,
         items: [
-          {
-            text: 'Changelog',
-            link: 'https://github.com/yao-pkg/pkg/blob/main/CHANGELOG.md',
-          },
+          { text: 'Changelog', link: '/changelog' },
+          { text: 'Migration from vercel/pkg', link: '/guide/migration' },
+          { text: 'Contributing', link: '/development' },
           { text: 'npm', link: 'https://www.npmjs.com/package/@yao-pkg/pkg' },
           { text: 'Issues', link: 'https://github.com/yao-pkg/pkg/issues' },
         ],
@@ -67,6 +71,7 @@ export default defineConfig({
             { text: 'What is pkg?', link: '/guide/' },
             { text: 'Getting started', link: '/guide/getting-started' },
             { text: 'SEA vs Standard', link: '/guide/sea-vs-standard' },
+            { text: 'Migration from vercel/pkg', link: '/guide/migration' },
           ],
         },
         {
@@ -74,7 +79,7 @@ export default defineConfig({
           items: [
             { text: 'Targets', link: '/guide/targets' },
             { text: 'Configuration', link: '/guide/configuration' },
-            { text: 'Options', link: '/guide/options' },
+            { text: 'CLI options', link: '/guide/options' },
             { text: 'Output & debug', link: '/guide/output' },
             { text: 'Bytecode', link: '/guide/bytecode' },
             { text: 'Compression', link: '/guide/compression' },
@@ -92,12 +97,15 @@ export default defineConfig({
             { text: 'Native addons', link: '/guide/native-addons' },
             { text: 'ESM support', link: '/guide/esm' },
             { text: 'Custom Node.js binary', link: '/guide/custom-node' },
-            { text: 'API', link: '/guide/api' },
+            { text: 'Node.js API', link: '/guide/api' },
           ],
         },
         {
-          text: 'Troubleshooting',
-          items: [{ text: 'Common errors', link: '/guide/troubleshooting' }],
+          text: 'Cookbook',
+          items: [
+            { text: 'Recipes', link: '/guide/recipes' },
+            { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+          ],
         },
         {
           text: 'Advanced',
@@ -110,8 +118,21 @@ export default defineConfig({
           ],
         },
       ],
-      '/architecture': [{ text: 'Architecture', link: '/architecture' }],
-      '/development': [{ text: 'Development', link: '/development' }],
+      '/architecture': [
+        { text: 'Architecture', link: '/architecture' },
+        { text: 'Contributing', link: '/development' },
+        { text: 'Changelog', link: '/changelog' },
+      ],
+      '/development': [
+        { text: 'Contributing', link: '/development' },
+        { text: 'Architecture', link: '/architecture' },
+        { text: 'Changelog', link: '/changelog' },
+      ],
+      '/changelog': [
+        { text: 'Changelog', link: '/changelog' },
+        { text: 'Architecture', link: '/architecture' },
+        { text: 'Contributing', link: '/development' },
+      ],
     },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/yao-pkg/pkg' },
@@ -126,6 +147,12 @@ export default defineConfig({
       copyright: 'Copyright © 2023-present yao-pkg contributors',
     },
     search: { provider: 'local' },
-    outline: { level: [2, 3] },
+    outline: { level: [2, 4] },
+  },
+  mermaid: {
+    theme: 'default',
+  },
+  mermaidPlugin: {
+    class: 'mermaid-diagram',
   },
 });

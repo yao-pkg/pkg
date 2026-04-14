@@ -1,10 +1,43 @@
-# SEA Mode
+---
+title: SEA mode
+description: Use Node.js Single Executable Applications to package your project with stock, unmodified Node.js binaries.
+---
 
-The `--sea` flag uses Node.js [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) to package your project. SEA mode uses **stock, unmodified Node.js** — no custom patches, no `pkg-fetch`.
+# SEA mode
 
-There are two variants.
+`--sea` packages your project using **stock, unmodified Node.js** via the official [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) API — no custom patches, no `pkg-fetch`.
 
-## Simple SEA
+Looking for a conceptual overview? Jump to [SEA vs Standard](/guide/sea-vs-standard) for the full comparison, feature matrix, and patch-elimination roadmap.
+
+## Your first SEA binary
+
+Create the same hello project as in [Getting started](/guide/getting-started):
+
+```sh
+mkdir hello-sea && cd hello-sea
+echo 'console.log("stock-node hello!");' > index.js
+```
+
+Package it with SEA mode:
+
+```sh
+pkg index.js --sea
+```
+
+Run it:
+
+```sh
+./index-linux   # or index-macos / index-win.exe
+# → stock-node hello!
+```
+
+That's it. No patched Node, no `pkg-fetch` cache touched.
+
+## Two SEA variants
+
+`pkg` picks the variant automatically based on the input.
+
+### Simple SEA — single `.js` file
 
 For a single pre-bundled `.js` file (Node 22+):
 
@@ -12,28 +45,71 @@ For a single pre-bundled `.js` file (Node 22+):
 pkg --sea index.js
 ```
 
-## Enhanced SEA
+Node.js SEA supports exactly one entry file. Use this when your project is already bundled (webpack, esbuild, rollup) into one JS file.
 
-Automatically used when the input has a `package.json` and all targets are Node >= 22. Uses the full dependency walker with [`@roberts_lando/vfs`](https://github.com/robertsLando/vfs) for transparent `fs` / `require` / `import` support:
+### Enhanced SEA — full project with `package.json`
+
+Automatically used when the input has a `package.json` and all targets are Node >= 22. Uses the full dependency walker with [`@roberts_lando/vfs`](https://www.npmjs.com/package/@roberts_lando/vfs) for transparent `fs` / `require` / `import` support:
 
 ```sh
-pkg . --sea                    # walks dependencies, builds VFS
-pkg . --sea -t node24-linux    # target specific platform
+pkg . --sea                    # walks deps, builds VFS
+pkg . --sea -t node24-linux    # target a specific platform
 ```
 
-Enhanced SEA mode:
+::: code-group
 
-- Walks dependencies like traditional mode, but **skips V8 bytecode compilation and ESM-to-CJS transforms** — files stay as-is
-- Bundles all files into a **single archive blob** with offset-based zero-copy access at runtime
-- Supports **worker threads** (VFS hooks are automatically injected into `/snapshot/...` workers)
-- **Native addon extraction** works the same as traditional mode
-- **ESM entry points** (`"type": "module"`) work on every supported target (Node >= 22), **including entrypoints that use top-level await**. ESM entries are dispatched via `vm.Script` + `USE_MAIN_CONTEXT_DEFAULT_LOADER`, which routes dynamic `import()` through the default ESM loader — no Node-version split, no build-time warning. CJS entries go through `Module.runMain()`.
-- `seaConfig.useSnapshot` is not supported in enhanced SEA mode (incompatible with the VFS bootstrap); set it to `false` or omit it. `useCodeCache` is forwarded as-is.
-- Runtime diagnostics via `DEBUG_PKG` / `SIZE_LIMIT_PKG` / `FOLDER_LIMIT_PKG` work the same as in traditional mode, but only when the binary was built with `--debug` (release builds cannot be coerced into dumping the VFS tree).
-- Migration path to **`node:vfs`** when it lands in Node.js core.
+```sh [CLI]
+pkg . --sea -t node24-linux-x64
+```
+
+```json [package.json]
+{
+  "bin": "src/cli.js",
+  "pkg": {
+    "targets": ["node24-linux-x64", "node24-macos-arm64", "node24-win-x64"],
+    "outputPath": "dist",
+    "sea": true
+  }
+}
+```
+
+```js [Node.js API]
+const { exec } = require('@yao-pkg/pkg');
+await exec(['.', '--sea', '--out-path', 'dist']);
+```
+
+:::
+
+## What enhanced SEA does
+
+- **Walks dependencies** like traditional mode, but **skips V8 bytecode and ESM→CJS transforms** — files stay as-is
+- **Bundles all files** into a single archive blob with offset-based zero-copy access at runtime
+- **Worker threads** — VFS hooks are automatically injected into `/snapshot/...` workers
+- **Native addon extraction** — works the same as traditional mode
+- **ESM entry points** (`"type": "module"`) work on every supported target (Node >= 22), **including top-level await**. Dispatched via `vm.Script` + `USE_MAIN_CONTEXT_DEFAULT_LOADER`; no Node-version split, no build-time warning. CJS entries go through `Module.runMain()`.
+- **Runtime diagnostics** (`DEBUG_PKG` / `SIZE_LIMIT_PKG` / `FOLDER_LIMIT_PKG`) work the same as traditional mode — but only when built with `--debug`.
+- **Migration path** to **`node:vfs`** when it lands in Node.js core.
+
+::: warning seaConfig.useSnapshot
+Not supported in enhanced SEA mode (incompatible with the VFS bootstrap). Set it to `false` or omit it. `useCodeCache` is forwarded as-is.
+:::
 
 ## Trade-offs vs Standard mode
 
 Enhanced SEA builds faster and uses **official Node.js APIs**, but stores source code in plaintext (no bytecode protection) and does not support compression.
 
-For a full comparison and the roadmap for eliminating patched Node.js entirely, see **[SEA vs Standard](/guide/sea-vs-standard)**.
+| What you give up        | Why                                        |
+| ----------------------- | ------------------------------------------ |
+| V8 bytecode             | SEA loads plaintext sources via VFS        |
+| Brotli / GZip payload   | No compression stage in the SEA asset path |
+| `seaConfig.useSnapshot` | Incompatible with the VFS bootstrap        |
+
+Everything else — workers, native addons, ESM, cross-compile, targets — works the same.
+
+For the full comparison, see **[SEA vs Standard](/guide/sea-vs-standard)**.
+
+## Next steps
+
+- **[SEA vs Standard](/guide/sea-vs-standard)** — feature matrix + roadmap
+- **[Recipes](/guide/recipes)** — copy-paste SEA build recipes
+- **[Architecture: Enhanced SEA](/architecture#enhanced-sea-mode)** — deep dive on VFS + bootstrap internals

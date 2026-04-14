@@ -1,3 +1,8 @@
+---
+title: Windows metadata
+description: Inject version info, icon, product name, and copyright into a Windows .exe produced by pkg using resedit.
+---
+
 # Injecting Windows executable metadata after packaging
 
 Executables created with `pkg` are based on a Node.js binary and, by default, inherit its embedded metadata — version number, product name, company name, icon, description. This can be misleading or unpolished in distributed applications.
@@ -65,9 +70,9 @@ fs.writeFileSync(outputPath, Buffer.from(newBinary));
 
 The following examples inject an icon and metadata into the executable `dist/bin/app_with_metadata.exe`, based on the built file `dist/bin/app.exe`.
 
-**PowerShell (Windows):**
+::: code-group
 
-```powershell
+```powershell [PowerShell]
 npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe `
   --icon 1,dist/favicon.ico `
   --company-name "ACME Corporation" `
@@ -76,9 +81,7 @@ npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe `
   --file-version 1.2.3.4
 ```
 
-**bash (Linux/macOS):**
-
-```bash
+```bash [bash]
 npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe \
   --icon 1,dist/favicon.ico \
   --company-name "ACME Corporation" \
@@ -86,6 +89,8 @@ npx resedit dist/bin/app.exe dist/bin/app_with_metadata.exe \
   --product-name "ACME Application" \
   --file-version 1.2.3.4
 ```
+
+:::
 
 ::: tip
 This is especially useful when cross-compiling Windows executables from Linux or macOS using `pkg`.

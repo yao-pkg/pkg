@@ -62,3 +62,42 @@
 .VPHero .image-container img {
   border-radius: 24px;
 }
+
+/* responsive hero image on small viewports */
+@media (max-width: 640px) {
+  .VPHero .VPImage {
+    max-width: 40vw;
+    height: auto;
+  }
+}
+
+/* mermaid diagram sizing */
+.mermaid-diagram {
+  margin: 1.5rem 0;
+  text-align: center;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* fork banner callout on the landing page */
+.fork-banner {
+  max-width: 960px;
+  margin: 1.5rem auto 0;
+  padding: 0.9rem 1.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--vp-c-brand-2);
+  background: var(--vp-c-brand-soft);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.fork-banner strong {
+  color: var(--vp-c-brand-1);
+}
+
+.dark .fork-banner strong {
+  color: var(--vp-c-brand-light);
+}

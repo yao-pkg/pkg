@@ -1,83 +1,141 @@
+---
+title: Getting started
+description: Install pkg, package your first Node.js project into a single executable, and learn the CLI in under five minutes.
+---
+
 # Getting started
+
+## Prerequisites
+
+- **Node.js >= 22** on the build host (check with `node -v`)
+- **npm or any Node.js package manager** (pnpm, yarn, bun all work)
+- **~500 MB free disk** for cached base binaries on first run (`~/.pkg-cache/`)
+
+Cross-compiling Linux / macOS / Windows binaries from a single host is fully supported — see [Targets](/guide/targets) for per-platform caveats.
 
 ## Install
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install -g @yao-pkg/pkg
 ```
 
-Requires **Node.js >= 22** on the build host.
+```sh [pnpm]
+pnpm add -g @yao-pkg/pkg
+```
+
+```sh [yarn]
+yarn global add @yao-pkg/pkg
+```
+
+```sh [npx (no install)]
+npx @yao-pkg/pkg .
+```
+
+:::
+
+Verify the install:
+
+```sh
+pkg --version
+```
 
 ## Build your first binary
 
-The entrypoint of your project is a mandatory CLI argument. It may be:
-
-- **Path to an entry file.** `pkg /path/app.js` packages as if you ran `node /path/app.js`.
-- **Path to `package.json`.** `pkg` follows the `bin` property and uses it as the entry file.
-- **Path to a directory.** `pkg` looks for `package.json` in that directory (same as above).
+Create a tiny project:
 
 ```sh
-# Single file — builds for linux, macos, win by default
-pkg index.js
+mkdir hello-pkg && cd hello-pkg
+echo 'console.log("hello from a single binary!");' > index.js
+```
 
-# Follow the "bin" entry of the current package.json
+Package it:
+
+```sh
+pkg index.js
+```
+
+You should now see three executables in the current directory:
+
+```text
+index-linux
+index-macos
+index-win.exe
+```
+
+Each is a fully self-contained binary — no Node.js required on the target machine. Run the one for your host:
+
+::: code-group
+
+```sh [Linux]
+./index-linux
+# → hello from a single binary!
+```
+
+```sh [macOS]
+./index-macos
+# → hello from a single binary!
+```
+
+```powershell [Windows]
+.\index-win.exe
+# → hello from a single binary!
+```
+
+:::
+
+### Package a whole project
+
+With a `package.json` in place, `pkg` follows its `bin` entry and walks your dependencies automatically:
+
+```json
+{
+  "name": "hello-pkg",
+  "version": "1.0.0",
+  "bin": "index.js",
+  "pkg": {
+    "targets": ["node22-linux-x64", "node22-macos-arm64", "node22-win-x64"],
+    "outputPath": "dist"
+  }
+}
+```
+
+Then:
+
+```sh
 pkg .
 ```
+
+`pkg` reads the `pkg` property in `package.json`, targets just the three platforms listed, and drops the output into `dist/`. See [Configuration](/guide/configuration) for the full config schema and [Targets](/guide/targets) for the target triple syntax.
 
 ## CLI reference
 
-```console
-pkg [options] <input>
-
-Options:
-
-  -h, --help           output usage information
-  -v, --version        output pkg version
-  -t, --targets        comma-separated list of targets (see examples)
-  -c, --config         package.json or any json file with top-level config
-  --options            bake v8 options into executable to run with them on
-  -o, --output         output file name or template for several files
-  --out-path           path to save output one or more executables
-  -d, --debug          show more information during packaging process [off]
-  -b, --build          don't download prebuilt base binaries, build them
-  --public             speed up and disclose the sources of top-level project
-  --public-packages    force specified packages to be considered public
-  --no-bytecode        skip bytecode generation and include source files as plain js
-  --no-native-build    skip native addons build
-  --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
-  -C, --compress       [default=None] compression algorithm = Brotli or GZip
-  --sea                (Experimental) compile using node's SEA feature. With package.json input and node >= 22, uses enhanced mode with full dependency walking and VFS
-```
-
-## Examples
-
-```sh
-# Makes executables for Linux, macOS and Windows
-pkg index.js
-
-# Takes package.json from cwd and follows 'bin' entry
-pkg .
-
-# Makes executable for a particular target machine
-pkg -t node22-win-arm64 index.js
-
-# Makes executables for target machines of your choice
-pkg -t node22-linux,node24-linux,node24-win index.js
-
-# Bakes '--expose-gc' and '--max-heap-size=34' into executable
-pkg --options "expose-gc,max-heap-size=34" index.js
-
-# Consider packageA and packageB to be public
-pkg --public-packages "packageA,packageB" index.js
-
-# Consider all packages to be public
-pkg --public-packages "*" index.js
-
-# Reduce size of the data packed inside the executable with GZip
-pkg --compress GZip index.js
-
-# Compile using node's SEA feature
-pkg --sea index.js
-```
+| Flag                       | Short | Description                                                                                      |
+| -------------------------- | ----- | ------------------------------------------------------------------------------------------------ |
+| `--help`                   | `-h`  | Show usage                                                                                       |
+| `--version`                | `-v`  | Print pkg version                                                                                |
+| `--targets <list>`         | `-t`  | Comma-separated target list, e.g. `node22-linux-x64` — see [Targets](/guide/targets)             |
+| `--config <path>`          | `-c`  | Path to `package.json` or any JSON file with a top-level `pkg` config                            |
+| `--output <path>`          | `-o`  | Output file name (single-target builds only)                                                     |
+| `--out-path <dir>`         |       | Output directory for multi-target builds                                                         |
+| `--debug`                  | `-d`  | Verbose packaging log — see [Output & debug](/guide/output)                                      |
+| `--build`                  | `-b`  | Compile base binaries from source instead of downloading — see [Build](/guide/build)             |
+| `--public`                 |       | Speed up packaging and disclose top-level sources                                                |
+| `--public-packages <list>` |       | Force listed packages to be treated as public — see [Bytecode](/guide/bytecode)                  |
+| `--no-bytecode`            |       | Skip V8 bytecode compilation, embed source as plain JS — see [Bytecode](/guide/bytecode)         |
+| `--no-native-build`        |       | Skip building native addons                                                                      |
+| `--no-dict <list>`         |       | Ignore bundled dictionaries for listed packages (`*` disables all)                               |
+| `--options <list>`         |       | Bake V8 options into the executable — see [CLI options](/guide/options)                          |
+| `--compress <algo>`        | `-C`  | Compress the embedded filesystem with `Brotli` or `GZip` — see [Compression](/guide/compression) |
+| `--sea`                    |       | Use Node.js SEA instead of the patched base binary — see [SEA mode](/guide/sea-mode)             |
 
 Run `pkg --help` at any time for the live list of options.
+
+## Next steps
+
+- **[Targets](/guide/targets)** — cross-compile for other platforms
+- **[Configuration](/guide/configuration)** — `pkg` property, assets, scripts, ignore
+- **[SEA vs Standard](/guide/sea-vs-standard)** — which packaging mode to pick
+- **[Recipes](/guide/recipes)** — copy-paste solutions for common tasks
+- **[Troubleshooting](/guide/troubleshooting)** — if something breaks
