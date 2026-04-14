@@ -116,6 +116,21 @@
   stroke: var(--vp-c-text-2) !important;
 }
 
+/* lift node rects off the card background in dark mode so they're
+   visible without relying solely on stroke */
+.dark .mermaid-diagram svg .node rect,
+.dark .mermaid-diagram svg .node polygon,
+.dark .mermaid-diagram svg .node circle,
+.dark .mermaid-diagram svg .node ellipse,
+.dark .mermaid-diagram svg .node path {
+  fill: #2d2f36 !important;
+}
+
+.dark .mermaid-diagram svg .cluster rect {
+  fill: #1a1b1f !important;
+  stroke: var(--vp-c-divider) !important;
+}
+
 /* fork banner callout on the landing page */
 .fork-banner {
   max-width: 960px;

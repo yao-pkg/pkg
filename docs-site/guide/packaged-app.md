@@ -24,17 +24,7 @@ Note that `process.argv[0]` is the path to the **binary itself** (not `node`), a
 
 ## Detecting the pkg runtime
 
-A `process.pkg` object exists when running inside a packaged binary:
-
-```js
-if (process.pkg) {
-  console.log('packaged mode — entrypoint is', process.pkg.defaultEntrypoint);
-} else {
-  console.log('running under plain node');
-}
-```
-
-Useful for switching between relative asset paths and snapshot paths in shared code.
+Check for `process.pkg` — see [Snapshot filesystem → Detecting that you're packaged](/guide/snapshot-fs#detecting-that-you-re-packaged).
 
 ## Standard streams
 

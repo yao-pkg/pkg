@@ -52,9 +52,7 @@ If `pkg` can't statically detect a `.node` require (e.g. `bindings` or dynamic p
 }
 ```
 
-::: warning linuxstatic
-Fully static Node binaries cannot load native bindings. You may not use Node bindings with `linuxstatic` — use `linux` instead.
-:::
+Native bindings are not supported on the `linuxstatic` target — see [Targets → Alpine / musl](/guide/targets#alpine-musl).
 
 ## See also
 
