@@ -21,3 +21,4 @@ examples/express/node_modules
 yarn-error.log
 tsconfig.tsbuildinfo
 prelude/sea-bootstrap.bundle.js
+prelude/sea-bootstrap-esm.bundle.mjs

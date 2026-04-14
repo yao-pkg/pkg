@@ -562,7 +562,7 @@ export async function seaEnhanced(
   await withSeaTmpDir(async (tmpDir) => {
     // Generate SEA assets from walker output
     log.info('Generating SEA assets...');
-    const { assets, manifestPath } = await generateSeaAssets(
+    const { assets, manifestPath, entryIsESM } = await generateSeaAssets(
       records,
       refinedEntry,
       symLinks,
@@ -570,17 +570,43 @@ export async function seaEnhanced(
       { debug: log.debugMode },
     );
 
-    // Always use the CJS bootstrap. Native ESM SEA main
-    // (sea-config mainFormat:"module", Node 25.7+ / nodejs/node#61813)
-    // cannot dynamically import the user entry on Node 25.5+ because
-    // the embedder dynamic-import callback only resolves builtin
-    // modules (see nodejs/node#62726). The CJS bootstrap handles ESM
-    // entries with top-level await by dispatching through a vm.Script
-    // compiled with USE_MAIN_CONTEXT_DEFAULT_LOADER, which is routed
-    // to the default ESM loader.
-    const bootstrapPath = join(tmpDir, 'sea-main.js');
+    // Use native ESM SEA main when:
+    //   - entry is ESM
+    //   - target Node supports sea-config mainFormat:"module" (Node 25.7+,
+    //     nodejs/node#61813)
+    //   - target Node resolves non-builtin modules in the embedder
+    //     dynamic-import callback (see nodejs/node#62726 — replace
+    //     `MIN_EMBEDDER_IMPORT_FIXED_MAJOR` with the actual first fixed
+    //     release once it lands)
+    //
+    // Otherwise fall back to the CJS bootstrap, which on Node 22.12+
+    // transparently loads ESM entries via Module.runMain() → require(esm).
+    // The CJS fallback does NOT support top-level await in the user
+    // entry — require(esm) rejects TLA modules — which is why the
+    // native path is preferred once it is available.
+    const MIN_EMBEDDER_IMPORT_FIXED_MAJOR = Number.MAX_SAFE_INTEGER;
+    const useNativeEsmMain =
+      entryIsESM && minTargetMajor >= MIN_EMBEDDER_IMPORT_FIXED_MAJOR;
+
+    if (entryIsESM && !useNativeEsmMain) {
+      log.warn(
+        'ESM entrypoint detected; falling back to the CJS SEA bootstrap. Limitations:',
+        [
+          '- Top-level await in the user entry is not supported (require(esm) rejects TLA).',
+          '- Rebuild with a Node target that carries the nodejs/node#62726 fix to enable native sea-config mainFormat:"module".',
+        ],
+      );
+    }
+
+    const bootstrapFile = useNativeEsmMain
+      ? 'sea-bootstrap-esm.bundle.mjs'
+      : 'sea-bootstrap.bundle.js';
+    const bootstrapPath = join(
+      tmpDir,
+      useNativeEsmMain ? 'sea-main.mjs' : 'sea-main.js',
+    );
     await copyFile(
-      join(__dirname, '..', 'prelude', 'sea-bootstrap.bundle.js'),
+      join(__dirname, '..', 'prelude', bootstrapFile),
       bootstrapPath,
     );
 
@@ -605,6 +631,12 @@ export async function seaEnhanced(
         ...assets,
       },
     };
+
+    if (useNativeEsmMain) {
+      // Requires Node 25.7+ — makes the SEA main execute as ESM, enabling
+      // native top-level await and sync-import of ESM deps via module hooks.
+      seaConfig.mainFormat = 'module';
+    }
 
     const seaConfigFilePath = join(tmpDir, 'sea-config.json');
     log.info('Creating sea-config.json file...');
