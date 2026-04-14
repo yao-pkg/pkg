@@ -9,6 +9,12 @@ const pkg = JSON.parse(
   ),
 ) as { version: string };
 
+const referenceSidebar = [
+  { text: 'Architecture', link: '/architecture' },
+  { text: 'Contributing', link: '/development' },
+  { text: 'Changelog', link: '/changelog' },
+];
+
 export default withMermaid({
   title: 'pkg',
   description:
@@ -66,7 +72,7 @@ export default withMermaid({
     sidebar: {
       '/guide/': [
         {
-          text: 'Introduction',
+          text: 'Learn',
           items: [
             { text: 'What is pkg?', link: '/guide/' },
             { text: 'Getting started', link: '/guide/getting-started' },
@@ -75,7 +81,7 @@ export default withMermaid({
           ],
         },
         {
-          text: 'Packaging',
+          text: 'Build',
           items: [
             { text: 'Targets', link: '/guide/targets' },
             { text: 'Configuration', link: '/guide/configuration' },
@@ -83,13 +89,13 @@ export default withMermaid({
             { text: 'Output & debug', link: '/guide/output' },
             { text: 'Bytecode', link: '/guide/bytecode' },
             { text: 'Compression', link: '/guide/compression' },
-            { text: 'Build from source', link: '/guide/build' },
             { text: 'SEA mode', link: '/guide/sea-mode' },
             { text: 'Environment vars', link: '/guide/environment' },
+            { text: 'Build from source', link: '/guide/build' },
           ],
         },
         {
-          text: 'Runtime',
+          text: 'Run',
           items: [
             { text: 'Packaged app usage', link: '/guide/packaged-app' },
             { text: 'Snapshot filesystem', link: '/guide/snapshot-fs' },
@@ -118,21 +124,9 @@ export default withMermaid({
           ],
         },
       ],
-      '/architecture': [
-        { text: 'Architecture', link: '/architecture' },
-        { text: 'Contributing', link: '/development' },
-        { text: 'Changelog', link: '/changelog' },
-      ],
-      '/development': [
-        { text: 'Contributing', link: '/development' },
-        { text: 'Architecture', link: '/architecture' },
-        { text: 'Changelog', link: '/changelog' },
-      ],
-      '/changelog': [
-        { text: 'Changelog', link: '/changelog' },
-        { text: 'Architecture', link: '/architecture' },
-        { text: 'Contributing', link: '/development' },
-      ],
+      '/architecture': referenceSidebar,
+      '/development': referenceSidebar,
+      '/changelog': referenceSidebar,
     },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/yao-pkg/pkg' },

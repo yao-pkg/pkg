@@ -5,9 +5,7 @@ description: Configure pkg via the pkg property in package.json — scripts, ass
 
 # Configuration
 
-During the packaging process `pkg` parses your sources, detects calls to `require`, traverses the dependencies of your project, and includes them in the executable. In most cases you don't need to specify anything manually.
-
-However, your code may have `require(variable)` calls (a so-called non-literal argument to `require`) or use non-JavaScript files (views, CSS, images, etc.):
+`pkg` auto-detects most dependencies by walking `require` / `import` from your entry file (see [how it works](/guide/)). You only need to configure it when your code uses dynamic `require(variable)` calls or non-JavaScript files (views, CSS, images, etc.):
 
 ```js
 require('./build/' + cmd + '.js');

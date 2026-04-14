@@ -7,6 +7,22 @@ description: Copy-paste solutions for common pkg tasks — cross-compile, compre
 
 Copy-paste solutions for tasks you actually do. Each recipe is self-contained — no prose, just the config and the command.
 
+**Jump to a recipe:**
+
+- [Build a binary for every mainstream platform](#build-a-binary-for-every-mainstream-platform)
+- [Smallest possible binary (Brotli + Standard mode)](#smallest-possible-binary-brotli-standard-mode)
+- [Reproducible builds (no bytecode, same hash every time)](#reproducible-builds-no-bytecode-same-hash-every-time)
+- [Bundle a native SQLite addon](#bundle-a-native-sqlite-addon)
+- [Ship an ESM project with top-level await](#ship-an-esm-project-with-top-level-await)
+- [Build all targets in CI](#build-all-targets-in-ci)
+- [Programmatic build with the Node.js API](#programmatic-build-with-the-node-js-api)
+- [Bake V8 heap limit into the binary](#bake-v8-heap-limit-into-the-binary)
+- [Cross-compile to Linux arm64 without QEMU](#cross-compile-to-linux-arm64-without-qemu)
+- [Exclude test and doc directories from dependencies](#exclude-test-and-doc-directories-from-dependencies)
+- [Use a glob to bundle all SQL migrations](#use-a-glob-to-bundle-all-sql-migrations)
+- [Debug a missing asset](#debug-a-missing-asset)
+- [Pin the base binary cache path (CI / enterprise)](#pin-the-base-binary-cache-path-ci-enterprise)
+
 ## Build a binary for every mainstream platform
 
 ::: code-group

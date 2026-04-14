@@ -94,24 +94,9 @@ Want to target a specific platform?
 pkg -t node22-linux-arm64 index.js
 ```
 
-## Two packaging modes
+## Standard or SEA?
 
-::: code-group
-
-```sh [Standard (default)]
-# Patched Node.js (pkg-fetch), V8 bytecode, compression, full source protection
-pkg .
-```
-
-```sh [Enhanced SEA]
-# Stock Node.js, full dep walker, VFS runtime, faster builds, no patches
-pkg . --sea
-```
-
-:::
-
-**Standard** when you need bytecode protection or compression.
-**SEA** for everything else — stock binaries, no patch maintenance, stays on upstream Node.js. See [SEA vs Standard](/guide/sea-vs-standard).
+Two build modes: **Standard** (`pkg .`) gives you bytecode protection and compression; **Enhanced SEA** (`pkg . --sea`) runs on stock Node.js with no patches. Pick via [SEA vs Standard](/guide/sea-vs-standard).
 
 ## Why pkg?
 

@@ -55,56 +55,6 @@ Pick **SEA** when:
 
 For new projects where bytecode IP protection isn't a hard requirement, **SEA is the recommended default going forward**.
 
-## Roadmap: killing `pkg-fetch`
+## Roadmap
 
-The long-term goal is to eliminate the need for patched Node.js binaries **entirely**. Tracked in **[yao-pkg/pkg#231](https://github.com/yao-pkg/pkg/issues/231)**.
-
-Every `pkg-fetch` patch falls into 9 conceptual categories. Most of them can be eliminated by landing changes upstream in Node.js core. Here's the current plan:
-
-| #   | Patch category                       | Eliminated by                                                                   |
-| --- | ------------------------------------ | ------------------------------------------------------------------------------- |
-| 1   | Binary entrypoint injection (BAKERY) | **SEA mode** (already available)                                                |
-| 2   | Bootstrap / prelude loader           | **`node:vfs`** ([nodejs/node#61478](https://github.com/nodejs/node/pull/61478)) |
-| 3   | VFS interception in module loader    | **`node:vfs`** ([nodejs/node#61478](https://github.com/nodejs/node/pull/61478)) |
-| 4   | V8 sourceless bytecode               | RFC for upstream bytecode-only execution mode                                   |
-| 5   | SIGUSR1 removal                      | `--disable-inspector` configure flag                                            |
-| 6   | Debug options disabled               | `--disable-inspector` configure flag                                            |
-| 7   | Process init guards                  | **`node:vfs`** ([nodejs/node#61478](https://github.com/nodejs/node/pull/61478)) |
-| 8   | `child_process.fork()` bug           | One-line upstream bug fix PR                                                    |
-| 9   | Build system fixes                   | Individual small PRs for each fix                                               |
-
-### Upstream strategy
-
-**Tier 1 — submit now** (high acceptance, low risk)
-
-- `child_process.fork()` bug fix — one-line PR
-- Build fixes — small PRs for each
-
-**Tier 2 — help land the VFS PR** (highest impact)
-
-- Help rebase [nodejs/node#61478](https://github.com/nodejs/node/pull/61478)
-- Fix worker-thread VFS inheritance
-- Contribute SEA-specific tests
-- Help close remaining items in [nodejs/node#62328](https://github.com/nodejs/node/issues/62328)
-
-Landing VFS alone eliminates patches **2, 3, 7** and reduces the need for patch **1**.
-
-**Tier 3 — RFC for V8 sourceless bytecode** (high impact, needs socialisation)
-
-- Write an RFC for bytecode-only execution mode
-- Socialise in `nodejs/node` discussions
-- Submit a PR if the RFC is accepted
-
-Eliminates patch **4** — the most complex and fragile of the bunch.
-
-**Tier 4 — configure flags** (lower priority)
-
-- Propose `--disable-inspector` configure flag (or rely on SEA's existing inspector restrictions)
-
-Eliminates patches **5, 6**.
-
-### End state
-
-**Zero patches. `pkg` uses stock Node.js binaries via SEA + `node:vfs`.**
-
-This is an ongoing effort. Follow progress, comment, or contribute on **[#231](https://github.com/yao-pkg/pkg/issues/231)**.
+Long-term goal: eliminate patched Node.js binaries entirely and ship `pkg` on stock Node via SEA + `node:vfs`. Progress, patch categorisation, and upstream strategy are tracked in **[#231](https://github.com/yao-pkg/pkg/issues/231)**.

@@ -7,8 +7,6 @@ description: pkg packages Node.js projects into single self-contained executable
 
 `pkg` is a command-line tool that packages your Node.js project into a **single self-contained executable**. The resulting binary runs on devices that don't have Node.js installed, ship no `node_modules`, and boot like any other native CLI tool.
 
-This is **`yao-pkg/pkg`** — the actively maintained fork of the archived `vercel/pkg`.
-
 ## Use cases
 
 - Make a commercial version of your application without sources
@@ -22,12 +20,7 @@ This is **`yao-pkg/pkg`** — the actively maintained fork of the archived `verc
 
 ## Two packaging modes
 
-`pkg` supports two ways to build your executable:
-
-- **Standard mode** — uses a custom-patched Node.js binary from [`pkg-fetch`](https://github.com/yao-pkg/pkg-fetch). V8 bytecode, compression, and full source protection.
-- **SEA mode** — uses **stock, unmodified Node.js** via Node's [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) API. Faster builds, zero patch maintenance, stays in sync with upstream Node.js.
-
-Standard mode is battle-tested and still required when you need bytecode source protection or compression. **SEA mode is the recommended default for new projects** that don't need those features — it runs on stock Node.js, builds faster, and is where the project is heading. See [SEA vs Standard](/guide/sea-vs-standard) for the full comparison and the roadmap for going patch-free.
+`pkg` builds executables in either **Standard** mode (patched Node.js, bytecode, compression) or **Enhanced SEA** mode (stock Node.js via the [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) API). See **[SEA vs Standard](/guide/sea-vs-standard)** to pick.
 
 ## How it works
 
