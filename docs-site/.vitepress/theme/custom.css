@@ -101,3 +101,56 @@
 .dark .fork-banner strong {
   color: var(--vp-c-brand-light);
 }
+
+/* landing page badge row — force inline flow, kill paragraph wrapping */
+.landing-badges {
+  max-width: 960px;
+  margin: 2rem auto 0;
+  padding: 0 1.5rem;
+  text-align: center;
+}
+
+.landing-badges p {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  justify-content: center;
+  align-items: center;
+}
+
+.landing-badges img {
+  display: inline-block;
+  vertical-align: middle;
+  height: 20px;
+}
+
+/* landing page demo (terminal GIF) */
+.landing-demo {
+  max-width: 900px;
+  margin: 2rem auto 0;
+  padding: 0 1.5rem;
+  text-align: center;
+}
+
+.landing-demo img {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--vp-c-divider);
+}
+
+.landing-demo figcaption {
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+  color: var(--vp-c-text-2);
+  font-style: italic;
+}
+
+/* landing body content — inherits VitePress prose styles */
+.landing-body {
+  max-width: 960px;
+  margin: 3rem auto 0;
+  padding: 0 1.5rem;
+}

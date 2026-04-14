@@ -46,17 +46,18 @@ features:
 <strong>Looking for <code>vercel/pkg</code>?</strong> This is <a href="https://github.com/yao-pkg/pkg"><code>yao-pkg/pkg</code></a> — the actively maintained fork. The original <code>vercel/pkg</code> is archived. <code>@yao-pkg/pkg</code> is a drop-in replacement — rename the dep and keep shipping. See the <a href="/pkg/guide/migration">migration guide</a>.
 </div>
 
-<div style="max-width: 960px; margin: 2rem auto 0; padding: 0 1.5rem; text-align: center;">
+<div class="landing-badges">
 
-<a href="https://www.npmjs.com/package/@yao-pkg/pkg"><img src="https://img.shields.io/npm/v/@yao-pkg/pkg?color=e89b2c&label=npm" alt="npm version" /></a>
-<a href="https://www.npmjs.com/package/@yao-pkg/pkg"><img src="https://img.shields.io/npm/dm/@yao-pkg/pkg?color=e89b2c&label=downloads" alt="npm downloads" /></a>
-<a href="https://github.com/yao-pkg/pkg/stargazers"><img src="https://img.shields.io/github/stars/yao-pkg/pkg?color=e89b2c&label=stars" alt="GitHub stars" /></a>
-<a href="https://github.com/yao-pkg/pkg/actions/workflows/ci.yml"><img src="https://github.com/yao-pkg/pkg/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-<a href="https://github.com/yao-pkg/pkg/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@yao-pkg/pkg?color=e89b2c" alt="license" /></a>
+[![npm version](https://img.shields.io/npm/v/@yao-pkg/pkg?color=e89b2c&label=npm)](https://www.npmjs.com/package/@yao-pkg/pkg) [![npm downloads](https://img.shields.io/npm/dm/@yao-pkg/pkg?color=e89b2c&label=downloads)](https://www.npmjs.com/package/@yao-pkg/pkg) [![GitHub stars](https://img.shields.io/github/stars/yao-pkg/pkg?color=e89b2c&label=stars)](https://github.com/yao-pkg/pkg/stargazers) [![CI](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml/badge.svg)](https://github.com/yao-pkg/pkg/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/@yao-pkg/pkg?color=e89b2c)](https://github.com/yao-pkg/pkg/blob/main/LICENSE)
 
 </div>
 
-<div style="max-width: 960px; margin: 3rem auto 0; padding: 0 1.5rem;">
+<figure class="landing-demo">
+  <img src="/hero.gif" alt="Terminal recording: pkg index.js produces linux, macos, and windows binaries in one second" />
+  <figcaption>One command. Three binaries. Runs on machines without Node.js installed.</figcaption>
+</figure>
+
+<div class="landing-body">
 
 ## Quick install
 
@@ -78,7 +79,7 @@ pkg index.js
 pkg .
 ```
 
-```sh [Node.js API]
+```js [Node.js API]
 const { exec } = require('@yao-pkg/pkg');
 await exec(['index.js', '--target', 'host', '--output', 'app']);
 ```
