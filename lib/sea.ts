@@ -311,7 +311,7 @@ async function getNodejsExecutable(
 async function bake(
   nodePath: string,
   target: NodeTarget & Partial<Target>,
-  blobPath: string,
+  blobData: Buffer,
 ) {
   const outPath = resolve(process.cwd(), target.output as string);
 
@@ -343,7 +343,6 @@ async function bake(
   // This avoids two CI issues:
   // 1. "Text file busy" race condition from concurrent npx invocations
   // 2. "Argument is not a constructor" from npx downloading incompatible versions
-  const blobData = await readFile(blobPath);
   await postjectInject(outPath, 'NODE_SEA_BLOB', blobData, {
     sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
     machoSegmentName: target.platform === 'macos' ? 'NODE_SEA' : undefined,
@@ -615,11 +614,15 @@ export async function seaEnhanced(
       pickBlobGeneratorBinary(minTargetMajor, nodePaths),
     );
 
+    // Read the blob once and share the buffer across all targets — avoids
+    // N redundant disk reads and N peak buffer copies on multi-target builds.
+    const blobData = await readFile(blobPath);
+
     // Bake blob into each target executable
     await Promise.all(
       nodePaths.map(async (nodePath, i) => {
         const target = opts.targets[i];
-        await bake(nodePath, target, blobPath);
+        await bake(nodePath, target, blobData);
         await signMacOSIfNeeded(target.output!, target, opts.signature);
       }),
     );
@@ -661,10 +664,12 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
       pickBlobGeneratorBinary(resolveMinTargetMajor(opts.targets), nodePaths),
     );
 
+    const blobData = await readFile(blobPath);
+
     await Promise.all(
       nodePaths.map(async (nodePath, i) => {
         const target = opts.targets[i];
-        await bake(nodePath, target, blobPath);
+        await bake(nodePath, target, blobData);
         await signMacOSIfNeeded(target.output!, target, opts.signature);
       }),
     );
