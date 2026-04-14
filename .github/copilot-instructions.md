@@ -236,7 +236,7 @@ Follow conventional commits format:
 
 1. **Read existing code**: Look at similar functionality before implementing new features
 2. **Add tests**: Every new feature or bug fix should include a test
-3. **Update documentation**: Update README.md and DEVELOPMENT.md as needed
+3. **Update documentation**: Update the docs site (`docs-site/`) as needed — guides live under `docs-site/guide/`, development notes in `docs-site/development.md`, architecture in `docs-site/architecture.md`
 4. **Check CI**: Ensure all CI checks pass before requesting review
 5. **Small PRs**: Keep pull requests focused and reasonably sized
 6. **Follow patterns**: Match existing code style and patterns
@@ -275,8 +275,8 @@ The project uses GitHub Actions workflows:
 
 - **Issues**: Report bugs and feature requests on GitHub
 - **Discussions**: Use GitHub Discussions for questions
-- **Documentation**: See README.md for user documentation
-- **Development Guide**: See DEVELOPMENT.md for development details
+- **Documentation**: See the docs site at https://yao-pkg.github.io/pkg/ (sources in `docs-site/`)
+- **Development Guide**: See `docs-site/development.md` (published at https://yao-pkg.github.io/pkg/development)
 - **Related Projects**:
   - [pkg-fetch](https://github.com/yao-pkg/pkg-fetch) - Pre-compiled Node.js binaries
   - [pkg-binaries](https://github.com/yao-pkg/pkg-binaries) - Binaries for unsupported architectures

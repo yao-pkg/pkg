@@ -6,6 +6,10 @@ on:
     paths:
       - 'docs-site/**'
       - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs-site/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -30,19 +34,22 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
+          cache-dependency-path: docs-site/package-lock.json
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build with VitePress
         run: npm run docs:build
 
       - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs-site/.vitepress/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:

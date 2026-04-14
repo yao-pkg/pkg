@@ -1,6 +1,6 @@
 # PKG Development
 
-This document aims to help you get started with `pkg` developemnt.
+This document aims to help you get started with `pkg` development.
 
 ## Release Process
 
@@ -23,7 +23,7 @@ npm run build
 > [!NOTE]
 > Remember to run again `npm run build` after changing source code (everything inside `lib` folder).
 
-Than you can use the following command to run tests:
+Then you can use the following command to run tests:
 
 ```bash
 node test/test.js <target> [no-npm | only-npm | all] [<flavor>]

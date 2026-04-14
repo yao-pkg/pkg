@@ -1,4 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitepress';
+
+const pkg = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL('../../package.json', import.meta.url)),
+    'utf-8',
+  ),
+) as { version: string };
 
 export default defineConfig({
   title: 'pkg',
@@ -39,7 +48,7 @@ export default defineConfig({
       { text: 'Architecture', link: '/architecture' },
       { text: 'Contributing', link: '/development' },
       {
-        text: 'v6.14.2',
+        text: `v${pkg.version}`,
         items: [
           {
             text: 'Changelog',
