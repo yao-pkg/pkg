@@ -1,0 +1,339 @@
+name: Cross-compile matrix
+
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'prelude/**'
+      - 'dictionary/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/cross-compile-matrix.yml'
+  workflow_dispatch:
+    inputs:
+      node-majors:
+        description: 'Comma-separated node majors to test (default 22)'
+        required: false
+        default: '22'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xcompile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Stage 1: build
+  # --------------------------------------------------------------------------
+  # Each job is one (host × mode × node) tuple. It builds pkg once and then
+  # compiles the hello.js fixture for every target. Binaries are uploaded as
+  # a single artifact per job, with filenames encoding host/target/mode/node.
+  # --------------------------------------------------------------------------
+  build:
+    name: build ${{ matrix.host.label }} / ${{ matrix.mode }} / n${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - { label: linux-x64,   runner: ubuntu-24.04 }
+          - { label: linux-arm64, runner: ubuntu-24.04-arm }
+          - { label: macos-x64,   runner: macos-13 }
+          - { label: macos-arm64, runner: macos-14 }
+          - { label: win-x64,     runner: windows-latest }
+        mode: [std, std-public, sea]
+        node: [22]
+    runs-on: ${{ matrix.host.runner }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - name: Install + build pkg
+        shell: bash
+        run: |
+          yarn install --frozen-lockfile
+          yarn build
+
+      - name: Create hello.js fixture
+        shell: bash
+        run: |
+          mkdir -p fixture
+          cat > fixture/hello.js <<'EOF'
+          console.log('hello from pkg', process.platform, process.arch, process.version);
+          EOF
+          cat > fixture/package.json <<'EOF'
+          { "name": "hello-pkg", "version": "1.0.0", "bin": "hello.js", "pkg": { "scripts": [] } }
+          EOF
+
+      - name: Build binaries for all targets
+        shell: bash
+        env:
+          HOST: ${{ matrix.host.label }}
+          MODE: ${{ matrix.mode }}
+          NODE_MAJOR: ${{ matrix.node }}
+        run: |
+          set -u
+          mkdir -p bin
+          EXTRA=()
+          case "$MODE" in
+            std) ;;
+            std-public) EXTRA+=(--public-packages '*' --public) ;;
+            sea) EXTRA+=(--sea) ;;
+          esac
+
+          TARGETS=(linux-x64 linux-arm64 macos-x64 macos-arm64 win-x64)
+          for target in "${TARGETS[@]}"; do
+            ext=""
+            case "$target" in win-*) ext=".exe" ;; esac
+            out="bin/${HOST}__${target}__${MODE}__n${NODE_MAJOR}${ext}"
+            echo "::group::build $target"
+            if node ./lib-es5/bin.js fixture/hello.js -t "node${NODE_MAJOR}-${target}" -o "$out" "${EXTRA[@]}" 2>&1; then
+              if [[ -f "$out" ]]; then
+                echo "::notice::built $out"
+              else
+                echo "::warning::pkg exited 0 but no output at $out"
+                : > "${out}.failed"
+              fi
+            else
+              echo "::warning::build failed for $target"
+              : > "${out}.failed"
+            fi
+            echo "::endgroup::"
+          done
+          ls -la bin/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xcompile-bins-${{ matrix.host.label }}-${{ matrix.mode }}-n${{ matrix.node }}
+          path: bin/
+          retention-days: 1
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # Stage 2: run
+  # --------------------------------------------------------------------------
+  # One job per target runner. Downloads every artifact, filters to binaries
+  # whose <target> segment matches this runner's target, and runs them. A
+  # result JSON is uploaded, keyed by <host>|<mode>|<node>.
+  # --------------------------------------------------------------------------
+  run:
+    name: run on ${{ matrix.target.label }}
+    needs: build
+    if: ${{ always() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { label: linux-x64,   runner: ubuntu-24.04 }
+          - { label: linux-arm64, runner: ubuntu-24.04-arm }
+          - { label: macos-x64,   runner: macos-13 }
+          - { label: macos-arm64, runner: macos-14 }
+          - { label: win-x64,     runner: windows-latest }
+    runs-on: ${{ matrix.target.runner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bins-all
+          pattern: xcompile-bins-*
+          merge-multiple: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Run matching binaries
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target.label }}
+        run: |
+          mkdir -p results
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const TARGET = process.env.TARGET;
+          const binsDir = 'bins-all';
+          const results = {};
+
+          if (!fs.existsSync(binsDir)) {
+            console.log('no artifacts downloaded');
+            fs.writeFileSync(`results/${TARGET}.json`, '{}');
+            process.exit(0);
+          }
+
+          for (const name of fs.readdirSync(binsDir)) {
+            const full = path.join(binsDir, name);
+            const base = name.replace(/\.(exe|failed)$/, '');
+            const parts = base.split('__');
+            if (parts.length !== 4) {
+              console.log('skip unrecognised:', name);
+              continue;
+            }
+            const [host, target, mode, nodeTag] = parts;
+            if (target !== TARGET) continue;
+            const key = `${host}|${mode}|${nodeTag}`;
+            if (name.endsWith('.failed')) {
+              results[key] = { status: 'BUILD_FAIL', detail: '' };
+              continue;
+            }
+            try { fs.chmodSync(full, 0o755); } catch {}
+            const r = spawnSync(path.resolve(full), [], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+            if (r.status === 0 && (r.stdout || '').includes('hello from pkg')) {
+              results[key] = { status: 'RUN_OK', detail: (r.stdout || '').trim() };
+            } else {
+              const detail = ((r.stderr || r.stdout || '').toString().trim() || `exit ${r.status}`).replace(/\s+/g, ' ').slice(0, 240);
+              results[key] = { status: 'RUN_FAIL', detail };
+            }
+            console.log(name, '→', results[key].status);
+          }
+
+          fs.writeFileSync(`results/${TARGET}.json`, JSON.stringify(results, null, 2));
+          NODE
+          cat "results/${TARGET}.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xcompile-results-${{ matrix.target.label }}
+          path: results/
+          retention-days: 1
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # Stage 3: collate
+  # --------------------------------------------------------------------------
+  # Downloads all per-target result JSONs, renders the matrix as markdown,
+  # and posts it as a sticky PR comment.
+  # --------------------------------------------------------------------------
+  collate:
+    name: collate + post PR comment
+    needs: run
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+          pattern: xcompile-results-*
+          merge-multiple: true
+
+      - name: Build markdown matrix
+        id: build-md
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node <<'NODE' > comment.md
+          const fs = require('fs');
+          const path = require('path');
+
+          const targets = ['linux-x64','linux-arm64','macos-x64','macos-arm64','win-x64'];
+          const hosts   = targets;
+          const modes   = ['std','std-public','sea'];
+          const nodes   = ['n22'];
+
+          // Load per-target results.
+          const byTarget = {};
+          for (const t of targets) {
+            const f = path.join('results', `${t}.json`);
+            byTarget[t] = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
+          }
+
+          const icon = r => {
+            if (!r) return ':grey_question:';
+            if (r.status === 'RUN_OK') return ':white_check_mark:';
+            if (r.status === 'BUILD_FAIL') return ':x:&nbsp;build';
+            if (r.status === 'RUN_FAIL') return ':x:&nbsp;run';
+            return ':warning:';
+          };
+
+          let out = '<!-- xcompile-matrix -->\n';
+          out += '## Cross-compile matrix\n\n';
+          out += 'Each cell: the hello.js binary was **built on the row host** and **executed on the column target runner**. ';
+          out += `Commit: \`${process.env.COMMIT_SHA.slice(0,8)}\` — [full run](${process.env.RUN_URL})\n\n`;
+          out += '**Legend**: :white_check_mark: runs · :x:&nbsp;build build failed · :x:&nbsp;run built but crashed on target · :grey_question: missing\n\n';
+
+          for (const node of nodes) {
+            const nodeMajor = node.slice(1);
+            for (const mode of modes) {
+              out += `### Node ${nodeMajor} — \`${mode}\`\n\n`;
+              out += '| host \\ target | ' + targets.join(' | ') + ' |\n';
+              out += '|---|' + targets.map(()=>':---:').join('|') + '|\n';
+              for (const host of hosts) {
+                let row = `| **${host}** |`;
+                for (const target of targets) {
+                  const key = `${host}|${mode}|${node}`;
+                  row += ' ' + icon(byTarget[target]?.[key]) + ' |';
+                }
+                out += row + '\n';
+              }
+              out += '\n';
+            }
+          }
+
+          // Collect failure details as a collapsible section
+          const failures = [];
+          for (const target of targets) {
+            for (const [key, r] of Object.entries(byTarget[target] || {})) {
+              if (r.status !== 'RUN_OK' && r.detail) {
+                failures.push(`- **${key} → ${target}** (${r.status}): \`${r.detail.slice(0,180)}\``);
+              }
+            }
+          }
+          if (failures.length) {
+            out += '<details><summary>Failure details</summary>\n\n';
+            out += failures.join('\n');
+            out += '\n\n</details>\n';
+          }
+
+          process.stdout.write(out);
+          NODE
+          echo "--- comment.md ---"
+          cat comment.md
+
+      - name: Post or update PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const MARKER = '<!-- xcompile-matrix -->';
+            const prNumber = context.payload.pull_request.number;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.startsWith(MARKER));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: existing.id,
+                body,
+              });
+              core.info(`Updated comment ${existing.id}`);
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: prNumber,
+                body,
+              });
+              core.info('Created new matrix comment');
+            }
+
+      - name: Write matrix to job summary
+        shell: bash
+        run: cat comment.md >> "$GITHUB_STEP_SUMMARY"
