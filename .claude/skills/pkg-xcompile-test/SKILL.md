@@ -179,6 +179,38 @@ GitHub Actions' `macos-13` / `macos-14` runners are the right place for
 that; a follow-up CI workflow that runs the hello.js matrix there would
 close the last hole.
 
+## Debugging a failing run
+
+Each cell writes its own log; paths are printed on stderr next to any
+`FAIL` and re-summarised at the end of the run.
+
+- **Log location** — `$PKG_XCOMPILE_WORKDIR/logs/node<major>/build-<mode>-<target>.log`
+  (and `run-<mode>-<target>.log`). Default workdir is `/tmp/pkg-xcompile`.
+  Logs are per-cell so a failing build is not overwritten by the next one.
+- **Re-run one cell** — the fastest way is still to invoke `pkg` directly
+  against the same fixture:
+  ```bash
+  cd /tmp/pkg-xcompile
+  node /path/to/pkg/lib-es5/bin.js hello.js -t node22-linux-arm64 \
+    -o /tmp/pkg-xcompile/bin-node22/std-linux-arm64
+  ```
+- **`exec format error` on arm64 runs** — binfmt is not registered. After
+  a reboot `tonistiigi/binfmt` needs to be re-installed:
+  ```bash
+  docker run --privileged --rm tonistiigi/binfmt --install arm64
+  ```
+- **Wine cell always FAIL** — pull the image manually once
+  (`docker pull scottyhardy/docker-wine`) and inspect
+  `logs/node<major>/run-sea-win-x64.log` for the actual crash. The
+  EBADF-stdout gotcha is documented above.
+- **SEA FAIL on Node 20** — expected; pkg enforces `host node ≥ 22` for SEA.
+- **`Error: UNEXPECTED-20` / silent exit (EXIT=4)** — these are the
+  tracked Node-22 Standard-mode regressions (issues #181 and #87). Not
+  environment bugs — see [Node 22 results](#node-22) below.
+- **Stale binary hiding a regression** — pkg does not hash its own source
+  into the output. After rebuilding pkg, delete `bin-node<major>/` before
+  re-running the matrix.
+
 ## The script
 
 The harness lives next to this `SKILL.md` as `run-matrix.sh`. Before

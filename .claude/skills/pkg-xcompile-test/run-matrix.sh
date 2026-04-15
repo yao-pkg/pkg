@@ -13,11 +13,15 @@
 # the repo stays clean. The tiny hello.js + package.json fixtures are kept
 # next to this script and copied into the workdir on first run.
 #
+# Per-cell logs are written to $PKG_XCOMPILE_WORKDIR/logs/ and their paths
+# are printed to stderr next to any FAIL so a failing cell can be inspected
+# without re-running the whole matrix.
+#
 # Builds a tiny hello.js for every {mode,target} combination and runs what
 # can be executed on this Linux host (native x64, arm64 via docker+qemu,
 # win-x64 via scottyhardy/docker-wine). macOS runtime is skipped (no KVM).
 
-set -u
+set -euo pipefail
 
 NODE_MAJOR="${1:-22}"
 
@@ -28,7 +32,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PKG_BIN="${2:-$REPO_ROOT/lib-es5/bin.js}"
 WORKDIR="${PKG_XCOMPILE_WORKDIR:-/tmp/pkg-xcompile}"
 BINDIR="$WORKDIR/bin-node$NODE_MAJOR"
-mkdir -p "$BINDIR"
+LOGDIR="$WORKDIR/logs/node$NODE_MAJOR"
+mkdir -p "$WORKDIR" "$BINDIR" "$LOGDIR"
 
 if [[ ! -f "$PKG_BIN" ]]; then
   echo "pkg not built at $PKG_BIN — run 'yarn build' in $REPO_ROOT first." >&2
@@ -49,7 +54,11 @@ if command -v nvm >/dev/null 2>&1; then
     exit 1
   }
 fi
-echo "Host node: $(node -v)"
+HOST_NODE_VER="$(node -v)"
+echo "Host node: $HOST_NODE_VER" >&2
+if [[ "$HOST_NODE_VER" != v${NODE_MAJOR}.* ]]; then
+  echo "WARN: host node major ($HOST_NODE_VER) != requested ($NODE_MAJOR) — SEA builds may misbehave" >&2
+fi
 
 # --- Prepare tiny test project ----------------------------------------------
 if [[ ! -f "$WORKDIR/hello.js" ]]; then
@@ -69,10 +78,13 @@ MODES=(std std-public sea)
 
 declare -A RESULT  # RESULT[mode/target] = "BUILD / RUN"
 
+# build_one: writes "OK" | "MISSING" | "FAIL" to stdout, progress/log path
+# to stderr. Always returns 0 so command substitution never aborts the loop.
 build_one() {
   local mode="$1" target="$2"
   local out="$BINDIR/${mode}-${target}"
   [[ "$target" == win-* ]] && out="${out}.exe"
+  local buildlog="$LOGDIR/build-${mode}-${target}.log"
 
   local args=(hello.js -t "node${NODE_MAJOR}-${target}" -o "$out")
   case "$mode" in
@@ -80,50 +92,81 @@ build_one() {
     std-public) args+=(--public-packages '*' --public) ;;
   esac
 
-  echo "  build: $mode → $target"
-  if (cd "$WORKDIR" && node "$PKG_BIN" "${args[@]}" >/tmp/pkg-build.log 2>&1); then
-    [[ -f "$out" ]] && echo "OK" || echo "MISSING"
+  echo "  build: $mode → $target" >&2
+  if (cd "$WORKDIR" && node "$PKG_BIN" "${args[@]}" >"$buildlog" 2>&1); then
+    if [[ -f "$out" ]]; then
+      echo "OK"
+    else
+      echo "MISSING"
+      echo "    log: $buildlog" >&2
+    fi
   else
     echo "FAIL"
+    echo "    log: $buildlog" >&2
   fi
+  return 0
 }
 
+# run_one: same stdout/stderr contract as build_one.
 run_one() {
   local mode="$1" target="$2"
   local bin="$BINDIR/${mode}-${target}"
   [[ "$target" == win-* ]] && bin="${bin}.exe"
-  [[ ! -f "$bin" ]] && { echo "SKIP-no-bin"; return; }
+  if [[ ! -f "$bin" ]]; then
+    echo "SKIP-no-bin"
+    return 0
+  fi
+  local runlog="$LOGDIR/run-${mode}-${target}.log"
 
   case "$target" in
     linux-x64)
-      "$bin" </dev/null >/tmp/pkg-run.log 2>&1 && grep -q "hello from pkg" /tmp/pkg-run.log && echo "OK" || echo "FAIL"
+      if "$bin" </dev/null >"$runlog" 2>&1 && grep -q "hello from pkg" "$runlog"; then
+        echo "OK"
+      else
+        echo "FAIL"
+        echo "    log: $runlog" >&2
+      fi
       ;;
     linux-arm64)
-      docker run --rm --platform linux/arm64 -v "$BINDIR:/mnt" ubuntu:latest \
-        "/mnt/$(basename "$bin")" </dev/null >/tmp/pkg-run.log 2>&1 \
-        && grep -q "hello from pkg" /tmp/pkg-run.log && echo "OK" || echo "FAIL"
+      if docker run --rm --platform linux/arm64 -v "$BINDIR:/mnt" ubuntu:latest \
+          "/mnt/$(basename "$bin")" </dev/null >"$runlog" 2>&1 \
+        && grep -q "hello from pkg" "$runlog"; then
+        echo "OK"
+      else
+        echo "FAIL"
+        echo "    log: $runlog" >&2
+      fi
       ;;
     win-x64)
       # Wine in non-tty docker breaks Node stdout unless we redirect to a
       # file inside the container, then cat it back.
       docker run --rm -v "$BINDIR:/mnt" scottyhardy/docker-wine \
         bash -c "wine '/mnt/$(basename "$bin")' </dev/null >/tmp/out 2>/tmp/err; cat /tmp/out" \
-        >/tmp/pkg-run.log 2>/dev/null
-      grep -q "hello from pkg" /tmp/pkg-run.log && echo "OK" || echo "FAIL"
+        >"$runlog" 2>/dev/null || true
+      if grep -q "hello from pkg" "$runlog"; then
+        echo "OK"
+      else
+        echo "FAIL"
+        echo "    log: $runlog" >&2
+      fi
       ;;
     macos-*)
       echo "SKIP-no-mac"
       ;;
+    *)
+      echo "SKIP-unknown"
+      ;;
   esac
+  return 0
 }
 
 # --- Execute ----------------------------------------------------------------
 echo "=== node $NODE_MAJOR | pkg: $PKG_BIN ==="
 for mode in "${MODES[@]}"; do
   for target in "${TARGETS[@]}"; do
-    b=$(build_one "$mode" "$target" | tail -1)
+    b="$(build_one "$mode" "$target")"
     if [[ "$b" == "OK" ]]; then
-      r=$(run_one "$mode" "$target")
+      r="$(run_one "$mode" "$target")"
     else
       r="n/a"
     fi
@@ -139,3 +182,5 @@ for target in "${TARGETS[@]}"; do
   printf '%-12s | %-18s | %-18s | %-18s\n' "$target" \
     "${RESULT[std/$target]}" "${RESULT[std-public/$target]}" "${RESULT[sea/$target]}"
 done
+
+printf '\nPer-cell logs: %s\n' "$LOGDIR"

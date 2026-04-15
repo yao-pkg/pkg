@@ -104,4 +104,4 @@ For the full feature matrix and decision guide, see **[SEA vs Standard](/guide/s
 
 - **[SEA vs Standard](/guide/sea-vs-standard)** — feature matrix + roadmap
 - **[Recipes](/guide/recipes)** — copy-paste SEA build recipes
-- **[Architecture: Enhanced SEA](/architecture#enhanced-sea-mode)** — deep dive on VFS + bootstrap internals
+- **[Architecture: Enhanced SEA](/architecture#enhanced-sea-mode-in-one-paragraph)** — deep dive on VFS + bootstrap internals

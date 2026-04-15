@@ -1,19 +1,13 @@
 name: Cross-compile matrix
 
+# Manual-only. The matrix burns billable minutes on macos-13/14 and
+# windows runners; running it on every PR is not worth the cost. Trigger
+# from the Actions tab when you need to verify cross-compile behaviour.
 on:
-  pull_request:
-    paths:
-      - 'lib/**'
-      - 'prelude/**'
-      - 'dictionary/**'
-      - 'scripts/**'
-      - 'package.json'
-      - 'yarn.lock'
-      - '.github/workflows/cross-compile-matrix.yml'
   workflow_dispatch:
     inputs:
       node-majors:
-        description: 'Comma-separated node majors to test (default 22)'
+        description: 'Comma-separated node majors to test (e.g. 22 or 20,22,24)'
         required: false
         default: '22'
 
@@ -26,6 +20,33 @@ concurrency:
 
 jobs:
   # --------------------------------------------------------------------------
+  # Stage 0: parse inputs into a JSON matrix
+  # --------------------------------------------------------------------------
+  setup:
+    name: setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      nodes: ${{ steps.gen.outputs.nodes }}
+    steps:
+      - id: gen
+        shell: bash
+        env:
+          NODE_MAJORS_INPUT: ${{ inputs.node-majors }}
+        run: |
+          set -euo pipefail
+          # Validate and normalise: comma-separated list of integers.
+          cleaned=$(echo "$NODE_MAJORS_INPUT" | tr -d ' ')
+          if [[ -z "$cleaned" ]]; then cleaned=22; fi
+          if ! [[ "$cleaned" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+            echo "::error::invalid node-majors input: '$NODE_MAJORS_INPUT' (expected comma-separated integers)"
+            exit 1
+          fi
+          json=$(jq -c -n --arg s "$cleaned" '$s | split(",") | map(tonumber)')
+          echo "nodes=$json" >> "$GITHUB_OUTPUT"
+          echo "Parsed node majors: $json"
+
+  # --------------------------------------------------------------------------
   # Stage 1: build
   # --------------------------------------------------------------------------
   # Each job is one (host × mode × node) tuple. It builds pkg once and then
@@ -34,6 +55,8 @@ jobs:
   # --------------------------------------------------------------------------
   build:
     name: build ${{ matrix.host.label }} / ${{ matrix.mode }} / n${{ matrix.node }}
+    needs: setup
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +67,7 @@ jobs:
           - { label: macos-arm64, runner: macos-14 }
           - { label: win-x64,     runner: windows-latest }
         mode: [std, std-public, sea]
-        node: [22]
+        node: ${{ fromJSON(needs.setup.outputs.nodes) }}
     runs-on: ${{ matrix.host.runner }}
     steps:
       - uses: actions/checkout@v6
@@ -79,7 +102,7 @@ jobs:
           NODE_MAJOR: ${{ matrix.node }}
         run: |
           set -u
-          mkdir -p bin
+          mkdir -p bin logs
           EXTRA=()
           case "$MODE" in
             std) ;;
@@ -91,18 +114,25 @@ jobs:
           for target in "${TARGETS[@]}"; do
             ext=""
             case "$target" in win-*) ext=".exe" ;; esac
-            out="bin/${HOST}__${target}__${MODE}__n${NODE_MAJOR}${ext}"
+            base="${HOST}__${target}__${MODE}__n${NODE_MAJOR}"
+            out="bin/${base}${ext}"
+            log="logs/${base}.log"
             echo "::group::build $target"
-            if node ./lib-es5/bin.js fixture/hello.js -t "node${NODE_MAJOR}-${target}" -o "$out" "${EXTRA[@]}" 2>&1; then
+            # "${EXTRA[@]+"${EXTRA[@]}"}" keeps bash 3.2 (macos runners) happy
+            # when EXTRA is empty under `set -u`.
+            if node ./lib-es5/bin.js fixture/hello.js -t "node${NODE_MAJOR}-${target}" -o "$out" ${EXTRA[@]+"${EXTRA[@]}"} >"$log" 2>&1; then
               if [[ -f "$out" ]]; then
                 echo "::notice::built $out"
               else
                 echo "::warning::pkg exited 0 but no output at $out"
-                : > "${out}.failed"
+                : > "bin/${base}${ext}.failed"
+                cp "$log" "bin/${base}${ext}.log"
               fi
             else
-              echo "::warning::build failed for $target"
-              : > "${out}.failed"
+              echo "::warning::build failed for $target — see $log"
+              tail -n 40 "$log" || true
+              : > "bin/${base}${ext}.failed"
+              cp "$log" "bin/${base}${ext}.log"
             fi
             echo "::endgroup::"
           done
@@ -112,7 +142,7 @@ jobs:
         with:
           name: xcompile-bins-${{ matrix.host.label }}-${{ matrix.mode }}-n${{ matrix.node }}
           path: bin/
-          retention-days: 1
+          retention-days: 7
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
@@ -124,8 +154,9 @@ jobs:
   # --------------------------------------------------------------------------
   run:
     name: run on ${{ matrix.target.label }}
-    needs: build
-    if: ${{ always() && !cancelled() }}
+    needs: [setup, build]
+    if: ${{ always() && !cancelled() && needs.build.result != 'cancelled' }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -168,9 +199,17 @@ jobs:
             process.exit(0);
           }
 
+          const sanitize = s =>
+            ((s || '').toString().trim() || 'no output')
+              .replace(/[`\\]/g, '')
+              .replace(/\s+/g, ' ')
+              .slice(0, 240);
+
           for (const name of fs.readdirSync(binsDir)) {
+            // Skip sidecar artifacts — only process binaries.
+            if (name.endsWith('.failed') || name.endsWith('.log')) continue;
             const full = path.join(binsDir, name);
-            const base = name.replace(/\.(exe|failed)$/, '');
+            const base = name.replace(/\.exe$/, '');
             const parts = base.split('__');
             if (parts.length !== 4) {
               console.log('skip unrecognised:', name);
@@ -179,16 +218,28 @@ jobs:
             const [host, target, mode, nodeTag] = parts;
             if (target !== TARGET) continue;
             const key = `${host}|${mode}|${nodeTag}`;
-            if (name.endsWith('.failed')) {
+            // BUILD_FAIL if a .failed sidecar exists for this binary.
+            if (fs.existsSync(path.join(binsDir, `${name}.failed`))) {
               results[key] = { status: 'BUILD_FAIL', detail: '' };
               continue;
             }
             try { fs.chmodSync(full, 0o755); } catch {}
-            const r = spawnSync(path.resolve(full), [], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+            const r = spawnSync(path.resolve(full), [], {
+              encoding: 'utf8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: 30_000,
+            });
             if (r.status === 0 && (r.stdout || '').includes('hello from pkg')) {
-              results[key] = { status: 'RUN_OK', detail: (r.stdout || '').trim() };
+              results[key] = { status: 'RUN_OK', detail: sanitize(r.stdout) };
             } else {
-              const detail = ((r.stderr || r.stdout || '').toString().trim() || `exit ${r.status}`).replace(/\s+/g, ' ').slice(0, 240);
+              const reason = r.status != null
+                ? `exit ${r.status}`
+                : r.signal
+                  ? `signal ${r.signal}`
+                  : r.error
+                    ? `spawn-error: ${r.error.code || r.error.message}`
+                    : 'unknown-failure';
+              const detail = sanitize(r.stderr || r.stdout || reason);
               results[key] = { status: 'RUN_FAIL', detail };
             }
             console.log(name, '→', results[key].status);
@@ -202,23 +253,22 @@ jobs:
         with:
           name: xcompile-results-${{ matrix.target.label }}
           path: results/
-          retention-days: 1
+          retention-days: 7
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
   # Stage 3: collate
   # --------------------------------------------------------------------------
   # Downloads all per-target result JSONs, renders the matrix as markdown,
-  # and posts it as a sticky PR comment.
+  # and writes it to the workflow job summary. No PR-comment path — this
+  # workflow is dispatch-only.
   # --------------------------------------------------------------------------
   collate:
-    name: collate + post PR comment
-    needs: run
-    if: ${{ always() && !cancelled() }}
+    name: collate summary
+    needs: [setup, build, run]
+    if: ${{ always() && !cancelled() && needs.build.result != 'cancelled' }}
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: write
+    timeout-minutes: 5
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -226,12 +276,24 @@ jobs:
           pattern: xcompile-results-*
           merge-multiple: true
 
+      - name: Short-circuit if no results
+        id: check
+        shell: bash
+        run: |
+          if ! ls results/*.json >/dev/null 2>&1; then
+            echo "::error::no result artifacts found — build stage produced nothing"
+            echo "empty=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "empty=false" >> "$GITHUB_OUTPUT"
+
       - name: Build markdown matrix
-        id: build-md
+        if: steps.check.outputs.empty != 'true'
         shell: bash
         env:
           COMMIT_SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NODES_JSON: ${{ needs.setup.outputs.nodes }}
         run: |
           node <<'NODE' > comment.md
           const fs = require('fs');
@@ -240,7 +302,7 @@ jobs:
           const targets = ['linux-x64','linux-arm64','macos-x64','macos-arm64','win-x64'];
           const hosts   = targets;
           const modes   = ['std','std-public','sea'];
-          const nodes   = ['n22'];
+          const nodes   = JSON.parse(process.env.NODES_JSON).map(n => `n${n}`);
 
           // Load per-target results.
           const byTarget = {};
@@ -257,8 +319,7 @@ jobs:
             return ':warning:';
           };
 
-          let out = '<!-- xcompile-matrix -->\n';
-          out += '## Cross-compile matrix\n\n';
+          let out = '## Cross-compile matrix\n\n';
           out += 'Each cell: the hello.js binary was **built on the row host** and **executed on the column target runner**. ';
           out += `Commit: \`${process.env.COMMIT_SHA.slice(0,8)}\` — [full run](${process.env.RUN_URL})\n\n`;
           out += '**Legend**: :white_check_mark: runs · :x:&nbsp;build build failed · :x:&nbsp;run built but crashed on target · :grey_question: missing\n\n';
@@ -301,39 +362,7 @@ jobs:
           echo "--- comment.md ---"
           cat comment.md
 
-      - name: Post or update PR comment
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const body = fs.readFileSync('comment.md', 'utf8');
-            const MARKER = '<!-- xcompile-matrix -->';
-            const prNumber = context.payload.pull_request.number;
-
-            const { data: comments } = await github.rest.issues.listComments({
-              ...context.repo,
-              issue_number: prNumber,
-              per_page: 100,
-            });
-            const existing = comments.find(c => c.body && c.body.startsWith(MARKER));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                ...context.repo,
-                comment_id: existing.id,
-                body,
-              });
-              core.info(`Updated comment ${existing.id}`);
-            } else {
-              await github.rest.issues.createComment({
-                ...context.repo,
-                issue_number: prNumber,
-                body,
-              });
-              core.info('Created new matrix comment');
-            }
-
       - name: Write matrix to job summary
+        if: steps.check.outputs.empty != 'true'
         shell: bash
         run: cat comment.md >> "$GITHUB_STEP_SUMMARY"

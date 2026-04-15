@@ -14,16 +14,19 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# PR runs and main-branch deploys use separate concurrency groups so a long
+# PR build never queues behind a production deploy (or vice versa). The
+# production `pages` group keeps `cancel-in-progress: false` so deploys never
+# clobber each other; PR runs cancel their own previous run.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'push' && 'pages' || format('pages-pr-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: docs-site
@@ -42,6 +45,18 @@ jobs:
       - name: Build with VitePress
         run: npm run docs:build
 
+      - name: Check internal links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          workingDirectory: docs-site
+          args: >-
+            --no-progress
+            --offline
+            --include-fragments
+            --base .vitepress/dist
+            './.vitepress/dist/**/*.html'
+          fail: true
+
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
@@ -52,6 +67,11 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

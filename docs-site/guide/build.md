@@ -35,7 +35,7 @@ Your machine needs everything Node.js requires to compile from source. The autho
 Otherwise, stick with the default — downloaded binaries are faster, cached, and covered by CI.
 
 ::: tip Future direction
-[SEA mode](/guide/sea-mode) removes the need for patched Node.js binaries entirely. See [SEA vs Standard](/guide/sea-vs-standard) and the [pkg-fetch elimination roadmap](/guide/sea-vs-standard#roadmap-killing-pkg-fetch). If you're reaching for `--build` because `pkg-fetch` doesn't cover your target, SEA may solve it upstream.
+[SEA mode](/guide/sea-mode) removes the need for patched Node.js binaries entirely. See [SEA vs Standard](/guide/sea-vs-standard) and the [pkg-fetch elimination roadmap](/guide/sea-vs-standard#roadmap). If you're reaching for `--build` because `pkg-fetch` doesn't cover your target, SEA may solve it upstream.
 :::
 
 ## See also

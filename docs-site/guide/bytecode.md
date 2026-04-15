@@ -34,7 +34,7 @@ Bytecode generation requires running the **target** architecture's Node.js to co
 pkg --no-bytecode --public-packages "*" --public -t node22-linux-arm64 index.js
 ```
 
-See [Targets → Cross-compilation notes](/guide/targets#cross-compilation-notes).
+See [Targets → Cross-compilation support](/guide/targets#cross-compilation-support).
 
 ## Licenses and `--public-packages`
 

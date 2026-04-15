@@ -167,7 +167,7 @@ Users can't override — the flags always apply. See [CLI options](/guide/option
 pkg --no-bytecode --public-packages '*' --public -t node22-linux-arm64 .
 ```
 
-Skips the bytecode step, so there's no need to run an arm64 interpreter on your x64 host. Trade-off: source is plaintext in the binary. See [Targets → Cross-compilation notes](/guide/targets#cross-compilation-notes).
+Skips the bytecode step, so there's no need to run an arm64 interpreter on your x64 host. Trade-off: source is plaintext in the binary. See [Targets → Cross-compilation support](/guide/targets#cross-compilation-support).
 
 ## Exclude test and doc directories from dependencies
 

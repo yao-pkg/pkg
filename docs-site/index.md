@@ -43,7 +43,7 @@ features:
 ---
 
 <div class="fork-banner">
-<strong>Looking for <code>vercel/pkg</code>?</strong> This is <a href="https://github.com/yao-pkg/pkg"><code>yao-pkg/pkg</code></a> — the actively maintained fork. The original <code>vercel/pkg</code> is archived. <code>@yao-pkg/pkg</code> is a drop-in replacement — rename the dep and keep shipping. See the <a href="/pkg/guide/migration">migration guide</a>.
+<strong>Looking for <code>vercel/pkg</code>?</strong> This is <a href="https://github.com/yao-pkg/pkg"><code>yao-pkg/pkg</code></a> — the actively maintained fork. The original <code>vercel/pkg</code> is archived. <code>@yao-pkg/pkg</code> is a drop-in replacement — rename the dep and keep shipping. See the [migration guide](/guide/migration).
 </div>
 
 <div class="landing-badges">
