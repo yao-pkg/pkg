@@ -13,17 +13,17 @@ This document aims to help you get started with `pkg` development.
 
 ## Release Process
 
-In order to create release just run the command:
+To create a release, just run:
 
 ```bash
 yarn release
 ```
 
-This command will start an interactive process that will guide you through the release process using [release-it](https://github.com/release-it/release-it)
+This command starts an interactive process that guides you through the release using [release-it](https://github.com/release-it/release-it).
 
 ## Testing
 
-Before running tests ensure you have build the project by running:
+Before running tests, ensure you have built the project by running:
 
 ```bash
 yarn build
@@ -86,8 +86,8 @@ Explaining the code above:
 
 ### Special tests
 
-- `test-79-npm`: It's the only test runned when using `only-npm`. It install and tests all node modules listed inside that dir and verifies if they are working correctly.
-- `test-42-fetch-all`: Foreach known node version verifies there is a patch existing for it using pkg-fetch.
+- `test-79-npm`: the only test run when using `only-npm`. It installs and tests all Node modules listed inside that directory and verifies they work correctly.
+- `test-42-fetch-all`: for each known Node version, verifies a patch exists for it using pkg-fetch.
 - `test-46-multi-arch`: Tries to cross-compile a binary for all known architectures.
 
 ## Hacking on this docs site
