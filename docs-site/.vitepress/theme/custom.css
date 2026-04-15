@@ -97,6 +97,19 @@
   font-size: 15px !important;
 }
 
+/* mermaid renders label text through a markdown parser that wraps lines in
+   <p> elements. The browser's default <p> margin inflates the rendered
+   label height beyond the foreignObject size mermaid measured, so the last
+   line gets clipped below the node rect. Zero the margin so rendered and
+   measured heights match. */
+.mermaid-diagram svg .nodeLabel p,
+.mermaid-diagram svg .edgeLabel p,
+.mermaid-diagram svg .cluster-label p,
+.mermaid-diagram svg .label p {
+  margin: 0 !important;
+  line-height: 1.5 !important;
+}
+
 /* dark mode: force readable label colors — mermaid's dark theme
    sometimes leaves inherited fills that blend into the background */
 .dark .mermaid-diagram svg .nodeLabel,

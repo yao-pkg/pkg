@@ -146,6 +146,16 @@ export default withMermaid({
   mermaid: {
     // theme intentionally unset — vitepress-plugin-mermaid auto-switches
     // between 'default' (light) and 'dark' based on VitePress appearance
+    themeVariables: {
+      // keep in sync with the font-size override in custom.css so mermaid's
+      // node-size measurements match the rendered text and labels don't clip
+      fontSize: '15px',
+    },
+    flowchart: {
+      htmlLabels: true,
+      useMaxWidth: true,
+      padding: 12,
+    },
   },
   mermaidPlugin: {
     class: 'mermaid-diagram',
