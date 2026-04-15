@@ -11,7 +11,7 @@ description: Install pkg, package your first Node.js project into a single execu
 - **npm or any Node.js package manager** (pnpm, yarn, bun all work)
 - **~500 MB free disk** for cached base binaries on first run (`~/.pkg-cache/`)
 
-Cross-compiling Linux / macOS / Windows binaries from a single host is fully supported — see [Targets](/guide/targets) for per-platform caveats.
+Cross-compiling Linux / macOS / Windows binaries (and x64 / arm64) from a single host is supported on Node 20 and Node 24. Node 22 has a known Standard-mode regression — see [Targets → Cross-compilation support](/guide/targets#cross-compilation-support).
 
 ## Install
 

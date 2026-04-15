@@ -61,14 +61,42 @@ pkg -t host index.js
 
 :::
 
-## Cross-compilation notes
+## Cross-compilation support
 
-By default `pkg` has to run the executable of the **target** arch to generate bytecode:
+Cross-OS (Linux ↔ Windows ↔ macOS) and cross-arch (x64 ↔ arm64) builds are supported, but the behaviour depends on the **target Node.js version**.
+
+| Host / target Node | Standard mode                       | Enhanced SEA (`--sea`)         |
+| ------------------ | ----------------------------------- | ------------------------------ |
+| **Node 20**        | ✅ works out of the box             | ❌ requires pkg host Node ≥ 22 |
+| **Node 22**        | ⚠️ **known regression** — see below | ✅ works out of the box        |
+| **Node 24**        | ✅ works out of the box             | ✅ works out of the box        |
+
+Verified on a Linux x86_64 host against `linux-x64`, `linux-arm64` (docker + QEMU) and `win-x64` (docker + Wine). `macos-*` targets build cleanly but cannot be executed from Linux — regressions reported on macOS hosts must still be reproduced on a real Mac or the GitHub Actions `macos-*` runners.
+
+::: warning Node 22 Standard-mode regression
+On Node 22, Standard cross-compile **builds cleanly but produces a broken executable**:
+
+- `linux-arm64` crashes with `Error: UNEXPECTED-20` in `readFileFromSnapshot`
+- `win-x64` exits silently with no stdout (EXIT=4)
+
+Tracked in [#87](https://github.com/yao-pkg/pkg/issues/87) and [#181](https://github.com/yao-pkg/pkg/issues/181). Three workarounds:
+
+1. **Switch to SEA** — `pkg . --sea`. Avoids the V8 bytecode step entirely.
+2. **Disable bytecode** — `pkg . --no-bytecode --public-packages "*" --public`. Keeps Standard mode, stores source as plaintext.
+3. **Target Node 24** — the regression is gone on `node24-*` targets.
+
+:::
+
+### Bytecode and target arch
+
+Regardless of the bug above, the V8 bytecode fabricator in Standard mode needs to execute code compiled for the **target** arch at build time. If the host arch differs from the target:
 
 - **Linux** — configure binfmt with [QEMU](https://wiki.debian.org/QemuUserEmulation)
 - **macOS** — you can build `x64` on `arm64` with Rosetta 2, but not the opposite
 - **Windows** — you can build `x64` on `arm64` with x64 emulation, but not the opposite
 - Or disable bytecode generation entirely with `--no-bytecode --public-packages "*" --public`
+
+Enhanced SEA doesn't have this limitation when the host and target share the same Node major: pkg uses `process.execPath` to generate the SEA blob, so no target-arch interpreter is needed. Cross-major SEA builds (e.g. building `node22-*` targets on a Node 24 host) still require an interpreter for the downloaded target binary.
 
 ## macOS arm64
 

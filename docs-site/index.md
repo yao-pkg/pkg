@@ -27,7 +27,7 @@ features:
     details: One binary per target. No Node.js install, no node_modules, no dependency churn on the deployment host.
   - icon: 🌍
     title: Cross-compile
-    details: Build Linux, macOS, and Windows binaries from any host. x64 and arm64 supported out of the box.
+    details: Build Linux, macOS, and Windows binaries for x64 and arm64 from a single host. Works out of the box on Node 20 and 24; Node 22 needs --sea or --public.
   - icon: 🔒
     title: Source protection
     details: V8 bytecode compilation keeps your source out of the final binary. Optional Brotli and GZip compression shrinks it further.
