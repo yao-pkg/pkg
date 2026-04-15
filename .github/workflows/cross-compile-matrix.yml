@@ -1,8 +1,13 @@
 name: Cross-compile matrix
 
-# Manual-only. The matrix burns billable minutes on macos-13/14 and
-# windows runners; running it on every PR is not worth the cost. Trigger
-# from the Actions tab when you need to verify cross-compile behaviour.
+# Manual-only. The matrix burns billable minutes on macos-14 and windows
+# runners; running it on every PR is not worth the cost. Trigger from the
+# Actions tab when you need to verify cross-compile behaviour.
+#
+# macos-x64 is NOT tested as a build host — GitHub has retired Intel macOS
+# runners (macos-13). It is still exercised as a target: macos-14 (Apple
+# silicon) executes the produced x64 binaries through Rosetta 2, which is
+# pre-installed on those runners.
 on:
   workflow_dispatch:
     inputs:
@@ -60,10 +65,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # macos-x64 intentionally absent: no GitHub-hosted Intel macOS runner.
         host:
           - { label: linux-x64,   runner: ubuntu-24.04 }
           - { label: linux-arm64, runner: ubuntu-24.04-arm }
-          - { label: macos-x64,   runner: macos-13 }
           - { label: macos-arm64, runner: macos-14 }
           - { label: win-x64,     runner: windows-latest }
         mode: [std, std-public, sea]
@@ -120,19 +125,26 @@ jobs:
             echo "::group::build $target"
             # "${EXTRA[@]+"${EXTRA[@]}"}" keeps bash 3.2 (macos runners) happy
             # when EXTRA is empty under `set -u`.
-            if node ./lib-es5/bin.js fixture/hello.js -t "node${NODE_MAJOR}-${target}" -o "$out" ${EXTRA[@]+"${EXTRA[@]}"} >"$log" 2>&1; then
-              if [[ -f "$out" ]]; then
-                echo "::notice::built $out"
+            # `|| status=$?` suppresses the runner's `-e` while still
+            # capturing pkg's real exit code for the diagnostic below.
+            status=0
+            node ./lib-es5/bin.js fixture/hello.js -t "node${NODE_MAJOR}-${target}" -o "$out" ${EXTRA[@]+"${EXTRA[@]}"} >"$log" 2>&1 || status=$?
+            if (( status == 0 )) && [[ -s "$out" ]]; then
+              echo "::notice::built $out"
+            else
+              if (( status != 0 )); then
+                echo "::warning::build failed for $target — exit $status (see $log)"
               else
                 echo "::warning::pkg exited 0 but no output at $out"
-                : > "bin/${base}${ext}.failed"
-                cp "$log" "bin/${base}${ext}.log"
               fi
-            else
-              echo "::warning::build failed for $target — see $log"
               tail -n 40 "$log" || true
-              : > "bin/${base}${ext}.failed"
-              cp "$log" "bin/${base}${ext}.log"
+              # Ensure both the empty binary (so the run-stage reader always
+              # enumerates this combo) AND a .failed sidecar exist, then ship
+              # the build log alongside so failures are diagnosable without
+              # re-running the whole matrix.
+              : > "$out"
+              : > "${out}.failed"
+              cp "$log" "${out}.log"
             fi
             echo "::endgroup::"
           done
@@ -160,10 +172,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # macos-x64 runs on macos-14 (arm64) via Rosetta 2 — pre-installed
+        # on GitHub's Apple-silicon runners.
         target:
           - { label: linux-x64,   runner: ubuntu-24.04 }
           - { label: linux-arm64, runner: ubuntu-24.04-arm }
-          - { label: macos-x64,   runner: macos-13 }
+          - { label: macos-x64,   runner: macos-14 }
           - { label: macos-arm64, runner: macos-14 }
           - { label: win-x64,     runner: windows-latest }
     runs-on: ${{ matrix.target.runner }}
@@ -219,8 +233,17 @@ jobs:
             if (target !== TARGET) continue;
             const key = `${host}|${mode}|${nodeTag}`;
             // BUILD_FAIL if a .failed sidecar exists for this binary.
+            // Pull the tail of the build log into detail so the collated
+            // matrix surfaces the real error without needing to download
+            // the artifact.
             if (fs.existsSync(path.join(binsDir, `${name}.failed`))) {
-              results[key] = { status: 'BUILD_FAIL', detail: '' };
+              const logPath = path.join(binsDir, `${name}.log`);
+              let detail = '';
+              if (fs.existsSync(logPath)) {
+                const tail = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).slice(-5).join(' | ');
+                detail = sanitize(tail);
+              }
+              results[key] = { status: 'BUILD_FAIL', detail };
               continue;
             }
             try { fs.chmodSync(full, 0o755); } catch {}
