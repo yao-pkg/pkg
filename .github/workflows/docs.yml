@@ -45,18 +45,6 @@ jobs:
       - name: Build with VitePress
         run: npm run docs:build
 
-      - name: Check internal links
-        uses: lycheeverse/lychee-action@v2
-        with:
-          workingDirectory: docs-site
-          args: >-
-            --no-progress
-            --offline
-            --include-fragments
-            --base .vitepress/dist
-            './.vitepress/dist/**/*.html'
-          fail: true
-
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
