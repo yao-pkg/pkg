@@ -7,7 +7,25 @@ on:
   pull_request:
 
 jobs:
+  # Detect whether anything outside docs-site/ changed. Docs-only PRs still
+  # trigger the downstream jobs so their required status checks report, but
+  # every expensive step is skipped via `if:` — the checks appear as success
+  # in a few seconds without burning CI minutes on the full matrix.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '!docs-site/**'
+
   build:
+    needs: changes
     strategy:
       fail-fast: false # prevent test to stop if one fails
       matrix:
@@ -15,28 +33,38 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'yarn'
 
-      - run: yarn install
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn install
 
-      - if: matrix['node-version'] == '22.x' && matrix['os'] == 'ubuntu-latest'
+      - if: needs.changes.outputs.code == 'true' && matrix['node-version'] == '22.x' && matrix['os'] == 'ubuntu-latest'
         run: yarn lint
-      - run: yarn build
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn build
   test_host:
+    needs: changes
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:host
+      should_run: ${{ needs.changes.outputs.code }}
 
   test_22:
+    needs: changes
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:22
+      should_run: ${{ needs.changes.outputs.code }}
 
   test_24:
+    needs: changes
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:24
+      should_run: ${{ needs.changes.outputs.code }}

@@ -4,6 +4,9 @@
 # dependencies
 /node_modules
 
+# pkg uses yarn — a root package-lock.json is always accidental
+/package-lock.json
+
 # logs
 npm-debug.log
 

@@ -1,0 +1,205 @@
+/**
+ * pkg brand palette — sampled from logo
+ * box amber, heart pink, cream cardboard
+ */
+:root {
+  --vp-c-brand-1: #c87f0a;
+  --vp-c-brand-2: #e89b2c;
+  --vp-c-brand-3: #e89b2c;
+  --vp-c-brand-soft: rgba(232, 155, 44, 0.14);
+
+  --vp-c-brand-light: #f5c26b;
+  --vp-c-brand-lighter: #fbe4b3;
+  --vp-c-brand-dark: #b8750f;
+  --vp-c-brand-darker: #8a5508;
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: #e89b2c;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: #d68715;
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: #b8750f;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(-30deg, #e89b2c 30%, #ec7a96);
+
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    #f5c26b 50%,
+    #ec7a96 50%
+  );
+  --vp-home-hero-image-filter: blur(44px);
+}
+
+.dark {
+  --vp-c-brand-1: #f5c26b;
+  --vp-c-brand-2: #e89b2c;
+  --vp-c-brand-3: #e89b2c;
+  --vp-c-brand-soft: rgba(245, 194, 107, 0.16);
+}
+
+@media (min-width: 640px) {
+  :root {
+    --vp-home-hero-image-filter: blur(56px);
+  }
+}
+
+@media (min-width: 960px) {
+  :root {
+    --vp-home-hero-image-filter: blur(68px);
+  }
+}
+
+/* rounded hero logo */
+.VPHero .image-container img {
+  border-radius: 24px;
+}
+
+/* responsive hero image on small viewports */
+@media (max-width: 640px) {
+  .VPHero .VPImage {
+    max-width: 40vw;
+    height: auto;
+  }
+}
+
+/* mermaid diagram sizing + dark-mode readability */
+.mermaid-diagram {
+  margin: 1.75rem 0;
+  padding: 1rem;
+  text-align: center;
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.mermaid-diagram svg {
+  width: 100%;
+  max-width: 960px;
+  height: auto;
+  min-height: 220px;
+}
+
+/* bump label contrast and font-size so diagrams stay legible at full width */
+.mermaid-diagram svg .nodeLabel,
+.mermaid-diagram svg .edgeLabel,
+.mermaid-diagram svg .cluster-label,
+.mermaid-diagram svg text {
+  font-size: 15px !important;
+}
+
+/* dark mode: force readable label colors — mermaid's dark theme
+   sometimes leaves inherited fills that blend into the background */
+.dark .mermaid-diagram svg .nodeLabel,
+.dark .mermaid-diagram svg .edgeLabel,
+.dark .mermaid-diagram svg .cluster-label,
+.dark .mermaid-diagram svg text {
+  color: var(--vp-c-text-1) !important;
+  fill: var(--vp-c-text-1) !important;
+}
+
+.dark .mermaid-diagram svg .edgeLabel {
+  background-color: var(--vp-c-bg-soft) !important;
+}
+
+.dark .mermaid-diagram svg .edgePath path,
+.dark .mermaid-diagram svg .flowchart-link {
+  stroke: var(--vp-c-text-2) !important;
+}
+
+/* lift node rects off the card background in dark mode so they're
+   visible without relying solely on stroke */
+.dark .mermaid-diagram svg .node rect,
+.dark .mermaid-diagram svg .node polygon,
+.dark .mermaid-diagram svg .node circle,
+.dark .mermaid-diagram svg .node ellipse,
+.dark .mermaid-diagram svg .node path {
+  fill: #2d2f36 !important;
+}
+
+.dark .mermaid-diagram svg .cluster rect {
+  fill: #1a1b1f !important;
+  stroke: var(--vp-c-divider) !important;
+}
+
+/* fork banner callout on the landing page */
+.fork-banner {
+  max-width: 960px;
+  margin: 1.5rem auto 0;
+  padding: 0.9rem 1.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--vp-c-brand-2);
+  background: var(--vp-c-brand-soft);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.fork-banner strong {
+  color: var(--vp-c-brand-1);
+}
+
+.dark .fork-banner strong {
+  color: var(--vp-c-brand-light);
+}
+
+/* landing page badge row — force inline flow, kill paragraph wrapping */
+.landing-badges {
+  max-width: 960px;
+  margin: 2rem auto 0;
+  padding: 0 1.5rem;
+  text-align: center;
+}
+
+.landing-badges p {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  justify-content: center;
+  align-items: center;
+}
+
+.landing-badges img {
+  display: inline-block;
+  vertical-align: middle;
+  height: 20px;
+}
+
+/* landing page demo (terminal GIF) */
+.landing-demo {
+  max-width: 900px;
+  margin: 2rem auto 0;
+  padding: 0 1.5rem;
+  text-align: center;
+}
+
+.landing-demo img {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--vp-c-divider);
+}
+
+.landing-demo figcaption {
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+  color: var(--vp-c-text-2);
+  font-style: italic;
+}
+
+/* landing body content — inherits VitePress prose styles */
+.landing-body {
+  max-width: 960px;
+  margin: 3rem auto 0;
+  padding: 0 1.5rem;
+}

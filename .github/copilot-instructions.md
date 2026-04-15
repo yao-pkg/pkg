@@ -40,7 +40,7 @@ This is a TypeScript-based Node.js project that packages Node.js applications in
 Before running tests or making changes, always build the project:
 
 ```bash
-npm run build
+yarn build
 ```
 
 This compiles TypeScript from `lib/` to `lib-es5/` using the TypeScript compiler.
@@ -48,15 +48,15 @@ This compiles TypeScript from `lib/` to `lib-es5/` using the TypeScript compiler
 For continuous development with auto-rebuild:
 
 ```bash
-npm run start
+yarn start
 ```
 
 ### Code Standards
 
 #### Required Before Each Commit
 
-- Run `npm run lint` to check both code style and ESLint rules
-- Run `npm run fix` to automatically fix formatting and linting issues
+- Run `yarn lint` to check both code style and ESLint rules
+- Run `yarn fix` to automatically fix formatting and linting issues
 - All changes must pass CI checks (linting, building, and tests)
 
 #### Commit and Push Workflow
@@ -69,8 +69,8 @@ npm run start
    - These files may remain if a test failed before cleanup
 
 2. **Verify no lint issues**:
-   - ALWAYS run `npm run lint` before committing
-   - Fix all linting errors with `npm run fix` or manually
+   - ALWAYS run `yarn lint` before committing
+   - Fix all linting errors with `yarn fix` or manually
    - NEVER commit or push with lint errors present
 
 3. **Request approval before commit/push**:
@@ -89,14 +89,14 @@ This workflow ensures code quality, prevents accidental commits of test artifact
 
 - Uses Prettier for code formatting
 - Single quotes for strings (configured in package.json)
-- Run `npm run lint:style` to check formatting
+- Run `yarn lint:style` to check formatting
 - Format files with: `prettier -w "{lib,prelude,test}/**/*.{ts,js}"`
 
 #### Linting
 
 - Uses ESLint with TypeScript support
 - Configuration: `eslint-config-airbnb-typescript` and `eslint-config-prettier`
-- Run `npm run lint:code` to check for linting issues
+- Run `yarn lint:code` to check for linting issues
 - Console statements are disallowed in production code (lint error), but allowed in test files and scripts
 
 ### Testing
@@ -105,15 +105,15 @@ The test suite is extensive and organized in numbered directories:
 
 ```bash
 # Build first (required)
-npm run build
+yarn build
 
 # Run all tests
-npm test
+yarn test
 
 # Run tests for specific Node.js version
-npm run test:20  # Test with Node.js 20
-npm run test:22  # Test with Node.js 22
-npm run test:host  # Test with host Node.js version
+yarn test:20  # Test with Node.js 20
+yarn test:22  # Test with Node.js 22
+yarn test:host  # Test with host Node.js version
 
 # Run specific test pattern
 node test/test.js node20 no-npm test-50-*
@@ -181,7 +181,7 @@ assert(__dirname === process.cwd());
 The project uses `release-it` with conventional commits:
 
 ```bash
-npm run release
+yarn release
 ```
 
 This interactive process:
@@ -236,7 +236,7 @@ Follow conventional commits format:
 
 1. **Read existing code**: Look at similar functionality before implementing new features
 2. **Add tests**: Every new feature or bug fix should include a test
-3. **Update documentation**: Update README.md and DEVELOPMENT.md as needed
+3. **Update documentation**: Update the docs site (`docs-site/`) as needed — guides live under `docs-site/guide/`, development notes in `docs-site/development.md`, architecture in `docs-site/architecture.md`
 4. **Check CI**: Ensure all CI checks pass before requesting review
 5. **Small PRs**: Keep pull requests focused and reasonably sized
 6. **Follow patterns**: Match existing code style and patterns
@@ -275,8 +275,8 @@ The project uses GitHub Actions workflows:
 
 - **Issues**: Report bugs and feature requests on GitHub
 - **Discussions**: Use GitHub Discussions for questions
-- **Documentation**: See README.md for user documentation
-- **Development Guide**: See DEVELOPMENT.md for development details
+- **Documentation**: See the docs site at https://yao-pkg.github.io/pkg/ (sources in `docs-site/`)
+- **Development Guide**: See `docs-site/development.md` (published at https://yao-pkg.github.io/pkg/development)
 - **Related Projects**:
   - [pkg-fetch](https://github.com/yao-pkg/pkg-fetch) - Pre-compiled Node.js binaries
   - [pkg-binaries](https://github.com/yao-pkg/pkg-binaries) - Binaries for unsupported architectures
@@ -284,9 +284,9 @@ The project uses GitHub Actions workflows:
 ## Important Notes for Copilot Coding Agent
 
 1. **NEVER commit without user approval**: Always show changes with `git status --short`, present a summary, and wait for explicit user confirmation before running `git commit` or `git push`
-2. **ALWAYS check lint before committing**: Run `npm run lint` before every commit and fix all issues - NEVER commit with lint errors
+2. **ALWAYS check lint before committing**: Run `yarn lint` before every commit and fix all issues - NEVER commit with lint errors
 3. **Clean test artifacts before staging**: Remove any test-generated executables (`*.exe`, `*-linux`, `*-macos`, `*-win.exe`) from test directories before committing
-4. **Always build before testing**: Run `npm run build` before running any tests
+4. **Always build before testing**: Run `yarn build` before running any tests
 5. **Use correct Node.js version**: The project requires Node.js >= 20.0.0
 6. **Use Yarn for package management**: This project uses `yarn`, not `npm`, for dependency management
 7. **Respect TypeScript compilation**: Edit `lib/*.ts` files, not `lib-es5/*.js` files

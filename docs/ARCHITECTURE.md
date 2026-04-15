@@ -2,6 +2,32 @@
 
 This document describes how `pkg` packages Node.js applications into standalone executables, covering both the traditional binary-patching approach and the new SEA (Single Executable Application) mode with VFS support.
 
+## Visual overview
+
+Both modes start from the same project and end with a single executable, but they take very different paths through the build pipeline:
+
+```mermaid
+flowchart TD
+    P["package.json + src/"]
+
+    P --> T1["Traditional: Walker"]
+    P --> S1["Enhanced SEA: Walker seaMode"]
+
+    T1 --> T2["Bytecode fabricator"]
+    T2 --> T3["Packer + stripes"]
+    T3 --> T4["Payload injection"]
+    T4 --> TB["Patched Node.js binary<br/>with custom VFS"]
+
+    S1 --> S2["Asset blob + manifest"]
+    S2 --> S3["node --experimental-sea-config"]
+    S3 --> S4["postject inject"]
+    S4 --> SB["Stock Node.js binary<br/>with NODE_SEA_BLOB"]
+
+    style P stroke:#e89b2c,stroke-width:2px
+    style TB stroke:#ec7a96,stroke-width:2px
+    style SB stroke:#66bb6a,stroke-width:2px
+```
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -47,6 +73,30 @@ pkg single-file.js --sea       # Simple SEA mode (any single .js file)
 ## Traditional Mode
 
 ### Build Pipeline
+
+```mermaid
+flowchart TD
+    CLI[CLI<br/>lib/index.ts]
+    FETCH[pkg-fetch<br/>download base binary]
+    WALK[Walker<br/>lib/walker.ts]
+    PARSE[Babel parse entry<br/>resolve requires/imports]
+    ESM[ESM → CJS transform]
+    BYTE[Fabricator<br/>V8 bytecode compile]
+    COLLECT[Collect stores:<br/>BLOB / CONTENT / LINKS / STAT]
+    REFINE[Refiner<br/>path compression]
+    PACK[Packer<br/>serialize stripes + wrap bootstrap]
+    PROD[Producer<br/>inject into base binary]
+    OUT[Final executable]
+
+    CLI --> FETCH --> WALK
+    WALK --> PARSE --> ESM --> BYTE --> COLLECT
+    COLLECT --> REFINE --> PACK --> PROD --> OUT
+
+    style CLI stroke:#e89b2c,stroke-width:2px
+    style OUT stroke:#ec7a96,stroke-width:2px
+```
+
+Detailed pipeline:
 
 ```
 CLI (lib/index.ts)
@@ -144,6 +194,33 @@ fs.readSync(EXECPATH_FD, buffer, offset, length, PAYLOAD_POSITION + position);
 ## Enhanced SEA Mode
 
 ### SEA Build Pipeline
+
+```mermaid
+flowchart TD
+    CLI[CLI<br/>lib/index.ts]
+    DETECT{package.json?<br/>Node >= 22?}
+    WALK[Walker seaMode: true<br/>no bytecode, no ESM transform]
+    ASSETS[sea-assets.ts<br/>concat files into archive blob<br/>+ manifest with offsets]
+    SEA[sea.ts seaEnhanced]
+    CONFIG[Build sea-config.json]
+    BOOT[sea-bootstrap.bundle.js<br/>pre-bundled by esbuild]
+    BLOB[node --experimental-sea-config<br/>produces prep blob]
+    INJ[postject<br/>inject NODE_SEA_BLOB]
+    OUT[Stock Node.js executable<br/>+ NODE_SEA_BLOB resource]
+
+    CLI --> DETECT
+    DETECT -- enhanced --> WALK
+    DETECT -- simple single-file --> BLOB
+    WALK --> ASSETS --> SEA
+    SEA --> CONFIG --> BLOB
+    SEA --> BOOT --> BLOB
+    BLOB --> INJ --> OUT
+
+    style CLI stroke:#e89b2c,stroke-width:2px
+    style OUT stroke:#66bb6a,stroke-width:2px
+```
+
+Detailed pipeline:
 
 ```
 CLI (lib/index.ts)
@@ -253,6 +330,28 @@ The VFS polyfill (`@roberts_lando/vfs`) handles all `fs` and `fs/promises` patch
 **Windows path strategy:** The VFS always mounts at `/snapshot` (POSIX). On Windows, `sea-vfs-setup.js` patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to strip drive letters and convert `\` to `/` before the VFS processes them. The `insideSnapshot()` helper checks for `/snapshot`, `V:\snapshot` (sentinel drive used by `@roberts_lando/vfs` module hooks), and `C:\snapshot` (used by dlopen/child_process).
 
 ### VFS Provider Architecture
+
+```mermaid
+flowchart TD
+    U[User code<br/>fs.readFileSync /snapshot/app/x.js]
+    V["@roberts_lando/vfs<br/>mounted at /snapshot"]
+    P[SEAProvider<br/>extends MemoryProvider]
+    R1[_resolveSymlink key]
+    C1{_fileCache hit?}
+    C2[return cached Buffer]
+    A[_archive.subarray<br/>off to off+len<br/>zero-copy from ArrayBuffer]
+    C3[_fileCache.set key, buf]
+    OUT[return Buffer copy]
+
+    U --> V --> P --> R1 --> C1
+    C1 -- yes --> C2
+    C1 -- no --> A --> C3 --> OUT
+
+    style U stroke:#e89b2c,stroke-width:2px
+    style A stroke:#66bb6a,stroke-width:2px
+```
+
+ASCII version:
 
 ```
 ┌─────────────────────────────────────────────────┐

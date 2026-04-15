@@ -8,6 +8,11 @@ on:
         type: string
         required: true
         default: 'install'
+      should_run:
+        description: "Whether to actually execute the test. When 'false' the job runs but every step is skipped — this preserves the required-status-check contexts on docs-only PRs without burning CI minutes."
+        type: string
+        required: false
+        default: 'true'
 jobs:
   test:
     strategy:
@@ -17,20 +22,26 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - if: inputs.should_run == 'true'
+        uses: actions/checkout@v4
+      - if: inputs.should_run == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'yarn'
-      - uses: actions/cache@v4
+      - if: inputs.should_run == 'true'
+        uses: actions/cache@v4
         with:
           path: ~/.pkg-cache/
           key: ${{ matrix.os }}-${{ matrix.node-version }}
 
-      - run: yarn install
+      - if: inputs.should_run == 'true'
+        run: yarn install
 
-      - run: yarn build
-      - run: yarn ${{ inputs.npm_command }}
+      - if: inputs.should_run == 'true'
+        run: yarn build
+      - if: inputs.should_run == 'true'
+        run: yarn ${{ inputs.npm_command }}
         env:
           CI: true
         timeout-minutes: 30
