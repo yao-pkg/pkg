@@ -7,12 +7,16 @@ description: Local development setup for pkg itself — build, test, release —
 
 This document aims to help you get started with `pkg` development.
 
+::: tip Package manager
+`pkg` uses **yarn** for development. Run `yarn install` once, then `yarn build` / `yarn lint` / `yarn test:22` for everyday tasks. `npm` is only used inside `docs-site/` — never at the repo root, since that would create a spurious `package-lock.json`.
+:::
+
 ## Release Process
 
 In order to create release just run the command:
 
 ```bash
-npm run release
+yarn release
 ```
 
 This command will start an interactive process that will guide you through the release process using [release-it](https://github.com/release-it/release-it)
@@ -22,11 +26,11 @@ This command will start an interactive process that will guide you through the r
 Before running tests ensure you have build the project by running:
 
 ```bash
-npm run build
+yarn build
 ```
 
 > [!NOTE]
-> Remember to run again `npm run build` after changing source code (everything inside `lib` folder).
+> Remember to run again `yarn build` after changing source code (everything inside `lib` folder).
 
 Then you can use the following command to run tests:
 
@@ -88,7 +92,7 @@ Explaining the code above:
 
 ## Hacking on this docs site
 
-The documentation you're reading lives under `docs-site/` and is built with [VitePress](https://vitepress.dev). It's a separate npm workspace from `pkg` itself — its own `package.json` and lockfile.
+The documentation you're reading lives under `docs-site/` and is built with [VitePress](https://vitepress.dev). It's a separate package with its own `package.json` and `package-lock.json` — this is the **only** place `npm` is used in the repo; `pkg` itself uses `yarn`.
 
 ```bash
 cd docs-site

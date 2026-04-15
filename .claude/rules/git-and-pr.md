@@ -18,9 +18,9 @@ description: Git workflow, commit conventions, and PR rules
 ## Before Committing
 
 1. Clean test artifacts from test directories (`*.exe`, `*-linux`, `*-macos`, `*-win.exe`).
-2. Run `npm run lint` and fix all issues.
+2. Run `yarn lint` and fix all issues.
 3. Show `git status --short` and get user approval before committing.
 
 ## Release
 
-Uses `release-it` with conventional commits (`npm run release`). This runs linting, generates changelog, creates a git tag, pushes to GitHub, and publishes to npm as `@yao-pkg/pkg`.
+Uses `release-it` with conventional commits (`yarn release`). This runs linting, generates changelog, creates a git tag, pushes to GitHub, and publishes to npm as `@yao-pkg/pkg`.

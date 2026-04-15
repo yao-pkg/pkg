@@ -10,7 +10,7 @@ This is `yao-pkg/pkg` — a maintained fork of the archived `vercel/pkg`.
 
 ## Repository Structure
 
-- `lib/` — TypeScript source (compiled to `lib-es5/` via `npm run build`)
+- `lib/` — TypeScript source (compiled to `lib-es5/` via `yarn build`)
 - `prelude/` — Bootstrap code injected into packaged executables
 - `dictionary/` — Package-specific configs for known npm packages
 - `test/` — Numbered test directories (`test-XX-name/`)

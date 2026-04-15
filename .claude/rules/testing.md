@@ -9,9 +9,9 @@ paths:
 ## Commands
 
 ```bash
-npm run build                          # Always build first
-npm run test:22                        # Test with Node.js 22
-npm run test:host                      # Test with host Node.js version
+yarn build                             # Always build first
+yarn test:22                           # Test with Node.js 22
+yarn test:host                         # Test with host Node.js version
 node test/test.js node22 no-npm test-50-*   # Run specific test pattern
 ```
 
