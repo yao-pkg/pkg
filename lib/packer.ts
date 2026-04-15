@@ -65,7 +65,6 @@ interface PackerOptions {
 
 export interface Stripe {
   snap: string;
-  skip?: boolean;
   store: number;
   file?: string;
   buffer?: Buffer;

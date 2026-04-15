@@ -1827,7 +1827,18 @@ function payloadFileSync(pointer) {
 
       const script = new Script(code, options);
       const wrapper = script.runInThisContext(options);
-      if (!wrapper) process.exit(4); // for example VERSION_MISMATCH
+      if (!wrapper) {
+        // V8 rejected the cached bytecode (typically because it was
+        // produced by a different V8 build — e.g. cross-platform
+        // bytecode fabrication). Previously pkg exited silently with
+        // code 4; surface a real error so the user knows what to do.
+        throw new Error(
+          `[pkg] V8 rejected the bytecode cache for ${filename_}. ` +
+            `This usually means the binary was built with mismatched ` +
+            `host/target V8 (cross-platform bytecode). Rebuild pkg with ` +
+            `--public-packages "*" --public or --sea to avoid bytecode.`,
+        );
+      }
       const dirname = path.dirname(filename_);
       const rqfn = makeRequireFunction(this);
       const args = [this.exports, rqfn, this, filename_, dirname];

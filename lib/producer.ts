@@ -443,7 +443,7 @@ export default function producer({
       }
 
       if (count === 2) {
-        if (prevStripe && !prevStripe.skip) {
+        if (prevStripe) {
           const { store } = prevStripe;
           let { snap } = prevStripe;
           snap = snapshotify(snap, slash);
@@ -462,16 +462,35 @@ export default function producer({
           if (stripe.buffer) {
             if (stripe.store === STORE_BLOB) {
               const snap = snapshotify(stripe.snap, slash);
+              const sourceBuffer = stripe.buffer;
+
+              // Fall back to shipping source for this file (as if it had
+              // been packed with --no-bytecode). The previous behaviour was
+              // to emit an empty stripe, which left the VFS entry with
+              // neither STORE_BLOB nor STORE_CONTENT and blew up at runtime
+              // with "Error: UNEXPECTED-20" (#87, #181).
+              const fallbackToContent = (reason: string) => {
+                log.warn(
+                  `Failed to generate V8 bytecode for ${
+                    stripe.file ?? snap
+                  }. Shipping source instead. Cause: ${reason}`,
+                );
+                stripe.store = STORE_CONTENT;
+                stripe.buffer = sourceBuffer;
+                return cb(
+                  null,
+                  pipeMayCompressToNewMeter(intoStream(sourceBuffer)),
+                );
+              };
+
               return fabricateTwice(
                 bakes,
                 target.fabricator,
                 snap,
-                stripe.buffer,
+                sourceBuffer,
                 (error, buffer) => {
                   if (error) {
-                    log.warn(error.message);
-                    stripe.skip = true;
-                    return cb(null, intoStream(Buffer.alloc(0)));
+                    return fallbackToContent(error.message);
                   }
 
                   cb(
