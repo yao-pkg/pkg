@@ -70,3 +70,4 @@ Debug builds are slower, larger, and print sensitive internal paths at launch. T
 - [Output & debug](/guide/output)
 - [Environment variables](/guide/environment)
 - [Configuration → ignore](/guide/configuration#ignore-files)
+- [Claude Code `/pkg-debug` skill](/guide/troubleshooting#ai-assisted-debugging-with-claude-code) — interactive AI-assisted troubleshooting
