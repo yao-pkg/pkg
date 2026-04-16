@@ -41,6 +41,7 @@ jobs:
           key: pkg-cache-${{ matrix.os }}-${{ matrix.node-version }}
           restore-keys: |
             pkg-cache-${{ matrix.os }}-
+            ${{ matrix.os }}-${{ matrix.node-version }}
 
       - if: inputs.should_run == 'true'
         run: yarn install

@@ -2,6 +2,7 @@
 
 'use strict';
 
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const pc = require('picocolors');
@@ -232,6 +233,30 @@ async function run() {
 
     done++;
   });
+
+  if (isParallel) {
+    // Pre-download pkg-fetch binaries for all platforms before parallel
+    // execution. pkg-fetch uses a deterministic temp filename (*.downloading)
+    // that collides when multiple processes download the same binary. Warming
+    // the cache with a single sequential build prevents the race.
+    console.log('Warming binary cache...');
+    const warmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-warm-'));
+    const warmInput = path.join(warmDir, 'warm.js');
+    fs.writeFileSync(warmInput, '"use strict";');
+    try {
+      // Explicitly request all platforms so cross-platform binaries are cached
+      const allPlatforms = `${target}-linux,${target}-macos,${target}-win`;
+      utils.pkg.sync(
+        ['--target', allPlatforms, '--output', 'warm', warmInput],
+        { cwd: warmDir },
+      );
+    } catch {
+      // Best-effort — if warm-up fails, tests will still download on demand
+    } finally {
+      fs.rmSync(warmDir, { recursive: true, force: true });
+    }
+    console.log('Binary cache ready.');
+  }
 
   // Run tests with bounded concurrency
   const executing = new Set();
