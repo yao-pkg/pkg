@@ -117,6 +117,37 @@ unset NODE_OPTIONS NODE_DEBUG NODE_EXTRA_CA_CERTS NODE_NO_WARNINGS
 
 If your shell or IDE re-adds them automatically, add an exception rule — e.g. in VS Code add `"terminal.integrated.env.linux": { "NODE_OPTIONS": null }` to disable the auto-injection just for this project.
 
+## AI-assisted debugging with Claude Code
+
+If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code), you can install the `/pkg-debug` skill to get interactive AI-assisted troubleshooting for any packaging issue.
+
+### Install the skill
+
+Download the skill file into your project's `.claude/skills/` directory:
+
+```bash
+mkdir -p .claude/skills/pkg-debug
+curl -fsSL https://raw.githubusercontent.com/yao-pkg/pkg/main/.claude/skills/pkg-debug/SKILL.md \
+  -o .claude/skills/pkg-debug/SKILL.md
+```
+
+::: tip Already cloned the repo?
+If you're working inside a clone of `yao-pkg/pkg`, the skill is already available — no extra setup needed.
+:::
+
+### Use it
+
+Start a new Claude Code session (skills are loaded at session start), then invoke it with a description of your issue:
+
+```
+/pkg-debug my binary crashes with "Cannot find module X"
+/pkg-debug binary is 500 MB, how do I reduce size?
+/pkg-debug cross-compile from linux to macos not working
+/pkg-debug native addon fails to load after packaging
+```
+
+The skill covers build failures, runtime crashes, missing assets, binary bloat, cross-compile regressions, native addons, SEA issues, and the `patches` / `dictionary` systems — all linked back to these docs.
+
 ## Still stuck?
 
 - Search existing issues: [github.com/yao-pkg/pkg/issues](https://github.com/yao-pkg/pkg/issues)
