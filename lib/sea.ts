@@ -31,6 +31,19 @@ import { inject as postjectInject } from 'postject';
 
 const execFileAsync = util.promisify(cExecFile);
 
+/**
+ * The SEA fuse sentinel that postject uses to activate the binary.
+ *
+ * Built by concatenation so the literal never appears as a single string
+ * in compiled output.  When pkg's own code is walked into a SEA archive
+ * (e.g. user lists @yao-pkg/pkg in dependencies), a verbatim sentinel
+ * would end up inside the injected blob, causing postject to find
+ * duplicate occurrences and fail with "Multiple occurences of sentinel".
+ */
+// prettier-ignore
+const SEA_SENTINEL_FUSE =
+  'NODE_SEA' + '_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+
 /** Returns stat of path when exits, false otherwise */
 const exists = async (path: string) => {
   try {
@@ -344,7 +357,7 @@ async function bake(
   // 1. "Text file busy" race condition from concurrent npx invocations
   // 2. "Argument is not a constructor" from npx downloading incompatible versions
   await postjectInject(outPath, 'NODE_SEA_BLOB', blobData, {
-    sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
+    sentinelFuse: SEA_SENTINEL_FUSE,
     machoSegmentName: target.platform === 'macos' ? 'NODE_SEA' : undefined,
     overwrite: true,
   });
