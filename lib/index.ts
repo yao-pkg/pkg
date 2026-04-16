@@ -236,6 +236,7 @@ export async function exec(argv2: string[]) {
       'native-build',
       'd',
       'debug',
+      'fallback-to-source',
       'h',
       'help',
       'public',
@@ -692,6 +693,7 @@ export async function exec(argv2: string[]) {
       symLinks,
       doCompress,
       nativeBuild,
+      fallbackToSource: argv['fallback-to-source'],
     });
 
     if (target.platform !== 'win' && target.output) {

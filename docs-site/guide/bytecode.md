@@ -54,6 +54,16 @@ pkg --no-bytecode --public-packages "*" --public index.js
 
 `--public` additionally exposes the **top-level project** sources (i.e. your own code) as plain text.
 
+## Fallback to source on failure
+
+When bytecode generation fails for a specific file (e.g. during cross-compilation without QEMU), `pkg` logs a warning and **skips the file** — it won't be available at runtime. If you'd rather ship the affected files as plain source instead of skipping them, pass `--fallback-to-source`:
+
+```sh
+pkg --fallback-to-source -t node22-linux-arm64 index.js
+```
+
+Files that compile successfully still ship as bytecode; only the ones that fail are included as plain JavaScript. A warning is emitted for each file that falls back.
+
 ## SEA mode
 
 SEA mode **never uses bytecode**. Source is always plaintext in a SEA binary. This is a deliberate trade-off — see [SEA vs Standard](/guide/sea-vs-standard).

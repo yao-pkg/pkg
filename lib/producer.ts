@@ -304,6 +304,7 @@ interface ProducerOptions {
   symLinks: SymLinks;
   doCompress: CompressType;
   nativeBuild: boolean;
+  fallbackToSource?: boolean;
 }
 
 /**
@@ -368,6 +369,7 @@ export default function producer({
   symLinks,
   doCompress,
   nativeBuild,
+  fallbackToSource,
 }: ProducerOptions) {
   return new Promise<void>((resolve, reject) => {
     if (!Buffer.alloc) {
@@ -443,13 +445,21 @@ export default function producer({
       }
 
       if (count === 2) {
-        if (prevStripe) {
+        if (prevStripe && !prevStripe.skip) {
           const { store } = prevStripe;
           let { snap } = prevStripe;
           snap = snapshotify(snap, slash);
           const vfsKey = makeKey(doCompress, snap, slash);
           vfs[vfsKey][store] = [track, meter.bytes];
           track += meter.bytes;
+        } else if (prevStripe?.skip) {
+          // Remove the empty VFS key so the prelude doesn't find an
+          // entry with no STORE_BLOB / STORE_CONTENT (which would
+          // cause "Error: UNEXPECTED-20" at runtime).
+          let { snap } = prevStripe;
+          snap = snapshotify(snap, slash);
+          const vfsKey = makeKey(doCompress, snap, slash);
+          delete vfs[vfsKey];
         }
 
         if (stripes.length) {
@@ -464,25 +474,6 @@ export default function producer({
               const snap = snapshotify(stripe.snap, slash);
               const sourceBuffer = stripe.buffer;
 
-              // Fall back to shipping source for this file (as if it had
-              // been packed with --no-bytecode). The previous behaviour was
-              // to emit an empty stripe, which left the VFS entry with
-              // neither STORE_BLOB nor STORE_CONTENT and blew up at runtime
-              // with "Error: UNEXPECTED-20" (#87, #181).
-              const fallbackToContent = (reason: string) => {
-                log.warn(
-                  `Failed to generate V8 bytecode for ${
-                    stripe.file ?? snap
-                  }. Shipping source instead. Cause: ${reason}`,
-                );
-                stripe.store = STORE_CONTENT;
-                stripe.buffer = sourceBuffer;
-                return cb(
-                  null,
-                  pipeMayCompressToNewMeter(intoStream(sourceBuffer)),
-                );
-              };
-
               return fabricateTwice(
                 bakes,
                 target.fabricator,
@@ -490,7 +481,26 @@ export default function producer({
                 sourceBuffer,
                 (error, buffer) => {
                   if (error) {
-                    return fallbackToContent(error.message);
+                    const file = stripe.file ?? snap;
+
+                    if (fallbackToSource) {
+                      log.warn(
+                        `Failed to generate V8 bytecode for ${file}. Shipping source instead. Cause: ${error.message}`,
+                      );
+                      stripe.store = STORE_CONTENT;
+                      stripe.buffer = sourceBuffer;
+                      return cb(
+                        null,
+                        pipeMayCompressToNewMeter(intoStream(sourceBuffer)),
+                      );
+                    }
+
+                    log.warn(
+                      `Failed to generate V8 bytecode for ${file}. Cause: ${error.message}. ` +
+                        `Use --fallback-to-source to include the file as plain source instead.`,
+                    );
+                    stripe.skip = true;
+                    return cb(null, intoStream(Buffer.alloc(0)));
                   }
 
                   cb(

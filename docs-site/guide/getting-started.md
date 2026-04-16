@@ -111,24 +111,25 @@ pkg .
 
 ## CLI reference
 
-| Flag                       | Short | Description                                                                                      |
-| -------------------------- | ----- | ------------------------------------------------------------------------------------------------ |
-| `--help`                   | `-h`  | Show usage                                                                                       |
-| `--version`                | `-v`  | Print pkg version                                                                                |
-| `--targets <list>`         | `-t`  | Comma-separated target list, e.g. `node22-linux-x64` — see [Targets](/guide/targets)             |
-| `--config <path>`          | `-c`  | Path to `package.json` or any JSON file with a top-level `pkg` config                            |
-| `--output <path>`          | `-o`  | Output file name (single-target builds only)                                                     |
-| `--out-path <dir>`         |       | Output directory for multi-target builds                                                         |
-| `--debug`                  | `-d`  | Verbose packaging log — see [Output & debug](/guide/output)                                      |
-| `--build`                  | `-b`  | Compile base binaries from source instead of downloading — see [Build](/guide/build)             |
-| `--public`                 |       | Speed up packaging and disclose top-level sources                                                |
-| `--public-packages <list>` |       | Force listed packages to be treated as public — see [Bytecode](/guide/bytecode)                  |
-| `--no-bytecode`            |       | Skip V8 bytecode compilation, embed source as plain JS — see [Bytecode](/guide/bytecode)         |
-| `--no-native-build`        |       | Skip building native addons                                                                      |
-| `--no-dict <list>`         |       | Ignore bundled dictionaries for listed packages (`*` disables all)                               |
-| `--options <list>`         |       | Bake V8 options into the executable — see [CLI options](/guide/options)                          |
-| `--compress <algo>`        | `-C`  | Compress the embedded filesystem with `Brotli` or `GZip` — see [Compression](/guide/compression) |
-| `--sea`                    |       | Use Node.js SEA instead of the patched base binary — see [SEA mode](/guide/sea-mode)             |
+| Flag                       | Short | Description                                                                                                          |
+| -------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------- |
+| `--help`                   | `-h`  | Show usage                                                                                                           |
+| `--version`                | `-v`  | Print pkg version                                                                                                    |
+| `--targets <list>`         | `-t`  | Comma-separated target list, e.g. `node22-linux-x64` — see [Targets](/guide/targets)                                 |
+| `--config <path>`          | `-c`  | Path to `package.json` or any JSON file with a top-level `pkg` config                                                |
+| `--output <path>`          | `-o`  | Output file name (single-target builds only)                                                                         |
+| `--out-path <dir>`         |       | Output directory for multi-target builds                                                                             |
+| `--debug`                  | `-d`  | Verbose packaging log — see [Output & debug](/guide/output)                                                          |
+| `--build`                  | `-b`  | Compile base binaries from source instead of downloading — see [Build](/guide/build)                                 |
+| `--public`                 |       | Speed up packaging and disclose top-level sources                                                                    |
+| `--public-packages <list>` |       | Force listed packages to be treated as public — see [Bytecode](/guide/bytecode)                                      |
+| `--no-bytecode`            |       | Skip V8 bytecode compilation, embed source as plain JS — see [Bytecode](/guide/bytecode)                             |
+| `--fallback-to-source`     |       | Ship files as plain source when bytecode generation fails instead of skipping them — see [Bytecode](/guide/bytecode) |
+| `--no-native-build`        |       | Skip building native addons                                                                                          |
+| `--no-dict <list>`         |       | Ignore bundled dictionaries for listed packages (`*` disables all)                                                   |
+| `--options <list>`         |       | Bake V8 options into the executable — see [CLI options](/guide/options)                                              |
+| `--compress <algo>`        | `-C`  | Compress the embedded filesystem with `Brotli` or `GZip` — see [Compression](/guide/compression)                     |
+| `--sea`                    |       | Use Node.js SEA instead of the patched base binary — see [SEA mode](/guide/sea-mode)                                 |
 
 Run `pkg --help` at any time for the live list of options.
 

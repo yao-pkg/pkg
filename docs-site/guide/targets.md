@@ -83,7 +83,8 @@ Tracked in [#87](https://github.com/yao-pkg/pkg/issues/87) and [#181](https://gi
 
 1. **Switch to SEA** — `pkg . --sea`. Avoids the V8 bytecode step entirely.
 2. **Disable bytecode** — `pkg . --no-bytecode --public-packages "*" --public`. Keeps Standard mode, stores source as plaintext.
-3. **Target Node 24** — the regression is gone on `node24-*` targets.
+3. **Fallback to source** — `pkg . --fallback-to-source`. Keeps bytecode for files that compile successfully and ships the rest as plain source. See [Bytecode → Fallback to source](/guide/bytecode#fallback-to-source-on-failure).
+4. **Target Node 24** — the regression is gone on `node24-*` targets.
 
 :::
 
@@ -95,6 +96,7 @@ Regardless of the bug above, the V8 bytecode fabricator in Standard mode needs t
 - **macOS** — you can build `x64` on `arm64` with Rosetta 2, but not the opposite
 - **Windows** — you can build `x64` on `arm64` with x64 emulation, but not the opposite
 - Or disable bytecode generation entirely with `--no-bytecode --public-packages "*" --public`
+- Or use `--fallback-to-source` to ship only the failing files as plain source while keeping bytecode for the rest
 
 Enhanced SEA doesn't have this limitation when the host and target share the same Node major: pkg uses `process.execPath` to generate the SEA blob, so no target-arch interpreter is needed. Cross-major SEA builds (e.g. building `node22-*` targets on a Node 24 host) still require an interpreter for the downloaded target binary.
 
