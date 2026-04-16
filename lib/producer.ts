@@ -452,14 +452,6 @@ export default function producer({
           const vfsKey = makeKey(doCompress, snap, slash);
           vfs[vfsKey][store] = [track, meter.bytes];
           track += meter.bytes;
-        } else if (prevStripe?.skip) {
-          // Remove the empty VFS key so the prelude doesn't find an
-          // entry with no STORE_BLOB / STORE_CONTENT (which would
-          // cause "Error: UNEXPECTED-20" at runtime).
-          let { snap } = prevStripe;
-          snap = snapshotify(snap, slash);
-          const vfsKey = makeKey(doCompress, snap, slash);
-          delete vfs[vfsKey];
         }
 
         if (stripes.length) {
