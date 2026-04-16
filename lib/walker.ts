@@ -261,9 +261,11 @@ function stepDetect(
     body = body.toString();
   }
 
+  const source = body as string;
+
   try {
     detector.detect(
-      body,
+      source,
       (node, trying) => {
         const { toplevel } = marker;
         let d = detector.visitorSuccessful(node) as unknown as Derivative;
@@ -279,7 +281,7 @@ function stepDetect(
           return false;
         }
 
-        d = detector.visitorNonLiteral(node) as unknown as Derivative;
+        d = detector.visitorNonLiteral(node, source) as unknown as Derivative;
 
         if (d) {
           if (typeof d === 'object' && d.mustExclude) {
@@ -298,7 +300,7 @@ function stepDetect(
           return false;
         }
 
-        d = detector.visitorMalformed(node) as unknown as Derivative;
+        d = detector.visitorMalformed(node, source) as unknown as Derivative;
 
         if (d) {
           // there is no 'mustExclude'
@@ -308,7 +310,7 @@ function stepDetect(
           return false;
         }
 
-        d = detector.visitorUseSCWD(node) as unknown as Derivative;
+        d = detector.visitorUseSCWD(node, source) as unknown as Derivative;
 
         if (d) {
           // there is no 'mustExclude'
@@ -377,6 +379,37 @@ class Walker {
   private records: FileRecords;
 
   private dictionary: ConfigDictionary;
+
+  // Module resolution cache: avoids redundant follow() calls for the same
+  // specifier resolved from the same directory.
+  private resolveCache = new Map<
+    string,
+    {
+      newFile: string;
+      newPackages: { packageJson: string; marker?: Marker }[];
+      newPackageForNewRecords?: { packageJson: string; marker?: Marker };
+    }
+  >();
+
+  // Performance timing accumulators (milliseconds)
+  private timings = {
+    read: 0,
+    strip: 0,
+    detect: 0,
+    patch: 0,
+    derivatives: 0,
+    esmTransform: 0,
+    stat: 0,
+    total: 0,
+  };
+
+  private fileCounts = {
+    jsParsed: 0,
+    json: 0,
+    nativeAddon: 0,
+    other: 0,
+    total: 0,
+  };
 
   constructor() {
     this.tasks = [];
@@ -541,9 +574,11 @@ class Walker {
       if (scripts) {
         scripts = expandFiles(scripts, base);
 
-        for (const script of scripts) {
-          const stat = await fs.stat(script);
+        const scriptStats = await Promise.all(
+          scripts.map((s) => fs.stat(s).then((stat) => ({ path: s, stat }))),
+        );
 
+        for (const { path: script, stat } of scriptStats) {
           if (stat.isFile()) {
             if (!isDotJS(script) && !isDotJSON(script) && !isDotNODE(script)) {
               log.warn("Non-javascript file is specified in 'scripts'.", [
@@ -567,9 +602,12 @@ class Walker {
       if (assets) {
         assets = expandFiles(assets, base);
 
-        for (const asset of assets) {
+        const assetStats = await Promise.all(
+          assets.map((a) => fs.stat(a).then((stat) => ({ path: a, stat }))),
+        );
+
+        for (const { path: asset, stat } of assetStats) {
           log.debug(' Adding asset : .... ', asset);
-          const stat = await fs.stat(asset);
 
           if (stat.isFile()) {
             await this.appendBlobOrContent({
@@ -587,10 +625,14 @@ class Walker {
       if (files) {
         files = expandFiles(files, base);
 
-        for (let file of files) {
-          file = normalizePath(file);
-          const stat = await fs.stat(file);
+        const normalizedFiles = files.map((f) => normalizePath(f));
+        const fileStats = await Promise.all(
+          normalizedFiles.map((f) =>
+            fs.stat(f).then((stat) => ({ path: f, stat })),
+          ),
+        );
 
+        for (const { path: file, stat } of fileStats) {
           if (stat.isFile()) {
             // 1) remove sources of top-level(!) package 'files' i.e. ship as BLOB
             // 2) non-source (non-js) files of top-level package are shipped as CONTENT
@@ -812,87 +854,130 @@ class Walker {
     marker: Marker,
     derivative: Derivative,
   ) {
-    const newPackages: { packageJson: string; marker?: Marker }[] = [];
-
-    const catchReadFile = (file: string) => {
-      assert(isPackageJson(file), `walker: ${file} must be package.json`);
-      newPackages.push({ packageJson: file });
-    };
-
-    const catchPackageFilter = (config: PackageJson, base: string) => {
-      const newPackage = newPackages[newPackages.length - 1];
-      newPackage.marker = {
-        config,
-        configPath: newPackage.packageJson,
-        base,
-      };
-    };
-
-    let newFile = '';
-    let failure: Error | undefined;
-
     const basedir = path.dirname(record.file);
-    try {
-      newFile = await follow(derivative.alias, {
-        basedir,
-        // default is extensions: ['.js'], but
-        // it is not enough because 'typos.json'
-        // is not taken in require('./typos')
-        // in 'normalize-package-data/lib/fixer.js'
-        // Also include .mjs to support ESM files that get transformed to .js
-        extensions: MODULE_RESOLVE_EXTENSIONS,
-        catchReadFile,
-        catchPackageFilter,
-      });
-    } catch (error) {
-      failure = error as Error;
-    }
+    const cacheKey = `${derivative.alias}\0${basedir}`;
+    const cached = this.resolveCache.get(cacheKey);
 
-    if (failure) {
-      const { toplevel } = marker;
-      const mainNotFound =
-        newPackages.length > 0 && !newPackages[0].marker?.config?.main;
-      const debug =
-        !toplevel ||
-        derivative.mayExclude ||
-        (mainNotFound && derivative.fromDependencies);
-      const level = debug ? 'debug' : 'warn';
+    let newFile: string;
+    let newPackages: { packageJson: string; marker?: Marker }[];
+    let newPackageForNewRecords:
+      | { packageJson: string; marker?: Marker }
+      | undefined;
 
-      if (mainNotFound) {
-        const message = "Entry 'main' not found in %1";
-        log[level](message, [
-          `%1: ${newPackages[0].packageJson}`,
-          `%2: ${record.file}`,
-        ]);
-      } else {
-        log[level](`${pc.yellow(failure.message)}  in ${record.file}`);
-      }
+    if (cached) {
+      // Cache hit — reuse prior resolution. Deep-clone marker objects to
+      // prevent shared mutation (stepActivate modifies marker.config).
+      // The appendBlobOrContent calls below are no-ops for already-seen
+      // files (deduped by appendRecord).
+      newFile = cached.newFile;
+      newPackages = cached.newPackages.map((p) => ({
+        packageJson: p.packageJson,
+        marker: p.marker
+          ? {
+              config: p.marker.config
+                ? JSON.parse(JSON.stringify(p.marker.config))
+                : undefined,
+              configPath: p.marker.configPath,
+              base: p.marker.base,
+            }
+          : undefined,
+      }));
+      newPackageForNewRecords = cached.newPackageForNewRecords
+        ? newPackages.find(
+            (p) =>
+              p.packageJson === cached.newPackageForNewRecords!.packageJson,
+          )
+        : undefined;
+    } else {
+      // Cache miss — perform full resolution
+      newPackages = [];
 
-      return;
-    }
+      const catchReadFile = (file: string) => {
+        assert(isPackageJson(file), `walker: ${file} must be package.json`);
+        newPackages.push({ packageJson: file });
+      };
 
-    let newPackageForNewRecords;
+      const catchPackageFilter = (config: PackageJson, base: string) => {
+        const newPackage = newPackages[newPackages.length - 1];
+        newPackage.marker = {
+          config,
+          configPath: newPackage.packageJson,
+          base,
+        };
+      };
 
-    for (const newPackage of newPackages) {
-      let newFile2;
+      newFile = '';
+      let failure: Error | undefined;
 
       try {
-        newFile2 = await follow(derivative.alias, {
-          basedir: path.dirname(record.file),
+        newFile = await follow(derivative.alias, {
+          basedir,
+          // default is extensions: ['.js'], but
+          // it is not enough because 'typos.json'
+          // is not taken in require('./typos')
+          // in 'normalize-package-data/lib/fixer.js'
+          // Also include .mjs to support ESM files that get transformed to .js
           extensions: MODULE_RESOLVE_EXTENSIONS,
-          ignoreFile: newPackage.packageJson,
+          catchReadFile,
+          catchPackageFilter,
         });
-        if (strictVerify) {
-          assert(newFile2 === normalizePath(newFile2));
-        }
-      } catch (_) {
-        // not setting is enough
+      } catch (error) {
+        failure = error as Error;
       }
 
-      if (newFile2 !== newFile) {
-        newPackageForNewRecords = newPackage;
-        break;
+      if (failure) {
+        const { toplevel } = marker;
+        const mainNotFound =
+          newPackages.length > 0 && !newPackages[0].marker?.config?.main;
+        const debug =
+          !toplevel ||
+          derivative.mayExclude ||
+          (mainNotFound && derivative.fromDependencies);
+        const level = debug ? 'debug' : 'warn';
+
+        if (mainNotFound) {
+          const message = "Entry 'main' not found in %1";
+          log[level](message, [
+            `%1: ${newPackages[0].packageJson}`,
+            `%2: ${record.file}`,
+          ]);
+        } else {
+          log[level](`${pc.yellow(failure.message)}  in ${record.file}`);
+        }
+
+        return;
       }
+
+      newPackageForNewRecords = undefined;
+
+      for (const newPackage of newPackages) {
+        let newFile2;
+
+        try {
+          newFile2 = await follow(derivative.alias, {
+            basedir,
+            extensions: MODULE_RESOLVE_EXTENSIONS,
+            ignoreFile: newPackage.packageJson,
+          });
+          if (strictVerify) {
+            assert(newFile2 === normalizePath(newFile2));
+          }
+        } catch (_) {
+          // not setting is enough
+        }
+
+        if (newFile2 !== newFile) {
+          newPackageForNewRecords = newPackage;
+          break;
+        }
+      }
+
+      // Store in cache for future lookups from the same directory
+      this.resolveCache.set(cacheKey, {
+        newFile,
+        newPackages,
+        newPackageForNewRecords,
+      });
     }
 
     // Add all discovered package.json files, not just the one determined by the double-resolution logic
@@ -975,6 +1060,17 @@ class Walker {
     if (record[store] !== undefined) return;
     record[store] = false; // default is discard
 
+    this.fileCounts.total += 1;
+    if (isDotJSON(record.file)) {
+      this.fileCounts.json += 1;
+    } else if (isDotNODE(record.file)) {
+      this.fileCounts.nativeAddon += 1;
+    } else if (isDotJS(record.file) || record.file.endsWith('.mjs')) {
+      this.fileCounts.jsParsed += 1;
+    } else {
+      this.fileCounts.other += 1;
+    }
+
     this.appendStat({
       file: record.file,
       store: STORE_STAT,
@@ -1012,11 +1108,18 @@ class Walker {
       this.hasPatch(record)
     ) {
       if (!record.body) {
+        let t0 = performance.now();
         await stepRead(record);
+        this.timings.read += performance.now() - t0;
+
+        t0 = performance.now();
         this.stepPatch(record);
+        this.timings.patch += performance.now() - t0;
 
         if (store === STORE_BLOB || needsSeaRead) {
+          t0 = performance.now();
           stepStrip(record);
+          this.timings.strip += performance.now() - t0;
         }
       }
 
@@ -1108,6 +1211,7 @@ class Walker {
         (isDotJS(record.file) || record.file.endsWith('.mjs'))
       ) {
         if (isESMFile(record.file)) {
+          const t0 = performance.now();
           try {
             const result = transformESMtoCJS(
               record.body.toString('utf8'),
@@ -1127,13 +1231,19 @@ class Walker {
               `Failed to transform ESM module to CJS for file "${record.file}": ${message}`,
             );
           }
+          this.timings.esmTransform += performance.now() - t0;
         }
       }
 
       if (store === STORE_BLOB || needsSeaRead) {
         const derivatives2: Derivative[] = [];
+        let t0 = performance.now();
         stepDetect(record, marker, derivatives2);
+        this.timings.detect += performance.now() - t0;
+
+        t0 = performance.now();
         await this.stepDerivatives(record, marker, derivatives2);
+        this.timings.derivatives += performance.now() - t0;
 
         // After dependencies are resolved, rewrite .mjs require paths to .js
         // since the packer renames .mjs files to .js in the snapshot.
@@ -1185,6 +1295,7 @@ class Walker {
       });
     }
 
+    const t0 = performance.now();
     try {
       const valueStat = await fs.stat(record.file);
 
@@ -1202,6 +1313,7 @@ class Walker {
       log.error(`Cannot stat, ${exception.code}`, record.file);
       throw wasReported(exception.message);
     }
+    this.timings.stat += performance.now() - t0;
 
     if (path.dirname(record.file) !== record.file) {
       // root directory
@@ -1298,11 +1410,29 @@ class Walker {
 
     const { tasks } = this;
 
+    const walkerStart = performance.now();
+
     for (let i = 0; i < tasks.length; i += 1) {
       // NO MULTIPLE WORKERS! THIS WILL LEAD TO NON-DETERMINISTIC
       // ORDER. one-by-one fifo is the only way to iterate tasks
       await this.step(tasks[i]);
     }
+
+    this.timings.total = performance.now() - walkerStart;
+
+    const t = this.timings;
+    const c = this.fileCounts;
+    log.debug('Walker performance summary:');
+    log.debug(
+      `  Files: ${c.total} total (${c.jsParsed} JS, ${c.json} JSON, ${c.nativeAddon} native, ${c.other} other)`,
+    );
+    log.debug(
+      `  Timings: read=${t.read.toFixed(0)}ms detect=${t.detect.toFixed(0)}ms derivatives=${t.derivatives.toFixed(0)}ms`,
+    );
+    log.debug(
+      `  esmTransform=${t.esmTransform.toFixed(0)}ms patch=${t.patch.toFixed(0)}ms strip=${t.strip.toFixed(0)}ms stat=${t.stat.toFixed(0)}ms`,
+    );
+    log.debug(`  Total walker time: ${t.total.toFixed(0)}ms`);
 
     return {
       symLinks: this.symLinks,

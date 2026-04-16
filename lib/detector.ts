@@ -1,49 +1,43 @@
-import * as babelTypes from '@babel/types';
-import * as babel from '@babel/parser';
-import generate from '@babel/generator';
+import * as acorn from 'acorn';
 import { log } from './log';
 
 import { ALIAS_AS_RELATIVE, ALIAS_AS_RESOLVABLE } from './common';
 
-function isLiteral(node: babelTypes.Node): node is babelTypes.Literal {
+// Minimal ESTree node types used by the detector
+interface AcornNode {
+  type: string;
+  start: number;
+  end: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+function isLiteral(node: AcornNode): boolean {
   if (node == null) {
     return false;
   }
 
-  if (!node.type.endsWith('Literal')) {
-    return false;
+  if (node.type === 'Literal') {
+    // Exclude null, regex
+    return node.value !== null && !(node.value instanceof RegExp);
   }
 
-  if (node.type === 'TemplateLiteral' && node.expressions.length !== 0) {
-    return false;
+  if (node.type === 'TemplateLiteral') {
+    return node.expressions.length === 0;
   }
 
-  return true;
+  return false;
 }
 
-function getLiteralValue(node: babelTypes.Literal) {
+function getLiteralValue(node: AcornNode) {
   if (node.type === 'TemplateLiteral') {
     return node.quasis[0].value.raw;
-  }
-
-  if (node.type === 'NullLiteral') {
-    throw new Error('Unexpected null in require expression');
-  }
-
-  if (node.type === 'RegExpLiteral') {
-    throw new Error('Unexpected regexp in require expression');
   }
 
   return node.value;
 }
 
-function reconstructSpecifiers(
-  specs: (
-    | babelTypes.ImportDefaultSpecifier
-    | babelTypes.ImportNamespaceSpecifier
-    | babelTypes.ImportSpecifier
-  )[],
-) {
+function reconstructSpecifiers(specs: AcornNode[]) {
   if (!specs || !specs.length) {
     return '';
   }
@@ -51,7 +45,7 @@ function reconstructSpecifiers(
   const defaults = [];
 
   for (const spec of specs) {
-    if (babelTypes.isImportDefaultSpecifier(spec)) {
+    if (spec.type === 'ImportDefaultSpecifier') {
       defaults.push(spec.local.name);
     }
   }
@@ -59,10 +53,8 @@ function reconstructSpecifiers(
   const nonDefaults = [];
 
   for (const spec of specs) {
-    if (babelTypes.isImportSpecifier(spec)) {
-      const importedName = babelTypes.isIdentifier(spec.imported)
-        ? spec.imported.name
-        : spec.imported.value;
+    if (spec.type === 'ImportSpecifier') {
+      const importedName = spec.imported.name;
 
       if (spec.local.name === importedName) {
         nonDefaults.push(spec.local.name);
@@ -79,8 +71,8 @@ function reconstructSpecifiers(
   return defaults.join(', ');
 }
 
-function reconstruct(node: babelTypes.Node) {
-  let v = generate(node, { comments: false }).code.replace(/\n/g, '');
+function reconstruct(node: AcornNode, source: string) {
+  let v = source.slice(node.start, node.end).replace(/\n/g, '');
   let v2;
 
   while (true) {
@@ -121,12 +113,12 @@ function valid2(v2?: Was['v2']) {
   );
 }
 
-function visitorRequireResolve(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+function visitorRequireResolve(n: AcornNode) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isMemberExpression(n.callee)) {
+  if (n.callee.type !== 'MemberExpression') {
     return null;
   }
 
@@ -150,12 +142,12 @@ function visitorRequireResolve(n: babelTypes.Node) {
   };
 }
 
-function visitorRequire(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+function visitorRequire(n: AcornNode) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isIdentifier(n.callee)) {
+  if (n.callee.type !== 'Identifier') {
     return null;
   }
 
@@ -173,20 +165,20 @@ function visitorRequire(n: babelTypes.Node) {
   };
 }
 
-function visitorImport(n: babelTypes.Node) {
-  if (!babelTypes.isImportDeclaration(n)) {
+function visitorImport(n: AcornNode) {
+  if (n.type !== 'ImportDeclaration') {
     return null;
   }
 
   return { v1: n.source.value, v3: reconstructSpecifiers(n.specifiers) };
 }
 
-function visitorPathJoin(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+function visitorPathJoin(n: AcornNode) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isMemberExpression(n.callee)) {
+  if (n.callee.type !== 'MemberExpression') {
     return null;
   }
 
@@ -218,10 +210,10 @@ function visitorPathJoin(n: babelTypes.Node) {
     return null;
   }
 
-  return { v1: getLiteralValue(n.arguments[1] as babelTypes.StringLiteral) };
+  return { v1: getLiteralValue(n.arguments[1]) };
 }
 
-export function visitorSuccessful(node: babelTypes.Node, test = false) {
+export function visitorSuccessful(node: AcornNode, test = false) {
   let was: Was | null = visitorRequireResolve(node);
 
   if (was) {
@@ -283,12 +275,12 @@ export function visitorSuccessful(node: babelTypes.Node, test = false) {
   return null;
 }
 
-function nonLiteralRequireResolve(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+function nonLiteralRequireResolve(n: AcornNode, source: string) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isMemberExpression(n.callee)) {
+  if (n.callee.type !== 'MemberExpression') {
     return null;
   }
 
@@ -309,7 +301,7 @@ function nonLiteralRequireResolve(n: babelTypes.Node) {
   const m = n.arguments[1];
 
   if (!m) {
-    return { v1: reconstruct(n.arguments[0]) };
+    return { v1: reconstruct(n.arguments[0], source) };
   }
 
   if (!isLiteral(n.arguments[1])) {
@@ -317,17 +309,17 @@ function nonLiteralRequireResolve(n: babelTypes.Node) {
   }
 
   return {
-    v1: reconstruct(n.arguments[0]),
+    v1: reconstruct(n.arguments[0], source),
     v2: getLiteralValue(n.arguments[1]),
   };
 }
 
-function nonLiteralRequire(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+function nonLiteralRequire(n: AcornNode, source: string) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isIdentifier(n.callee)) {
+  if (n.callee.type !== 'Identifier') {
     return null;
   }
 
@@ -342,7 +334,7 @@ function nonLiteralRequire(n: babelTypes.Node) {
   const m = n.arguments[1];
 
   if (!m) {
-    return { v1: reconstruct(n.arguments[0]) };
+    return { v1: reconstruct(n.arguments[0], source) };
   }
 
   if (!isLiteral(n.arguments[1])) {
@@ -350,13 +342,14 @@ function nonLiteralRequire(n: babelTypes.Node) {
   }
 
   return {
-    v1: reconstruct(n.arguments[0]),
+    v1: reconstruct(n.arguments[0], source),
     v2: getLiteralValue(n.arguments[1]),
   };
 }
 
-export function visitorNonLiteral(n: babelTypes.Node) {
-  const was = nonLiteralRequireResolve(n) || nonLiteralRequire(n);
+export function visitorNonLiteral(n: AcornNode, source: string) {
+  const was =
+    nonLiteralRequireResolve(n, source) || nonLiteralRequire(n, source);
 
   if (was) {
     if (!valid2(was.v2)) {
@@ -373,12 +366,12 @@ export function visitorNonLiteral(n: babelTypes.Node) {
   return null;
 }
 
-function isRequire(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+function isRequire(n: AcornNode, source: string) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isIdentifier(n.callee)) {
+  if (n.callee.type !== 'Identifier') {
     return null;
   }
 
@@ -392,15 +385,15 @@ function isRequire(n: babelTypes.Node) {
     return null;
   }
 
-  return { v1: reconstruct(n.arguments[0]) };
+  return { v1: reconstruct(n.arguments[0], source) };
 }
 
-function isRequireResolve(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+function isRequireResolve(n: AcornNode, source: string) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isMemberExpression(n.callee)) {
+  if (n.callee.type !== 'MemberExpression') {
     return null;
   }
 
@@ -420,11 +413,11 @@ function isRequireResolve(n: babelTypes.Node) {
     return null;
   }
 
-  return { v1: reconstruct(n.arguments[0]) };
+  return { v1: reconstruct(n.arguments[0], source) };
 }
 
-export function visitorMalformed(n: babelTypes.Node) {
-  const was = isRequireResolve(n) || isRequire(n);
+export function visitorMalformed(n: AcornNode, source: string) {
+  const was = isRequireResolve(n, source) || isRequire(n, source);
 
   if (was) {
     return { alias: was.v1 };
@@ -433,12 +426,12 @@ export function visitorMalformed(n: babelTypes.Node) {
   return null;
 }
 
-export function visitorUseSCWD(n: babelTypes.Node) {
-  if (!babelTypes.isCallExpression(n)) {
+export function visitorUseSCWD(n: AcornNode, source: string) {
+  if (n.type !== 'CallExpression') {
     return null;
   }
 
-  if (!babelTypes.isMemberExpression(n.callee)) {
+  if (n.callee.type !== 'MemberExpression') {
     return null;
   }
 
@@ -452,7 +445,9 @@ export function visitorUseSCWD(n: babelTypes.Node) {
     return null;
   }
 
-  const was = { v1: n.arguments.map(reconstruct).join(', ') };
+  const was = {
+    v1: n.arguments.map((a: AcornNode) => reconstruct(a, source)).join(', '),
+  };
 
   if (was) {
     return { alias: was.v1 };
@@ -461,25 +456,24 @@ export function visitorUseSCWD(n: babelTypes.Node) {
   return null;
 }
 
-type VisitorFunction = (node: babelTypes.Node, trying?: boolean) => boolean;
+type VisitorFunction = (node: AcornNode, trying?: boolean) => boolean;
 
-function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
+function traverse(ast: AcornNode, visitor: VisitorFunction) {
   // modified esprima-walk to support
   // visitor return value and "trying" flag
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stack: Array<[any, boolean]> = [[ast, false]];
+  const stack: Array<[AcornNode, boolean]> = [[ast, false]];
 
   for (let i = 0; i < stack.length; i += 1) {
     const item = stack[i];
     const [node] = item;
 
     if (node) {
-      const trying = item[1] || babelTypes.isTryStatement(node);
+      const trying = item[1] || node.type === 'TryStatement';
 
       if (visitor(node, trying)) {
         for (const key in node) {
-          if (node[key as keyof babelTypes.File]) {
-            const child = node[key as keyof babelTypes.File];
+          if (node[key]) {
+            const child = node[key];
 
             if (child instanceof Array) {
               for (let j = 0; j < child.length; j += 1) {
@@ -496,25 +490,40 @@ function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
 }
 
 export function parse(body: string) {
-  return babel.parse(body, {
-    allowImportExportEverywhere: true,
-    allowReturnOutsideFunction: true,
-  });
+  // Try module mode first (handles import/export), fall back to script mode
+  // for legacy code that uses strict-mode-incompatible syntax (e.g. `with`
+  // statements, octal escapes). This matches Babel's permissive behavior.
+  try {
+    return acorn.parse(body, {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      allowReturnOutsideFunction: true,
+      allowImportExportEverywhere: true,
+      allowHashBang: true,
+    }) as unknown as AcornNode;
+  } catch (_) {
+    return acorn.parse(body, {
+      ecmaVersion: 'latest',
+      sourceType: 'script',
+      allowReturnOutsideFunction: true,
+      allowHashBang: true,
+    }) as unknown as AcornNode;
+  }
 }
 
 export function detect(body: string, visitor: VisitorFunction, file?: string) {
-  let json;
+  let ast: AcornNode | undefined;
 
   try {
-    json = parse(body);
+    ast = parse(body);
   } catch (error) {
     const fileInfo = file ? ` in ${file}` : '';
-    log.warn(`Babel parse has failed: ${(error as Error).message}${fileInfo}`);
+    log.warn(`Acorn parse has failed: ${(error as Error).message}${fileInfo}`);
   }
 
-  if (!json) {
+  if (!ast) {
     return;
   }
 
-  traverse(json, visitor);
+  traverse(ast, visitor);
 }
