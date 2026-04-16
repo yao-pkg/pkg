@@ -8,6 +8,11 @@ on:
         type: string
         required: true
         default: 'install'
+      test_concurrency:
+        description: 'Number of tests to run in parallel (1 = sequential)'
+        type: string
+        required: false
+        default: '1'
       should_run:
         description: "Whether to actually execute the test. When 'false' the job runs but every step is skipped — this preserves the required-status-check contexts on docs-only PRs without burning CI minutes."
         type: string
@@ -33,15 +38,22 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pkg-cache/
-          key: ${{ matrix.os }}-${{ matrix.node-version }}
+          key: pkg-cache-${{ matrix.os }}-${{ matrix.node-version }}
+          restore-keys: |
+            pkg-cache-${{ matrix.os }}-
 
       - if: inputs.should_run == 'true'
         run: yarn install
 
+      # Download pre-built lib-es5/ from the build job instead of rebuilding.
       - if: inputs.should_run == 'true'
-        run: yarn build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
       - if: inputs.should_run == 'true'
         run: yarn ${{ inputs.npm_command }}
         env:
           CI: true
+          TEST_CONCURRENCY: ${{ inputs.test_concurrency }}
         timeout-minutes: 30

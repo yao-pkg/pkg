@@ -2,6 +2,7 @@
 
 'use strict';
 
+const os = require('os');
 const path = require('path');
 const pc = require('picocolors');
 const { globSync } = require('tinyglobby');
@@ -22,12 +23,19 @@ const testFilter = process.argv[4] || (flavor.match(/^test/) ? flavor : null);
 
 const isCI = process.env.CI === 'true';
 
+// Concurrency for parallel test execution. Defaults to CPU count (capped at 4).
+// Set TEST_CONCURRENCY=1 to run tests sequentially.
+const concurrency =
+  parseInt(process.env.TEST_CONCURRENCY, 10) ||
+  Math.min(os.availableParallelism?.() ?? os.cpus().length, 4);
+
 console.log('');
 console.log('*************************************');
 console.log(target + ' ' + flavor);
 console.log(
   `Host Info: ${process.version} ${process.platform} ${process.arch}`,
 );
+console.log(`Concurrency: ${concurrency}`);
 console.log('*************************************');
 console.log('');
 
@@ -73,7 +81,16 @@ const npmTests = [
   'test-99-#1135',
   'test-99-#1191',
   'test-99-#1192',
+  // SEA tests — they ignore the target argument (always build for the host
+  // Node version), so running them in both test:22 and test:24 is redundant.
   'test-00-sea',
+  'test-85-sea-enhanced',
+  'test-86-sea-assets',
+  'test-87-sea-esm',
+  'test-89-sea-fs-ops',
+  'test-90-sea-worker-threads',
+  'test-91-sea-esm-entry',
+  'test-92-sea-tla',
 ];
 
 if (testFilter) {
@@ -175,8 +192,12 @@ async function run() {
   let failed = [];
   const start = Date.now();
 
+  const isParallel = concurrency > 1;
+
   function addLog(log, isError = false) {
-    clearLastLine();
+    // Only use TTY line-clearing in sequential mode — parallel output
+    // interleaves, so clearing lines would eat other tests' results.
+    if (!isParallel) clearLastLine();
     if (isError) {
       console.error(log);
     } else {
@@ -188,7 +209,7 @@ async function run() {
     file = path.resolve(file);
     const startTest = Date.now();
     try {
-      if (!isCI && process.stdout.isTTY) {
+      if (!isParallel && !isCI && process.stdout.isTTY) {
         console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
       }
       await runTest(file);
@@ -212,9 +233,16 @@ async function run() {
     done++;
   });
 
-  for (let i = 0; i < promises.length; i++) {
-    await promises[i]();
+  // Run tests with bounded concurrency
+  const executing = new Set();
+  for (const task of promises) {
+    const p = task().finally(() => executing.delete(p));
+    executing.add(p);
+    if (executing.size >= concurrency) {
+      await Promise.race(executing);
+    }
   }
+  await Promise.all(executing);
 
   const end = Date.now();
 

@@ -48,23 +48,40 @@ jobs:
         run: yarn lint
       - if: needs.changes.outputs.code == 'true'
         run: yarn build
+
+      # Upload build output once — test jobs download it instead of rebuilding.
+      # Build output is platform-independent (compiled TS + bundled JS).
+      - if: needs.changes.outputs.code == 'true' && matrix['node-version'] == '22.x' && matrix['os'] == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            lib-es5/
+            prelude/sea-bootstrap.bundle.js
+          retention-days: 1
+
   test_host:
-    needs: changes
+    needs: [changes, build]
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:host
       should_run: ${{ needs.changes.outputs.code }}
+      # Keep sequential — pnpm tests install global packages and SEA tests
+      # download binaries to a shared cache, both of which race under concurrency.
+      test_concurrency: '1'
 
   test_22:
-    needs: changes
+    needs: [changes, build]
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:22
       should_run: ${{ needs.changes.outputs.code }}
+      test_concurrency: '4'
 
   test_24:
-    needs: changes
+    needs: [changes, build]
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:24
       should_run: ${{ needs.changes.outputs.code }}
+      test_concurrency: '4'
