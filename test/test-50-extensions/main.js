@@ -19,15 +19,7 @@ left = utils.spawn.sync('node', [path.basename(input)], {
   cwd: path.dirname(input),
 });
 
-utils.pkg.sync([
-  '--public',
-  '--fallback-to-source',
-  '--target',
-  target,
-  '--output',
-  output,
-  input,
-]);
+utils.pkg.sync(['--public', '--target', target, '--output', output, input]);
 
 right = utils.spawn.sync('./' + path.basename(output), [], {
   cwd: path.dirname(output),
