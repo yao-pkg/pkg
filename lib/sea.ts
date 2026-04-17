@@ -363,67 +363,46 @@ async function bake(
   });
 }
 
-const UNSIGNED_MACOS_ARM64_WARNING = [
-  'Due to the mandatory code signing requirement, before the',
-  'executable is distributed to end users, it must be signed.',
-  'Otherwise, it will be immediately killed by kernel on launch.',
-  'An ad-hoc signature is sufficient.',
-  'To do that, run pkg on a Mac, or transfer the executable to a Mac',
-  'and run "codesign --sign - <executable>", or (if you use Linux)',
-  'install "ldid" utility to PATH and then run pkg again',
-];
-
 /**
- * Patch mach-O __LINKEDIT + ad-hoc sign. Used by pkg's non-SEA mode where the
- * VFS payload is appended to the end of the binary: the patch extends
- * __LINKEDIT to cover the payload so codesign includes it in the hash.
+ * Patch mach-O __LINKEDIT (non-SEA only) and ad-hoc sign the binary.
  *
- * Do NOT use for SEA — postject creates a dedicated NODE_SEA segment and
- * patching __LINKEDIT on top of that has been observed to corrupt the SEA
- * blob on macOS arm64 for non-trivial payloads (NestJS, etc.).
+ * The __LINKEDIT patch exists for the classic pkg flow: pkg appends the
+ * VFS payload to the end of the binary, and codesign only hashes content
+ * covered by __LINKEDIT — so the segment must be extended to include the
+ * payload before signing.
+ *
+ * Pass `isSea: true` to skip the patch. For SEA, postject creates a
+ * dedicated NODE_SEA segment with a proper LC_SEGMENT_64 (per the
+ * Node.js SEA docs), so __LINKEDIT doesn't need to grow. Patching it
+ * anyway has been observed to corrupt the SEA blob on macOS arm64 for
+ * non-trivial payloads (NestJS — see discussion #236).
  */
 export async function signMacOSIfNeeded(
   output: string,
   target: NodeTarget & Partial<Target>,
   signature?: boolean,
+  isSea?: boolean,
 ) {
   if (!signature || target.platform !== 'macos') return;
 
-  const buf = patchMachOExecutable(await readFile(output));
-  await writeFile(output, buf);
-  try {
-    signMachOExecutable(output);
-  } catch {
-    if (target.arch === 'arm64') {
-      log.warn(
-        'Unable to sign the macOS executable',
-        UNSIGNED_MACOS_ARM64_WARNING,
-      );
-    }
+  if (!isSea) {
+    const buf = patchMachOExecutable(await readFile(output));
+    await writeFile(output, buf);
   }
-}
-
-/**
- * Ad-hoc sign a macOS SEA binary. Unlike {@link signMacOSIfNeeded}, this
- * does NOT touch __LINKEDIT — postject already produces a valid mach-O
- * layout with its own NODE_SEA segment (see Node.js SEA docs), so the only
- * step left is the codesign call to satisfy the arm64 signing requirement.
- */
-async function signMacOSSeaIfNeeded(
-  output: string,
-  target: NodeTarget & Partial<Target>,
-  signature?: boolean,
-) {
-  if (!signature || target.platform !== 'macos') return;
 
   try {
     signMachOExecutable(output);
   } catch {
     if (target.arch === 'arm64') {
-      log.warn(
-        'Unable to sign the macOS executable',
-        UNSIGNED_MACOS_ARM64_WARNING,
-      );
+      log.warn('Unable to sign the macOS executable', [
+        'Due to the mandatory code signing requirement, before the',
+        'executable is distributed to end users, it must be signed.',
+        'Otherwise, it will be immediately killed by kernel on launch.',
+        'An ad-hoc signature is sufficient.',
+        'To do that, run pkg on a Mac, or transfer the executable to a Mac',
+        'and run "codesign --sign - <executable>", or (if you use Linux)',
+        'install "ldid" utility to PATH and then run pkg again',
+      ]);
     }
   }
 }
@@ -702,7 +681,7 @@ export async function seaEnhanced(
       nodePaths.map(async (nodePath, i) => {
         const target = opts.targets[i];
         await bake(nodePath, target, blobData);
-        await signMacOSSeaIfNeeded(target.output!, target, opts.signature);
+        await signMacOSIfNeeded(target.output!, target, opts.signature, true);
       }),
     );
   });
@@ -750,7 +729,7 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
       nodePaths.map(async (nodePath, i) => {
         const target = opts.targets[i];
         await bake(nodePath, target, blobData);
-        await signMacOSSeaIfNeeded(target.output!, target, opts.signature);
+        await signMacOSIfNeeded(target.output!, target, opts.signature, true);
       }),
     );
   });
