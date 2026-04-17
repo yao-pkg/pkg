@@ -955,19 +955,15 @@ function payloadFileSync(pointer) {
     if (entityBlob) {
       return cb2(null, Buffer.from('source-code-not-available'));
     }
-    // why return empty buffer?
-    // otherwise this error will arise:
-    // Error: UNEXPECTED-20
-    //     at readFileFromSnapshot (e:0)
-    //     at Object.fs.readFileSync (e:0)
-    //     at Object.Module._extensions..js (module.js:421:20)
-    //     at Module.load (module.js:357:32)
-    //     at Function.Module._load (module.js:314:12)
-    //     at Function.Module.runMain (e:0)
-    //     at startup (node.js:140:18)
-    //     at node.js:1001:3
-
-    return cb2(new Error('UNEXPECTED-20'));
+    return cb2(
+      new Error(
+        '[pkg] UNEXPECTED-20: no source or bytecode for ' +
+          path_ +
+          '. This usually means V8 bytecode generation failed during ' +
+          'packaging (e.g. cross-compilation without QEMU). Rebuild with ' +
+          '--fallback-to-source, --no-bytecode, or --sea to fix this.',
+      ),
+    );
   }
 
   fs.readFileSync = function readFileSync(path_, options_) {

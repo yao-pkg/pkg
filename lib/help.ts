@@ -19,6 +19,7 @@ export default function help() {
     --public-packages    force specified packages to be considered public
     --no-bytecode        skip bytecode generation and include source files as plain js
     --no-native-build    skip native addons build
+    --fallback-to-source if bytecode generation fails for a file, ship it as plain source instead of skipping it
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli or GZip
     --sea                (Experimental) compile give file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
