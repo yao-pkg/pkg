@@ -1,6 +1,7 @@
 import assert from 'assert';
-import { existsSync, readFileSync, copyFileSync } from 'fs';
+import { existsSync, readFileSync, copyFileSync, renameSync, rmSync } from 'fs';
 import { mkdir, readFile, rm, stat } from 'fs/promises';
+import { randomBytes } from 'crypto';
 import minimist from 'minimist';
 import { need, system } from '@yao-pkg/pkg-fetch';
 import path from 'path';
@@ -627,18 +628,36 @@ export async function exec(argv2: string[]) {
 
       if (f.platform === 'macos') {
         // ad-hoc sign the base binary temporarily to generate bytecode
-        // due to the new mandatory signing requirement
+        // due to the new mandatory signing requirement.
+        //
+        // The signed binary is cached alongside the fetched binary. Concurrent
+        // pkg processes (e.g., parallel tests) used to race here — all of them
+        // would rm + copy + sign the same path, truncating each other's writes.
+        // Now: if the signed binary already exists, reuse it; otherwise write
+        // to a unique temp path and atomically rename. rename() replaces any
+        // existing target on POSIX, so racing writers don't corrupt readers
+        // (their open file handles remain valid).
         const signedBinaryPath = `${f.binaryPath}-signed`;
-        await rm(signedBinaryPath, { recursive: true, force: true });
-        copyFileSync(f.binaryPath, signedBinaryPath);
-        try {
-          signMachOExecutable(signedBinaryPath);
-        } catch {
-          throw wasReported('Cannot generate bytecode', [
-            'pkg fails to run "codesign" utility. Due to the mandatory signing',
-            'requirement of macOS, executables must be signed. Please ensure the',
-            'utility is installed and properly configured.',
-          ]);
+        if (!existsSync(signedBinaryPath)) {
+          const tmpPath = `${signedBinaryPath}.tmp.${process.pid}.${randomBytes(
+            4,
+          ).toString('hex')}`;
+          copyFileSync(f.binaryPath, tmpPath);
+          try {
+            signMachOExecutable(tmpPath);
+            renameSync(tmpPath, signedBinaryPath);
+          } catch {
+            try {
+              rmSync(tmpPath, { force: true });
+            } catch {
+              /* ignore */
+            }
+            throw wasReported('Cannot generate bytecode', [
+              'pkg fails to run "codesign" utility. Due to the mandatory signing',
+              'requirement of macOS, executables must be signed. Please ensure the',
+              'utility is installed and properly configured.',
+            ]);
+          }
         }
         f.binaryPath = signedBinaryPath;
       }

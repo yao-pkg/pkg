@@ -2,13 +2,13 @@
 
 'use strict';
 
-const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const pc = require('picocolors');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
 const { spawn } = require('child_process');
+const { need } = require('@yao-pkg/pkg-fetch');
 const host = 'node' + utils.getNodeMajorVersion();
 let target = process.argv[2] || 'host';
 if (target === 'host') target = host;
@@ -235,25 +235,28 @@ async function run() {
   });
 
   if (isParallel) {
-    // Pre-download pkg-fetch binaries for all platforms before parallel
-    // execution. pkg-fetch uses a deterministic temp filename (*.downloading)
-    // that collides when multiple processes download the same binary. Warming
-    // the cache with a single sequential build prevents the race.
-    console.log('Warming binary cache...');
-    const warmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-warm-'));
-    const warmInput = path.join(warmDir, 'warm.js');
-    fs.writeFileSync(warmInput, '"use strict";');
-    try {
-      // Explicitly request all platforms so cross-platform binaries are cached
-      const allPlatforms = `${target}-linux,${target}-macos,${target}-win`;
-      utils.pkg.sync(
-        ['--target', allPlatforms, '--output', 'warm', warmInput],
-        { cwd: warmDir },
-      );
-    } catch {
-      // Best-effort — if warm-up fails, tests will still download on demand
-    } finally {
-      fs.rmSync(warmDir, { recursive: true, force: true });
+    // Pre-download pkg-fetch binaries for every platform/arch the tests
+    // could target. pkg-fetch uses a deterministic `*.downloading` temp
+    // filename that collides when multiple processes download the same
+    // binary concurrently, so we serialize fetches here via the pkg-fetch
+    // API (cleaner than spawning pkg, and skips pkg's codesign step).
+    const platforms = ['linux', 'macos', 'win'];
+    const arches = ['x64', 'arm64'];
+    console.log(
+      `Warming binary cache for ${target} (${platforms.length * arches.length} targets)...`,
+    );
+    for (const platform of platforms) {
+      for (const arch of arches) {
+        try {
+          await need({ nodeRange: target, platform, arch });
+        } catch (err) {
+          // Best-effort — if a particular combination isn't available,
+          // tests that need it will surface the error themselves.
+          console.log(
+            pc.gray(`  skip ${target}-${platform}-${arch}: ${err.message}`),
+          );
+        }
+      }
     }
     console.log('Binary cache ready.');
   }
