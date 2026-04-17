@@ -96,6 +96,14 @@ async function extract(os: string, archivePath: string): Promise<string> {
   let nodePath = '';
 
   if (os === 'win') {
+    nodePath = join(archiveDir, `${nodeDir}.exe`);
+
+    // Skip extraction if already extracted — the node binary is immutable
+    // per archive, so re-extracting on every pkg invocation just wastes time.
+    if (await exists(nodePath)) {
+      return nodePath;
+    }
+
     // use unzipper to extract the archive
     const { files } = await unzipper.Open.file(archivePath);
     const nodeBinPath = `${nodeDir}/node.exe`;
@@ -106,12 +114,16 @@ async function extract(os: string, archivePath: string): Promise<string> {
       throw new Error('Node executable not found in the archive');
     }
 
-    nodePath = join(archiveDir, `${nodeDir}.exe`);
-
     // extract the node executable
     await pipeline(nodeBin.stream(), createWriteStream(nodePath));
   } else {
     const nodeBinPath = `${nodeDir}/bin/node`;
+    nodePath = join(archiveDir, nodeBinPath);
+
+    // Skip extraction if already extracted (see above)
+    if (await exists(nodePath)) {
+      return nodePath;
+    }
 
     // use tar to extract the archive
     await tarExtract({
@@ -119,9 +131,6 @@ async function extract(os: string, archivePath: string): Promise<string> {
       cwd: archiveDir,
       filter: (path) => path === nodeBinPath,
     });
-
-    // check if the node executable exists
-    nodePath = join(archiveDir, nodeBinPath);
   }
 
   // check if the node executable exists
@@ -305,14 +314,15 @@ async function getNodejsExecutable(
 
   const filePath = join(downloadDir, fileName);
 
-  // skip download if file exists
+  // Skip download + checksum if the archive is already cached. Archives
+  // from nodejs.org are immutable, so re-verifying on every pkg invocation
+  // just re-hashes 100 MB for no benefit (and re-fetches SHASUMS256.txt).
   if (!(await exists(filePath))) {
     log.info(`Downloading nodejs executable from ${url}...`);
     await downloadFile(url, filePath);
+    log.info(`Verifying checksum of ${fileName}`);
+    await verifyChecksum(filePath, checksumUrl, fileName);
   }
-
-  log.info(`Verifying checksum of ${fileName}`);
-  await verifyChecksum(filePath, checksumUrl, fileName);
 
   log.info(`Extracting node binary from ${fileName}`);
   const nodePath = await extract(os, filePath);
