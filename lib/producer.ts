@@ -1,3 +1,4 @@
+import * as zlib from 'zlib';
 import { createBrotliCompress, createGzip } from 'zlib';
 import Multistream from 'multistream';
 import assert from 'assert';
@@ -6,7 +7,7 @@ import fs from 'fs';
 import intoStream from 'into-stream';
 import path from 'path';
 import streamMeter from 'stream-meter';
-import { Readable } from 'stream';
+import { Readable, Transform } from 'stream';
 
 import { STORE_BLOB, STORE_CONTENT, isDotNODE, snapshotify } from './common';
 import { log, wasReported } from './log';
@@ -414,6 +415,18 @@ export default function producer({
       }
       if (doCompress === CompressType.Brotli) {
         return pipeToNewMeter(s.pipe(createBrotliCompress()));
+      }
+      if (doCompress === CompressType.Zstd) {
+        const createZstd = (
+          zlib as unknown as { createZstdCompress?: () => Transform }
+        ).createZstdCompress;
+        if (typeof createZstd !== 'function') {
+          throw wasReported(
+            'Zstd compression requires Node.js >= 22.15.0 (host runtime missing zlib.createZstdCompress). ' +
+              'Either upgrade the build host, or pick --compress Brotli / GZip.',
+          );
+        }
+        return pipeToNewMeter(s.pipe(createZstd()));
       }
       return pipeToNewMeter(s);
     }

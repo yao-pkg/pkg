@@ -96,7 +96,7 @@ Not supported in enhanced SEA mode (incompatible with the VFS bootstrap). Set it
 
 ## Trade-offs vs Standard mode
 
-Enhanced SEA builds faster and uses **official Node.js APIs**, but stores source in plaintext and skips compression. Workers, native addons, ESM, cross-compile and targets all work the same.
+Enhanced SEA builds faster and uses **official Node.js APIs**. Per-file compression (`--compress Brotli` / `GZip` / `Zstd`) is supported and closes most of the size gap with Standard mode. Workers, native addons, ESM, cross-compile and targets all work the same.
 
 For the full feature matrix and decision guide, see **[SEA vs Standard](/guide/sea-vs-standard)**.
 

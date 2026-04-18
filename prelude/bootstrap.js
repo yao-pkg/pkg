@@ -20,12 +20,8 @@ const path = require('path');
 const { promisify } = require('util');
 const { Script } = require('vm');
 const util = require('util');
-const {
-  brotliDecompress,
-  brotliDecompressSync,
-  gunzip,
-  gunzipSync,
-} = require('zlib');
+const zlib = require('zlib');
+const { brotliDecompress, brotliDecompressSync, gunzip, gunzipSync } = zlib;
 
 const common = {};
 REQUIRE_COMMON(common);
@@ -449,6 +445,13 @@ function payloadCopyManySync(source, target, targetStart, sourceStart) {
 
 const GZIP = 1;
 const BROTLI = 2;
+const ZSTD = 3;
+function zstdMissingError() {
+  return new Error(
+    'pkg: this binary was packaged with --compress Zstd, but the current ' +
+      'Node.js runtime does not expose zlib.zstdDecompress (requires Node 22.15+).',
+  );
+}
 function payloadFile(pointer, cb) {
   const target = Buffer.alloc(pointer[1]);
   payloadCopyMany(pointer, target, 0, 0, (error) => {
@@ -460,6 +463,14 @@ function payloadFile(pointer, cb) {
       });
     } else if (DOCOMPRESS === BROTLI) {
       brotliDecompress(target, (error2, target2) => {
+        if (error2) return cb(error2);
+        cb(null, target2);
+      });
+    } else if (DOCOMPRESS === ZSTD) {
+      if (typeof zlib.zstdDecompress !== 'function') {
+        return cb(zstdMissingError());
+      }
+      zlib.zstdDecompress(target, (error2, target2) => {
         if (error2) return cb(error2);
         cb(null, target2);
       });
@@ -479,6 +490,12 @@ function payloadFileSync(pointer) {
   if (DOCOMPRESS === BROTLI) {
     const target1 = brotliDecompressSync(target);
     return target1;
+  }
+  if (DOCOMPRESS === ZSTD) {
+    if (typeof zlib.zstdDecompressSync !== 'function') {
+      throw zstdMissingError();
+    }
+    return zlib.zstdDecompressSync(target);
   }
   return target;
 }

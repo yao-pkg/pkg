@@ -1,6 +1,11 @@
-import { createReadStream } from 'fs';
-import { FileHandle, open, writeFile } from 'fs/promises';
+import {
+  FileHandle,
+  open,
+  readFile as readFileAsync,
+  writeFile,
+} from 'fs/promises';
 import { join } from 'path';
+import * as zlib from 'zlib';
 
 import {
   STORE_CONTENT,
@@ -10,6 +15,8 @@ import {
   replaceSlashes,
   snapshotify,
 } from './common';
+import { log, wasReported } from './log';
+import { CompressType } from './compress_type';
 import { FileRecords, SymLinks } from './types';
 
 // Normalize a refiner path to a platform-independent POSIX key.
@@ -47,8 +54,45 @@ export interface SeaManifest {
     { size: number; isFile: boolean; isDirectory: boolean }
   >;
   symlinks: Record<string, string>;
+  // [offset, lengthInArchive] — lengthInArchive equals the compressed byte count
+  // when `compression` is set, or the raw byte count when it is absent.  The
+  // uncompressed size lives in `stats[key].size`.
   offsets: Record<string, [number, number]>;
+  // Numeric CompressType value.  Absent means uncompressed (backward compat).
+  compression?: number;
   debug?: boolean;
+}
+
+/**
+ * Sync compression primitive per codec.  We use synchronous calls because each
+ * file is small (MB-scale at worst), the archive build is offline, and the
+ * streaming path would require plumbing a pipe through `writeAll` for negligible
+ * real-world benefit.  Async streaming is a separate change if it becomes
+ * necessary (e.g. multi-GB single assets).
+ */
+function compressBufferSync(buf: Buffer, type: CompressType): Buffer {
+  switch (type) {
+    case CompressType.None:
+      return buf;
+    case CompressType.GZip:
+      return zlib.gzipSync(buf);
+    case CompressType.Brotli:
+      return zlib.brotliCompressSync(buf);
+    case CompressType.Zstd: {
+      const fn = (
+        zlib as unknown as { zstdCompressSync?: (b: Buffer) => Buffer }
+      ).zstdCompressSync;
+      if (typeof fn !== 'function') {
+        throw wasReported(
+          'Zstd compression requires Node.js >= 22.15.0 (host runtime missing zlib.zstdCompressSync). ' +
+            'Either upgrade the build host, or pick --compress Brotli / GZip.',
+        );
+      }
+      return fn(buf);
+    }
+    default:
+      return buf;
+  }
 }
 
 export interface SeaAssetsResult {
@@ -76,8 +120,10 @@ export async function generateSeaAssets(
   entrypoint: string,
   symLinks: SymLinks,
   tmpDir: string,
-  options?: { debug?: boolean },
+  options?: { debug?: boolean; doCompress?: CompressType },
 ): Promise<SeaAssetsResult> {
+  const doCompress = options?.doCompress ?? CompressType.None;
+  const isCompressing = doCompress !== CompressType.None;
   // Normalize symlink paths to use the same refiner-style POSIX keys as
   // directories/stats/assets. Do not add the /snapshot prefix because the
   // VFS provider receives paths after the mount prefix is stripped.
@@ -100,6 +146,7 @@ export async function generateSeaAssets(
     stats: {},
     symlinks: normalizedSymlinks,
     offsets: {},
+    ...(isCompressing ? { compression: doCompress } : {}),
     ...(options?.debug ? { debug: true } : {}),
   };
 
@@ -170,30 +217,60 @@ export async function generateSeaAssets(
   const fd = await open(archivePath, 'w');
   let offset = 0;
 
+  // Debug-mode running totals for per-stripe compression stats
+  let totalUncompressed = 0;
+  let totalCompressed = 0;
+
   try {
     for (const { key, source } of entries) {
-      let length: number;
-      if (Buffer.isBuffer(source)) {
-        // Modified file content already in memory
-        length = await writeAll(fd, source);
-      } else {
-        // Unmodified file — stream from disk, accumulate actual bytes
-        // written (avoids stat→read race if the file changes between calls)
-        length = 0;
-        const stream = createReadStream(source);
-        for await (const chunk of stream) {
-          length += await writeAll(fd, chunk as Buffer);
+      // Resolve the source to a single Buffer.  When compression is enabled we
+      // need the full content in memory to feed zlib.*Sync; when it isn't, we
+      // still fall into the Buffer path because the extra readFile() call is
+      // dwarfed by everything else and lets us drop the stream path entirely.
+      const raw = Buffer.isBuffer(source)
+        ? source
+        : await readFileAsync(source);
+      const uncompressedLen = raw.length;
+
+      const payload = isCompressing ? compressBufferSync(raw, doCompress) : raw;
+      const length = await writeAll(fd, payload);
+      manifest.offsets[key] = [offset, length];
+
+      // `stats[key].size` must report the uncompressed size — that is what
+      // user code sees from fs.statSync().  Keep the stat populated from disk
+      // when it is available; overwrite only for entries without prior stat
+      // metadata, so that synthesized/mutated contents still report the right
+      // size.  Using uncompressedLen here is correct in both paths.
+      if (manifest.stats[key]) {
+        manifest.stats[key].size = uncompressedLen;
+      }
+
+      if (isCompressing) {
+        totalUncompressed += uncompressedLen;
+        totalCompressed += length;
+        if (options?.debug) {
+          const ratio = uncompressedLen
+            ? ((length / uncompressedLen) * 100).toFixed(1)
+            : '0.0';
+          log.debug(
+            `sea-stripe ${key}: ${uncompressedLen} → ${length} bytes (${ratio}%)`,
+          );
         }
       }
-      manifest.offsets[key] = [offset, length];
-      // Fix manifest stat size to reflect actual content for modified files
-      if (manifest.stats[key]) {
-        manifest.stats[key].size = length;
-      }
+
       offset += length;
     }
   } finally {
     await fd.close();
+  }
+
+  if (isCompressing) {
+    const ratio = totalUncompressed
+      ? ((totalCompressed / totalUncompressed) * 100).toFixed(1)
+      : '0.0';
+    log.info(
+      `SEA archive compressed with ${CompressType[doCompress]}: ${totalUncompressed} → ${totalCompressed} bytes (${ratio}%)`,
+    );
   }
 
   const manifestPath = join(tmpDir, '__pkg_manifest__.json');

@@ -4,6 +4,13 @@
 // Both import this module to avoid duplicating the SEAProvider + mount logic.
 
 var sea = require('node:sea');
+var zlib = require('node:zlib');
+
+// CompressType numeric values — must stay in sync with lib/compress_type.ts.
+var COMPRESS_NONE = 0;
+var COMPRESS_GZIP = 1;
+var COMPRESS_BROTLI = 2;
+var COMPRESS_ZSTD = 3;
 
 var vfsModule;
 try {
@@ -280,6 +287,28 @@ class SEAProvider extends MemoryProvider {
     this._manifest = seaManifest;
     this._fileCache = new Map();
 
+    // Pick the per-file decompressor once at construction time.  Absent or 0 =
+    // uncompressed archive (backward compat with pre-#250 SEA binaries).
+    var compression = seaManifest.compression || COMPRESS_NONE;
+    this._decompress = null;
+    if (compression === COMPRESS_GZIP) {
+      this._decompress = zlib.gunzipSync;
+    } else if (compression === COMPRESS_BROTLI) {
+      this._decompress = zlib.brotliDecompressSync;
+    } else if (compression === COMPRESS_ZSTD) {
+      if (typeof zlib.zstdDecompressSync !== 'function') {
+        throw new Error(
+          'pkg: this binary was packaged with --compress Zstd, but the current ' +
+            'Node.js runtime does not expose zlib.zstdDecompressSync (requires Node 22.15+).',
+        );
+      }
+      this._decompress = zlib.zstdDecompressSync;
+    } else if (compression !== COMPRESS_NONE) {
+      throw new Error(
+        'pkg: unknown SEA manifest compression type ' + compression,
+      );
+    }
+
     // Load the single archive blob — zero-copy view of the SEA asset's
     // ArrayBuffer.  All file contents are packed here; individual files
     // are extracted via subarray() using manifest.offsets.
@@ -325,8 +354,9 @@ class SEAProvider extends MemoryProvider {
 
   readFileSync(filePath, options) {
     var p = this._resolveSymlink(toManifestKey(filePath));
-    // Fast path: zero-copy subarray from the archive with a Map cache,
-    // bypassing the MemoryProvider tree entirely.
+    // Fast path: for uncompressed archives, a zero-copy subarray; for
+    // compressed archives, a per-file decompressed Buffer.  Both are memoised
+    // in _fileCache so subsequent reads are free of work beyond a Map lookup.
     var buf = this._fileCache.get(p);
     if (buf === undefined) {
       var entry = this._manifest.offsets[p];
@@ -355,14 +385,24 @@ class SEAProvider extends MemoryProvider {
             ')',
         );
       }
-      buf = this._archive.subarray(off, off + len);
+      var slice = this._archive.subarray(off, off + len);
+      if (this._decompress) {
+        // Decompress returns an owned Buffer — we can cache it directly and
+        // skip the protective copy in the encoding path below.
+        buf = this._decompress(slice);
+      } else {
+        buf = slice;
+      }
       this._fileCache.set(p, buf);
       perf.count('files loaded');
     }
     var encoding =
       typeof options === 'string' ? options : options && options.encoding;
-    // Strings are immutable — safe to derive from the archive view.
-    // Buffers must be copied to prevent callers from corrupting the archive.
+    // Strings are immutable — safe to derive directly.
+    // For uncompressed archives, the cached buf is a view into the archive, so
+    // we must copy before returning to prevent callers from corrupting it.
+    // For compressed archives the cached buf is an owned decompressed Buffer;
+    // copying is still required so a caller mutation cannot poison the cache.
     if (encoding) return buf.toString(encoding);
     var copy = Buffer.allocUnsafe(buf.length);
     buf.copy(copy);

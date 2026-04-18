@@ -13,7 +13,7 @@ description: The full comparison between Standard mode (patched Node.js, bytecod
 **SEA mode** runs on **stock, unmodified Node.js**. No patches. No waiting for `pkg-fetch` to catch up. Security fixes and new Node versions are available the moment Node.js itself releases them.
 :::
 
-Everything else — compression, bytecode, worker threads, native addons — flows from that one decision.
+Everything else — bytecode, worker threads, native addons, bundling strategy — flows from that one decision.
 
 ## Why stock binaries matter
 
@@ -25,26 +25,25 @@ Everything else — compression, bytecode, worker threads, native addons — flo
 
 ## Feature matrix
 
-| Feature                         | **Standard**                                                           | **Enhanced SEA**         |
-| ------------------------------- | ---------------------------------------------------------------------- | ------------------------ |
-| **Node.js binary**              | Custom patched (`pkg-fetch`)                                           | **Stock Node.js** ✨     |
-| Source protection (V8 bytecode) | ✅                                                                     | ❌ plaintext             |
-| Compression (Brotli / GZip)     | ✅                                                                     | ❌                       |
-| Build speed                     | Slower                                                                 | **Faster**               |
-| Cross-compile                   | ⚠️ broken on Node 22 ([see](/guide/targets#cross-compilation-support)) | ✅                       |
-| Worker threads                  | ✅                                                                     | ✅                       |
-| Native addons                   | ✅                                                                     | ✅                       |
-| ESM + top-level await           | Partial                                                                | ✅ every target          |
-| Maintenance burden              | High — patch each Node release                                         | **Low — stock binaries** |
-| Security updates                | Wait for `pkg-fetch` rebuild                                           | **Immediate**            |
-| Future path                     | Tied to `pkg-fetch`                                                    | Migrates to `node:vfs`   |
+| Feature                            | **Standard**                                                           | **Enhanced SEA**         |
+| ---------------------------------- | ---------------------------------------------------------------------- | ------------------------ |
+| **Node.js binary**                 | Custom patched (`pkg-fetch`)                                           | **Stock Node.js** ✨     |
+| Source protection (V8 bytecode)    | ✅                                                                     | ❌ plaintext             |
+| Compression (Brotli / GZip / Zstd) | ✅                                                                     | ✅                       |
+| Build speed                        | Slower                                                                 | **Faster**               |
+| Cross-compile                      | ⚠️ broken on Node 22 ([see](/guide/targets#cross-compilation-support)) | ✅                       |
+| Worker threads                     | ✅                                                                     | ✅                       |
+| Native addons                      | ✅                                                                     | ✅                       |
+| ESM + top-level await              | Partial                                                                | ✅ every target          |
+| Maintenance burden                 | High — patch each Node release                                         | **Low — stock binaries** |
+| Security updates                   | Wait for `pkg-fetch` rebuild                                           | **Immediate**            |
+| Future path                        | Tied to `pkg-fetch`                                                    | Migrates to `node:vfs`   |
 
 ## When to pick which
 
 Pick **Standard** when:
 
 - You need **source protection** — your IP must not ship as plaintext JavaScript.
-- You need **compression** — binary size matters more than build speed.
 
 Pick **SEA** when:
 
