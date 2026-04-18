@@ -68,8 +68,8 @@ export interface SeaManifest {
  * Resolve the per-codec sync compressor once, up front.  Sync compression is
  * fine here: each file is MB-scale at worst, the archive build is offline,
  * and plumbing a stream through `writeAll` would buy negligible real-world
- * benefit.  Zstd resolution is delegated to compress_type.ts so the missing-
- * API error wording stays in sync with producer.ts.
+ * benefit.  Zstd resolution routes through compress_type.ts's zstdBuildError
+ * so build-time missing-API wording stays consistent with producer.ts.
  */
 function resolveCompressor(type: CompressType): (buf: Buffer) => Buffer {
   switch (type) {
@@ -95,7 +95,6 @@ function resolveCompressor(type: CompressType): (buf: Buffer) => Buffer {
 export interface SeaAssetsResult {
   assets: Record<string, string>;
   manifestPath: string;
-  entryIsESM: boolean;
 }
 
 /**
@@ -301,6 +300,5 @@ export async function generateSeaAssets(
   return {
     assets: { __pkg_archive__: archivePath },
     manifestPath,
-    entryIsESM,
   };
 }

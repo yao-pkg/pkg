@@ -445,14 +445,8 @@ function payloadCopyManySync(source, target, targetStart, sourceStart) {
 // constant baked in by the packer, so the pick never varies across calls —
 // and if the runtime is missing a Zstd API the binary should fail at startup
 // rather than on the first snapshot read.
-const decompressAsync = REQUIRE_SHARED.pickDecompressorAsync(
-  DOCOMPRESS,
-  'runtime',
-);
-const decompressSync = REQUIRE_SHARED.pickDecompressorSync(
-  DOCOMPRESS,
-  'runtime',
-);
+const decompressAsync = REQUIRE_SHARED.pickDecompressorAsync(DOCOMPRESS);
+const decompressSync = REQUIRE_SHARED.pickDecompressorSync(DOCOMPRESS);
 
 function payloadFile(pointer, cb) {
   const target = Buffer.alloc(pointer[1]);

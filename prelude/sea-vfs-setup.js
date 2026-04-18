@@ -183,10 +183,18 @@ try {
 }
 perf.end('manifest parse');
 
-// Manifest keys are always POSIX (forward slashes, no drive letter).
-function toManifestKey(p) {
-  return p.replace(/\\/g, '/');
-}
+// Manifest keys are always POSIX (forward slashes, no drive letter).  Gate
+// the regex on platform: on POSIX hosts paths already match, so the replace
+// is a pure allocation and we skip it (~30K calls per startup on large
+// projects).  On Windows, backslash normalization is mandatory.
+var toManifestKey =
+  process.platform === 'win32'
+    ? function (p) {
+        return p.replace(/\\/g, '/');
+      }
+    : function (p) {
+        return p;
+      };
 
 function _enoent(syscall, filePath) {
   var err = new Error(
@@ -288,10 +296,7 @@ class SEAProvider extends MemoryProvider {
     // shared helper raises a uniformly-worded error when the host Node.js is
     // missing the Zstd API.
     this._compression = seaManifest.compression || COMPRESS_NONE;
-    this._decompress = shared.pickDecompressorSync(
-      this._compression,
-      'runtime',
-    );
+    this._decompress = shared.pickDecompressorSync(this._compression);
 
     // Load the single archive blob — zero-copy view of the SEA asset's
     // ArrayBuffer.  All file contents are packed here; individual files
@@ -315,10 +320,16 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p, syscall) {
+  _resolveSymlink(p) {
+    // Fast path: the vast majority of lookups (~30K per startup on large
+    // projects) are not symlinks. A single object-has-key check avoids
+    // entering the loop and the i++/target fetch overhead for the common
+    // case.
+    var symlinks = this._manifest.symlinks;
+    if (symlinks[p] === undefined) return p;
     var original = p;
     for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
-      var target = this._manifest.symlinks[p];
+      var target = symlinks[p];
       if (!target) return p;
       p = target;
     }
@@ -327,7 +338,7 @@ class SEAProvider extends MemoryProvider {
     );
     err.code = 'ELOOP';
     err.errno = -40;
-    err.syscall = syscall || 'stat';
+    err.syscall = 'stat';
     err.path = original;
     throw err;
   }

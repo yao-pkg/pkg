@@ -31,8 +31,6 @@ var manifest = core.manifest;
 var entrypoint = core.entrypoint;
 var perf = core.perf;
 
-process.argv[1] = entrypoint;
-
 if (manifest.entryIsESM) {
   var vm = require('vm');
   var url = require('url');

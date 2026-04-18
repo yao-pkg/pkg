@@ -12,15 +12,13 @@ export enum CompressType {
 
 // Node.js gained Zstd zlib bindings in 22.15.  The TypeScript zlib typings do
 // not yet expose them, so we reach for the symbol through an untyped cast and
-// raise a uniformly-worded error when it is missing.  Keep the message here so
-// build-time callers (producer.ts, sea-assets.ts) don't drift.
-const ZSTD_MISSING_BUILD_REMEDIATION =
-  'Upgrade the build host to Node.js >= 22.15, or pick --compress Brotli / GZip.';
-
+// raise a uniformly-worded error when it is missing.  Both build-time callers
+// (producer.ts, sea-assets.ts) funnel through zstdBuildError so the message
+// can't drift between them.
 function zstdBuildError(symbol: string): Error {
   return wasReported(
     `Zstd compression requires Node.js >= 22.15 (host runtime missing zlib.${symbol}, current: ${process.version}). ` +
-      ZSTD_MISSING_BUILD_REMEDIATION,
+      'Upgrade the build host to Node.js >= 22.15, or pick --compress Brotli / GZip.',
   );
 }
 
