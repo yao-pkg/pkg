@@ -1,4 +1,3 @@
-import * as zlib from 'zlib';
 import { createBrotliCompress, createGzip } from 'zlib';
 import Multistream from 'multistream';
 import assert from 'assert';
@@ -7,14 +6,14 @@ import fs from 'fs';
 import intoStream from 'into-stream';
 import path from 'path';
 import streamMeter from 'stream-meter';
-import { Readable, Transform } from 'stream';
+import { Readable } from 'stream';
 
 import { STORE_BLOB, STORE_CONTENT, isDotNODE, snapshotify } from './common';
 import { log, wasReported } from './log';
 import { fabricateTwice } from './fabricator';
 import { platform, SymLinks, Target } from './types';
 import { Stripe } from './packer';
-import { CompressType } from './compress_type';
+import { CompressType, getZstdCompressStream } from './compress_type';
 
 interface NotFound {
   notFound: true;
@@ -405,28 +404,25 @@ export default function producer({
     let meter: streamMeter.StreamMeter;
     let count = 0;
 
+    // Resolve the codec transform factory once, up front.  For Zstd this
+    // raises a clear build-time error on a host missing the 22.15 API,
+    // instead of failing mid-stripe once we've already started writing.
+    const makeCompressStream =
+      doCompress === CompressType.GZip
+        ? createGzip
+        : doCompress === CompressType.Brotli
+          ? createBrotliCompress
+          : doCompress === CompressType.Zstd
+            ? getZstdCompressStream()
+            : null;
+
     function pipeToNewMeter(s: Readable) {
       meter = streamMeter();
       return s.pipe(meter);
     }
     function pipeMayCompressToNewMeter(s: Readable): streamMeter.StreamMeter {
-      if (doCompress === CompressType.GZip) {
-        return pipeToNewMeter(s.pipe(createGzip()));
-      }
-      if (doCompress === CompressType.Brotli) {
-        return pipeToNewMeter(s.pipe(createBrotliCompress()));
-      }
-      if (doCompress === CompressType.Zstd) {
-        const createZstd = (
-          zlib as unknown as { createZstdCompress?: () => Transform }
-        ).createZstdCompress;
-        if (typeof createZstd !== 'function') {
-          throw wasReported(
-            'Zstd compression requires Node.js >= 22.15.0 (host runtime missing zlib.createZstdCompress). ' +
-              'Either upgrade the build host, or pick --compress Brotli / GZip.',
-          );
-        }
-        return pipeToNewMeter(s.pipe(createZstd()));
+      if (makeCompressStream) {
+        return pipeToNewMeter(s.pipe(makeCompressStream()));
       }
       return pipeToNewMeter(s);
     }

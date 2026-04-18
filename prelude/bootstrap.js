@@ -20,8 +20,6 @@ const path = require('path');
 const { promisify } = require('util');
 const { Script } = require('vm');
 const util = require('util');
-const zlib = require('zlib');
-const { brotliDecompress, brotliDecompressSync, gunzip, gunzipSync } = zlib;
 
 const common = {};
 REQUIRE_COMMON(common);
@@ -443,61 +441,35 @@ function payloadCopyManySync(source, target, targetStart, sourceStart) {
   }
 }
 
-const GZIP = 1;
-const BROTLI = 2;
-const ZSTD = 3;
-function zstdMissingError() {
-  return new Error(
-    'pkg: this binary was packaged with --compress Zstd, but the current ' +
-      'Node.js runtime does not expose zlib.zstdDecompress (requires Node 22.15+).',
-  );
-}
+// Resolve decompressors once at module load: DOCOMPRESS is a compile-time
+// constant baked in by the packer, so the pick never varies across calls —
+// and if the runtime is missing a Zstd API the binary should fail at startup
+// rather than on the first snapshot read.
+const decompressAsync = REQUIRE_SHARED.pickDecompressorAsync(
+  DOCOMPRESS,
+  'runtime',
+);
+const decompressSync = REQUIRE_SHARED.pickDecompressorSync(
+  DOCOMPRESS,
+  'runtime',
+);
+
 function payloadFile(pointer, cb) {
   const target = Buffer.alloc(pointer[1]);
   payloadCopyMany(pointer, target, 0, 0, (error) => {
     if (error) return cb(error);
-    if (DOCOMPRESS === GZIP) {
-      gunzip(target, (error2, target2) => {
-        if (error2) return cb(error2);
-        cb(null, target2);
-      });
-    } else if (DOCOMPRESS === BROTLI) {
-      brotliDecompress(target, (error2, target2) => {
-        if (error2) return cb(error2);
-        cb(null, target2);
-      });
-    } else if (DOCOMPRESS === ZSTD) {
-      if (typeof zlib.zstdDecompress !== 'function') {
-        return cb(zstdMissingError());
-      }
-      zlib.zstdDecompress(target, (error2, target2) => {
-        if (error2) return cb(error2);
-        cb(null, target2);
-      });
-    } else {
-      return cb(null, target);
-    }
+    if (!decompressAsync) return cb(null, target);
+    decompressAsync(target, (error2, target2) => {
+      if (error2) return cb(error2);
+      cb(null, target2);
+    });
   });
 }
 
 function payloadFileSync(pointer) {
   const target = Buffer.alloc(pointer[1]);
   payloadCopyManySync(pointer, target, 0, 0);
-  if (DOCOMPRESS === GZIP) {
-    const target1 = gunzipSync(target);
-    return target1;
-  }
-  if (DOCOMPRESS === BROTLI) {
-    const target1 = brotliDecompressSync(target);
-    return target1;
-  }
-  if (DOCOMPRESS === ZSTD) {
-    if (typeof zlib.zstdDecompressSync !== 'function') {
-      throw zstdMissingError();
-    }
-    return zlib.zstdDecompressSync(target);
-  }
-  return target;
+  return decompressSync ? decompressSync(target) : target;
 }
 
 // /////////////////////////////////////////////////////////////////

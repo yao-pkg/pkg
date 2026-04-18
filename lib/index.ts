@@ -309,11 +309,11 @@ export async function exec(argv2: string[]) {
       break;
     default:
       throw wasReported(
-        `Invalid compression algorithm ${algo} ( should be None, Brotli, Gzip or Zstd)`,
+        `Invalid compression algorithm "${algo}" (accepted: None/none, Brotli/br, GZip/gz/gzip, or Zstd/zs/zstd)`,
       );
   }
   if (doCompress !== CompressType.None) {
-    console.log('compression: ', CompressType[doCompress]);
+    log.info(`compression: ${CompressType[doCompress]}`);
   }
 
   // _

@@ -1,3 +1,4 @@
+import { createReadStream } from 'fs';
 import {
   FileHandle,
   open,
@@ -15,8 +16,8 @@ import {
   replaceSlashes,
   snapshotify,
 } from './common';
-import { log, wasReported } from './log';
-import { CompressType } from './compress_type';
+import { log } from './log';
+import { CompressType, getZstdCompressSync } from './compress_type';
 import { FileRecords, SymLinks } from './types';
 
 // Normalize a refiner path to a platform-independent POSIX key.
@@ -64,34 +65,30 @@ export interface SeaManifest {
 }
 
 /**
- * Sync compression primitive per codec.  We use synchronous calls because each
- * file is small (MB-scale at worst), the archive build is offline, and the
- * streaming path would require plumbing a pipe through `writeAll` for negligible
- * real-world benefit.  Async streaming is a separate change if it becomes
- * necessary (e.g. multi-GB single assets).
+ * Resolve the per-codec sync compressor once, up front.  Sync compression is
+ * fine here: each file is MB-scale at worst, the archive build is offline,
+ * and plumbing a stream through `writeAll` would buy negligible real-world
+ * benefit.  Zstd resolution is delegated to compress_type.ts so the missing-
+ * API error wording stays in sync with producer.ts.
  */
-function compressBufferSync(buf: Buffer, type: CompressType): Buffer {
+function resolveCompressor(type: CompressType): (buf: Buffer) => Buffer {
   switch (type) {
     case CompressType.None:
-      return buf;
+      return (buf) => buf;
     case CompressType.GZip:
-      return zlib.gzipSync(buf);
+      return zlib.gzipSync;
     case CompressType.Brotli:
-      return zlib.brotliCompressSync(buf);
-    case CompressType.Zstd: {
-      const fn = (
-        zlib as unknown as { zstdCompressSync?: (b: Buffer) => Buffer }
-      ).zstdCompressSync;
-      if (typeof fn !== 'function') {
-        throw wasReported(
-          'Zstd compression requires Node.js >= 22.15.0 (host runtime missing zlib.zstdCompressSync). ' +
-            'Either upgrade the build host, or pick --compress Brotli / GZip.',
-        );
-      }
-      return fn(buf);
+      return zlib.brotliCompressSync;
+    case CompressType.Zstd:
+      return getZstdCompressSync();
+    default: {
+      // Exhaustiveness: adding a new CompressType without wiring it here
+      // would otherwise emit a manifest that claims compression with raw
+      // payload, producing a cryptic runtime error instead of a clear build
+      // failure.
+      const exhaustive: never = type;
+      throw new Error(`pkg: unsupported CompressType ${exhaustive}`);
     }
-    default:
-      return buf;
   }
 }
 
@@ -124,6 +121,10 @@ export async function generateSeaAssets(
 ): Promise<SeaAssetsResult> {
   const doCompress = options?.doCompress ?? CompressType.None;
   const isCompressing = doCompress !== CompressType.None;
+  // Resolve the compressor (or throw with a clear error) BEFORE we start
+  // writing any stripes, so a host missing zlib.zstdCompressSync fails
+  // immediately instead of mid-archive.
+  const compress = isCompressing ? resolveCompressor(doCompress) : null;
   // Normalize symlink paths to use the same refiner-style POSIX keys as
   // directories/stats/assets. Do not add the /snapshot prefix because the
   // VFS provider receives paths after the mount prefix is stripped.
@@ -223,29 +224,18 @@ export async function generateSeaAssets(
 
   try {
     for (const { key, source } of entries) {
-      // Resolve the source to a single Buffer.  When compression is enabled we
-      // need the full content in memory to feed zlib.*Sync; when it isn't, we
-      // still fall into the Buffer path because the extra readFile() call is
-      // dwarfed by everything else and lets us drop the stream path entirely.
-      const raw = Buffer.isBuffer(source)
-        ? source
-        : await readFileAsync(source);
-      const uncompressedLen = raw.length;
+      let uncompressedLen: number;
+      let length: number;
 
-      const payload = isCompressing ? compressBufferSync(raw, doCompress) : raw;
-      const length = await writeAll(fd, payload);
-      manifest.offsets[key] = [offset, length];
+      if (compress) {
+        // Compression needs the full content in memory to feed zlib.*Sync.
+        const raw = Buffer.isBuffer(source)
+          ? source
+          : await readFileAsync(source);
+        uncompressedLen = raw.length;
+        const payload = compress(raw);
+        length = await writeAll(fd, payload);
 
-      // `stats[key].size` must report the uncompressed size — that is what
-      // user code sees from fs.statSync().  Keep the stat populated from disk
-      // when it is available; overwrite only for entries without prior stat
-      // metadata, so that synthesized/mutated contents still report the right
-      // size.  Using uncompressedLen here is correct in both paths.
-      if (manifest.stats[key]) {
-        manifest.stats[key].size = uncompressedLen;
-      }
-
-      if (isCompressing) {
         totalUncompressed += uncompressedLen;
         totalCompressed += length;
         if (options?.debug) {
@@ -256,6 +246,38 @@ export async function generateSeaAssets(
             `sea-stripe ${key}: ${uncompressedLen} → ${length} bytes (${ratio}%)`,
           );
         }
+      } else if (Buffer.isBuffer(source)) {
+        // Modified file content already in memory.
+        length = await writeAll(fd, source);
+        uncompressedLen = length;
+      } else {
+        // Unmodified disk-resident file — stream chunk-by-chunk so peak RSS
+        // stays bounded when packaging large asset sets.  Accumulate actual
+        // bytes written (avoids stat→read race if the file changes between
+        // calls).
+        length = 0;
+        const stream = createReadStream(source);
+        for await (const chunk of stream) {
+          length += await writeAll(fd, chunk as Buffer);
+        }
+        uncompressedLen = length;
+      }
+
+      manifest.offsets[key] = [offset, length];
+
+      // `stats[key].size` must report the uncompressed size — that is what
+      // user code sees from fs.statSync() AND what the runtime uses to cap
+      // zlib output and validate the decompressed length.  Synthesize a
+      // minimal file stat when the record had no STORE_STAT so every entry
+      // with content has an authoritative size.
+      if (manifest.stats[key]) {
+        manifest.stats[key].size = uncompressedLen;
+      } else {
+        manifest.stats[key] = {
+          size: uncompressedLen,
+          isFile: true,
+          isDirectory: false,
+        };
       }
 
       offset += length;

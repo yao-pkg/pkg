@@ -52,6 +52,8 @@ const newcomers = codecs.map(
 
 const before = utils.filesBefore(newcomers);
 
+const sizes = {};
+
 for (let i = 0; i < codecs.length; i += 1) {
   const codec = codecs[i];
   const output = newcomers[i];
@@ -65,6 +67,30 @@ for (let i = 0; i < codecs.length; i += 1) {
     actual,
     expected,
     'Output for codec ' + codec + ' did not match expected',
+  );
+  sizes[codec] = fs.statSync(output).size;
+}
+
+// Regression guard: if any codec silently fell back to None, this catches it.
+// The payload is a highly repetitive 100 KB fixture — every lossless codec
+// must shrink it by at least ~50 KB vs. the None build, a margin that swamps
+// any bootstrap / SEA-overhead noise.
+const MIN_SAVINGS_BYTES = 50 * 1024;
+const noneSize = sizes.None;
+for (const codec of codecs) {
+  if (codec === 'None') continue;
+  const savings = noneSize - sizes[codec];
+  assert(
+    savings >= MIN_SAVINGS_BYTES,
+    'Codec ' +
+      codec +
+      ' only saved ' +
+      savings +
+      ' bytes vs. None (' +
+      sizes[codec] +
+      ' vs ' +
+      noneSize +
+      '); suspected silent fallback to uncompressed.',
   );
 }
 
