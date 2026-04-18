@@ -37,14 +37,19 @@ if (!suffix) {
   return;
 }
 
-const expected =
+// Normalize CRLF → LF on both sides of the comparison so this test is robust
+// even if a Windows checkout ends up with CRLF line endings in payload.txt
+// despite the .gitattributes eol=lf directive (e.g. an existing clone).
+const normalizeEol = (s) => s.replace(/\r\n/g, '\n');
+const expected = normalizeEol(
   'len=' +
-  PAYLOAD.length +
-  '\nhead=' +
-  PAYLOAD.slice(0, 32) +
-  '\nstat=' +
-  PAYLOAD.length +
-  '\n';
+    PAYLOAD.length +
+    '\nhead=' +
+    PAYLOAD.slice(0, 32) +
+    '\nstat=' +
+    PAYLOAD.length +
+    '\n',
+);
 
 const newcomers = codecs.map(
   (codec) => 'test-93-sea-compress-' + codec.toLowerCase() + '-' + suffix,
@@ -62,7 +67,7 @@ for (let i = 0; i < codecs.length; i += 1) {
     args.push('--compress', codec);
   }
   utils.pkg.sync(args, { stdio: 'inherit' });
-  const actual = utils.spawn.sync('./' + output, []).replace(/\r\n/g, '\n');
+  const actual = normalizeEol(utils.spawn.sync('./' + output, []));
   assert.equal(
     actual,
     expected,
