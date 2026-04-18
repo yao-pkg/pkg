@@ -1,5 +1,15 @@
 # Changelog
 
+## [6.17.0](https://github.com/yao-pkg/pkg/compare/v6.16.0...v6.17.0) (2026-04-18)
+
+### Features
+
+- **sea:** add per-file compression to SEA archive (closes [#250](https://github.com/yao-pkg/pkg/issues/250)) ([#251](https://github.com/yao-pkg/pkg/issues/251)) ([fdf8046](https://github.com/yao-pkg/pkg/commit/fdf8046dd74bc34719845f4700c8d68afe23fe3b))
+
+### Documentation
+
+- add in-depth comparison vs Bun and Deno ([#249](https://github.com/yao-pkg/pkg/issues/249)) ([0cf75a8](https://github.com/yao-pkg/pkg/commit/0cf75a8dfbbf763479f1abafddb999447e554475))
+
 ## [6.16.0](https://github.com/yao-pkg/pkg/compare/v6.15.0...v6.16.0) (2026-04-17)
 
 ### Features
