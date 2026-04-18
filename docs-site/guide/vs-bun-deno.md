@@ -11,7 +11,7 @@ Three tools can turn JavaScript into a standalone executable today: `@yao-pkg/pk
 
 - **Bun** is the fastest to build and produces the smallest binary, but it targets Node-API addons indirectly (`node-pre-gyp` packages need manual intervention) and runs on JavaScriptCore, not V8.
 - **Deno** auto-detects `node_modules`, cross-compiles cleanly, and embeds assets via `--include`, but native addons need `--self-extracting` and a handful of Node built-ins are still stubbed.
-- **pkg (SEA)** runs on **stock Node.js** — same V8, same npm, same addon ABI. It ships the largest binary but is the only one with a path to zero-patch, official Node.js support via [`node:vfs`](https://github.com/nodejs/node/pull/61478).
+- **pkg (SEA)** runs on **stock Node.js** — same V8, same npm, same addon ABI. With `--compress Zstd` or `--compress Brotli` it lands ~20-25% smaller (194 MB → 147–152 MB on claude-code) with no measurable cold-start regression, and it is the only tool here with a path to zero-patch, official Node.js support via [`node:vfs`](https://github.com/nodejs/node/pull/61478).
 - **pkg (Standard)** is the only option that can strip source code to V8 bytecode.
   :::
 
@@ -28,7 +28,7 @@ Three tools can turn JavaScript into a standalone executable today: `@yao-pkg/pk
 | **Asset embedding**                  | `pkg.assets` glob in `package.json`                                    | `pkg.assets` glob                     | Extra entrypoints + `--asset-naming="[name].[ext]"` or `import ... with { type: "file" }` | `--include path/`                                                                          |
 | **npm compatibility**                | Full (it _is_ Node)                                                    | Full (it _is_ Node)                   | High (bundler-hostile patterns break)                                                     | Partial — 22/44 built-ins fully, some stubbed (`node:cluster`, `node:sea`, `node:wasi`, …) |
 | **ESM + top-level await**            | ⚠️ ESM → CJS transform can fail on TLA + re-exports                    | ✅ native ESM                         | ✅ native ESM                                                                             | ✅ native ESM (primary)                                                                    |
-| **Compression**                      | ✅ Brotli / GZip per stripe                                            | ❌                                    | ❌                                                                                        | ❌                                                                                         |
+| **Compression**                      | ✅ Brotli / GZip / Zstd per stripe                                     | ✅ Brotli / GZip / Zstd per stripe    | ❌                                                                                        | ❌                                                                                         |
 | **Windows icon / metadata**          | ✅ (via `rcedit` at build)                                             | ✅                                    | ✅ `--windows-icon` + rich metadata _(disabled when cross-compiling)_                     | ✅ `--icon` (cross-compile OK), no version/product fields                                  |
 | **Security updates**                 | Wait for `pkg-fetch` to rebase patches and republish                   | **Same day Node.js releases**         | Tied to Bun release cadence                                                               | Tied to Deno release cadence                                                               |
 | **License model**                    | MIT — runs stock V8                                                    | MIT — runs stock V8                   | MIT                                                                                       | MIT                                                                                        |
@@ -76,20 +76,31 @@ All numbers on Linux x64, Node 22.22.1, Bun 1.3.12, Deno 2.7.12:
 | `pkg cli.js -t node22-linux-x64` (Standard)                          | ❌ `Failed to generate V8 bytecode` — top-level await + ESM re-exports block pkg's CJS transform. Warning suggests `--fallback-to-source` or `--sea` | —          | —                 |
 | `pkg cli.js --fallback-to-source -t node22-linux-x64` (Standard)     | ❌ Source-as-fallback path still loads as CJS; `ERR_MODULE_NOT_FOUND` at runtime                                                                     | 83 MB      | —                 |
 | `pkg . --sea -t node22-linux-x64` (SEA, no `pkg.assets`)             | ❌ Runs, but `Cannot find module './yoga.wasm'` — walker can't see dynamic resolves                                                                  | 134 MB     | —                 |
-| `pkg . --sea` with `"pkg": {"assets": ["yoga.wasm","vendor/**/*"]}`  | ✅                                                                                                                                                   | **194 MB** | **979 ms**        |
+| `pkg . --sea` with `"pkg": {"assets": ["yoga.wasm","vendor/**/*"]}`  | ✅                                                                                                                                                   | **194 MB** | **560 ms**        |
+| `pkg . --sea --compress GZip`                                        | ✅ (same assets config)                                                                                                                              | **154 MB** | 580 ms            |
+| `pkg . --sea --compress Zstd`                                        | ✅ (same assets config)                                                                                                                              | **152 MB** | 570 ms            |
+| `pkg . --sea --compress Brotli`                                      | ✅ (same assets config, ~3 min build time)                                                                                                           | **147 MB** | 590 ms            |
 | `bun build --compile cli.js`                                         | ❌ Runtime: `Cannot find module './yoga.wasm' from '/$bunfs/root/cc-bun'`                                                                            | 108 MB     | —                 |
-| `bun build --compile cli.js yoga.wasm --asset-naming="[name].[ext]"` | ✅                                                                                                                                                   | **108 MB** | **797 ms**        |
-| `bun build --compile --bytecode --format=esm …` (+ asset flag)       | ✅                                                                                                                                                   | 190 MB     | 828 ms            |
+| `bun build --compile cli.js yoga.wasm --asset-naming="[name].[ext]"` | ✅                                                                                                                                                   | **108 MB** | **510 ms**        |
+| `bun build --compile --bytecode --format=esm …` (+ asset flag)       | ✅                                                                                                                                                   | 190 MB     | 530 ms            |
 | `bun build --compile --bytecode --minify …`                          | ❌ `Expected ";" but found ")"` — parser regression on the already-minified ESM                                                                      | —          | —                 |
-| `deno compile --allow-all --include yoga.wasm cli.js`                | ✅ auto-included the entire `node_modules/`                                                                                                          | **184 MB** | **1256 ms**       |
+| `deno compile --allow-all --include yoga.wasm cli.js`                | ✅ auto-included the entire `node_modules/`                                                                                                          | **183 MB** | **740 ms**        |
+
+::: tip Cold-start vs binary size
+The `--compress` flag's cold-start overhead is effectively noise on this workload (+10 to +30 ms across codecs vs uncompressed; lazy per-file decompression means we only pay for files the CLI actually reads). The size reduction is where the win is: **Zstd and Brotli close more than half the gap to Bun's 108 MB binary** while keeping stock Node.js semantics.
+
+Brotli compresses hardest but the build takes ~3 min on this archive — a cost paid once at package time, not per launch. For CI builds where build time matters, **Zstd** is the better default.
+:::
 
 ### What this reveals
 
 - **Nothing in the matrix "just works."** Every tool needs a hint about `yoga.wasm` — the symptoms just differ. pkg silently succeeds with a broken binary if you forget `pkg.assets`; Bun silently succeeds but renames the asset unless you pass `--asset-naming`; Deno auto-hoovers `node_modules` (which is convenient but ballooned the binary to 184 MB).
-- **Bun produced the smallest working binary (108 MB) and fastest cold start (797 ms)** — at the cost of running claude-code on JavaScriptCore, not the V8 it was tested against.
+- **Bun produced the smallest working binary (108 MB) and the fastest cold start (510 ms)** — at the cost of running claude-code on JavaScriptCore, not the V8 it was tested against.
+- **pkg SEA with `--compress Zstd` lands at 152 MB** (down from 194 MB uncompressed) with no measurable cold-start regression. Per-file lazy decompression means the files the CLI never touches never pay a decode cost. Brotli pushes size further to 147 MB at the cost of a ~3 minute one-time build.
+- **The remaining ~40 MB gap to Bun is the Node.js binary itself.** Today `pkg-fetch` ships the stock Node build with full-ICU bundled (~30 MB of locale data) plus `inspector`, `npm`, and `corepack`. A Node built with `./configure --without-intl --without-inspector --without-npm --without-corepack --fully-static` would bring the base binary from ~70 MB down to ~40 MB — putting a Brotli-compressed SEA claude-code binary in the ~115 MB range, **within 10 MB of Bun**. This is a `pkg-fetch` change, not a `pkg` change, and is tracked as the first follow-up in #250.
 - **Bun's `--bytecode` nearly doubled the binary (190 MB) without improving startup** for this async-heavy CLI. The docs warn that bytecode output can be ~8× larger per module and skips async/generator/eval, which matches what we saw.
 - **pkg Standard mode is the wrong choice for ESM-first apps with top-level await.** Use `--sea`. This is explicitly why SEA mode exists and is the [recommended default going forward](/guide/sea-vs-standard#when-to-pick-which).
-- **Deno's startup penalty (~1.3 s vs ~0.8 s)** is explained by the permission system init + Node compat layer boot; the runtime still parses source at launch (no ahead-of-time V8 snapshot of user code).
+- **Deno's startup penalty (~740 ms vs ~550 ms for pkg/Bun)** is explained by the permission system init + Node compat layer boot; the runtime still parses source at launch (no ahead-of-time V8 snapshot of user code).
 
 ### Hello-world baseline for reference
 
@@ -137,11 +148,11 @@ There is no single winner. Each tool owns a different lane.
 
 ### Lane-by-lane
 
-- **Bun wins on raw numbers.** 108 MB binary, 797 ms cold start for claude-code, and the widest target list (musl + baseline/modern CPU variants). Best default for **greenfield CLIs with no `node-pre-gyp` native addons** when size and cold start are the KPIs. The trade is a runtime swap (JavaScriptCore instead of V8) and a handful of bundler-hostile footguns.
+- **Bun wins on raw numbers.** 108 MB binary, 510 ms cold start for claude-code, and the widest target list (musl + baseline/modern CPU variants). Best default for **greenfield CLIs with no `node-pre-gyp` native addons** when size and cold start are the KPIs. The trade is a runtime swap (JavaScriptCore instead of V8) and a handful of bundler-hostile footguns.
 
-- **Deno wins on DX for Deno-first apps.** `--include` and automatic `node_modules` detection made it the lowest-effort build in the matrix. Pick it if you already run `deno` day-to-day — not as a drop-in for an existing Node project. Startup is the slowest here (1.26 s for this workload) and a handful of Node built-ins are stubbed (`node:cluster`, `node:sea`, `node:wasi`).
+- **Deno wins on DX for Deno-first apps.** `--include` and automatic `node_modules` detection made it the lowest-effort build in the matrix. Pick it if you already run `deno` day-to-day — not as a drop-in for an existing Node project. Startup is the slowest here (740 ms for this workload) and a handful of Node built-ins are stubbed (`node:cluster`, `node:sea`, `node:wasi`).
 
-- **`pkg --sea` is the safest default for shipping a real Node.js app.** It runs the **stock Node binary you tested against** — same V8, same N-API ABI, same npm semantics. Native addons with `node-pre-gyp` (`sharp`, `better-sqlite3`, `bcrypt`) bundle transparently. The cost is the largest binary and no compression. When Node ships a CVE fix, your next build has it the same day.
+- **`pkg --sea` is the safest default for shipping a real Node.js app.** It runs the **stock Node binary you tested against** — same V8, same N-API ABI, same npm semantics. Native addons with `node-pre-gyp` (`sharp`, `better-sqlite3`, `bcrypt`) bundle transparently. Per-file Brotli/GZip/Zstd compression closes most of the size gap with Bun. When Node ships a CVE fix, your next build has it the same day.
 
 - **`pkg` Standard is the only answer to one specific question:** _can the shipped binary contain no recoverable source code?_ V8 bytecode with `sourceless: true` is the only mechanism any tool here offers. Nothing else is in the running if IP protection is a hard requirement.
 
@@ -177,8 +188,8 @@ No — **only `pkg --sea` ships stock Node.js.** Standard mode ships a **patched
 n=1 on a single package on a single Linux x64 host. The conclusion scales narrowly:
 
 - The Bun number is flattering partly because claude-code's `cli.js` is already a single pre-bundled file — Bun's bundler has almost nothing to do. A project with a sprawling dep graph and lots of dynamic `require` will look different.
-- The Deno 1.26 s cold start includes permission-system init and the Node compat boot; for a long-running process (server, daemon) it's amortized to zero. Cold start matters for CLIs, not for servers.
-- pkg SEA's 194 MB is largely the uncompressed SEA archive plus the Node binary. Standard mode with Brotli would be smaller, but Standard couldn't build this package at all — so the comparison is apples-to-oranges.
+- Deno's 740 ms cold start includes permission-system init and the Node compat boot; for a long-running process (server, daemon) it's amortized to zero. Cold start matters for CLIs, not for servers.
+- pkg SEA's 194 MB baseline was measured with an uncompressed SEA archive. With `--compress Zstd` the binary drops to **152 MB** (archive 77.5 MB → 33.9 MB, 44% of original) and with `--compress Brotli` to **147 MB** (archive 77.5 MB → 28.3 MB, 37% of original). That's still ~40 MB larger than Bun, but the remaining gap is the Node binary itself plus metadata — essentially the cost of shipping unmodified Node.js. A second lever — not yet taken by `pkg-fetch` — is shipping a **trimmed Node build**: `./configure --without-intl --fully-static` strips full-ICU (~30 MB of locale data, the single biggest contributor after V8) and builds the static `linuxstatic` variant in one step. Dropping inspector/npm/corepack via `--without-inspector --without-npm --without-corepack` shaves a few more MB. An Intl-free Node brings our floor closer to 75–80 MB, which would put a Brotli-compressed SEA binary of claude-code in the ~115 MB range — within spitting distance of Bun. Tracked as follow-up work in #250. Standard mode with Brotli would also be smaller, but Standard couldn't build this package at all — so that original comparison is apples-to-oranges.
 - Bun's `--bytecode` doubled the binary _on this workload_ because it's async-heavy ESM with lots of generator / `eval` sites that fall back to shipping source alongside bytecode. A synchronous CJS-heavy app would see a different (smaller) delta.
 
 Treat the matrix as "here is what these tools actually do, and here is one realistic data point." Not as a benchmark.
@@ -218,6 +229,10 @@ node -e 'const p=require("./node_modules/@anthropic-ai/claude-code/package.json"
   p.pkg={assets:["yoga.wasm","vendor/**/*"]}; \
   require("fs").writeFileSync("node_modules/@anthropic-ai/claude-code/package.json", JSON.stringify(p,null,2))'
 pkg ./node_modules/@anthropic-ai/claude-code --sea -t node22-linux-x64 -o cc-pkg
+
+# Build (pkg SEA with per-file Zstd compression — 152 MB binary)
+pkg ./node_modules/@anthropic-ai/claude-code --sea --compress Zstd \
+  -t node22-linux-x64 -o cc-pkg-zstd
 
 # Build (bun)
 bun build --compile --asset-naming="[name].[ext]" \

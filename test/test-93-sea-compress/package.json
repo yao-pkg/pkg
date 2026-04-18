@@ -1,0 +1,11 @@
+{
+  "name": "test-93-sea-compress",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js",
+  "pkg": {
+    "assets": [
+      "payload.txt"
+    ]
+  }
+}

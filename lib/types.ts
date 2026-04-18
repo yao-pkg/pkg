@@ -1,4 +1,5 @@
 import type { log } from './log';
+import { CompressType } from './compress_type';
 
 export interface FileRecord {
   file: string;
@@ -104,6 +105,7 @@ export interface SeaEnhancedOptions {
   marker: Marker;
   params: WalkerParams;
   addition?: string;
+  doCompress?: CompressType;
 }
 
 export type SymLinks = Record<string, string>;
