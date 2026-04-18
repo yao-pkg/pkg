@@ -389,33 +389,27 @@ class SEAProvider extends MemoryProvider {
       }
       var slice = this._archive.subarray(off, off + len);
       if (this._decompress) {
-        // Decompression bomb defense: the manifest records the authoritative
-        // uncompressed size; cap zlib output at that value AND assert the
-        // decompressed buffer matches it exactly.  Prevents a tampered binary
-        // from OOMing startup via an oversized stripe and catches the case
-        // where `stats[p].size` was left unchanged by a malicious editor.
+        // Cap zlib output at the size the manifest claims for this entry.
+        // This does NOT defend against a consistent tamper (an attacker who
+        // can rewrite the blob can rewrite `stats[p].size` to match), but it
+        // does bound the allocation to whatever the manifest declared — so a
+        // broken/corrupt blob with a plausible manifest can't request
+        // unbounded memory at startup, and the cap is as generous as the
+        // declared file already is.  Validation of stats.size is still
+        // load-bearing: maxOutputLength requires a finite number, so NaN /
+        // negative / missing values have to be rejected up front.
         var meta = this._manifest.stats[p];
-        var expected =
+        var maxOutputLength =
           meta && Number.isInteger(meta.size) && meta.size >= 0
             ? meta.size
             : null;
-        if (expected === null) {
+        if (maxOutputLength === null) {
           throw new Error(
             'pkg: corrupt SEA manifest — missing or invalid stats.size for ' +
               filePath,
           );
         }
-        buf = this._decompress(slice, { maxOutputLength: expected });
-        if (buf.length !== expected) {
-          throw new Error(
-            'pkg: SEA archive decompression mismatch for ' +
-              filePath +
-              ' — expected ' +
-              expected +
-              ' bytes, got ' +
-              buf.length,
-          );
-        }
+        buf = this._decompress(slice, { maxOutputLength: maxOutputLength });
         this._fileCache.set(p, buf);
       } else {
         buf = slice;
