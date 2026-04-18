@@ -77,6 +77,7 @@ export default withMermaid({
             { text: 'What is pkg?', link: '/guide/' },
             { text: 'Getting started', link: '/guide/getting-started' },
             { text: 'SEA vs Standard', link: '/guide/sea-vs-standard' },
+            { text: 'pkg vs Bun vs Deno', link: '/guide/vs-bun-deno' },
             { text: 'Migration from vercel/pkg', link: '/guide/migration' },
           ],
         },
