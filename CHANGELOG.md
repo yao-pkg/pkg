@@ -1,5 +1,32 @@
 # Changelog
 
+## [6.17.0](https://github.com/yao-pkg/pkg/compare/v6.16.0...v6.17.0) (2026-04-18)
+
+### Features
+
+- **sea:** add per-file compression to SEA archive (closes [#250](https://github.com/yao-pkg/pkg/issues/250)) ([#251](https://github.com/yao-pkg/pkg/issues/251)) ([fdf8046](https://github.com/yao-pkg/pkg/commit/fdf8046dd74bc34719845f4700c8d68afe23fe3b))
+
+### Documentation
+
+- add in-depth comparison vs Bun and Deno ([#249](https://github.com/yao-pkg/pkg/issues/249)) ([0cf75a8](https://github.com/yao-pkg/pkg/commit/0cf75a8dfbbf763479f1abafddb999447e554475))
+
+## [6.16.0](https://github.com/yao-pkg/pkg/compare/v6.15.0...v6.16.0) (2026-04-17)
+
+### Features
+
+- add --fallback-to-source flag for bytecode failures ([#246](https://github.com/yao-pkg/pkg/issues/246)) ([5eb4681](https://github.com/yao-pkg/pkg/commit/5eb468153fee6d066ee718586e447740e7da3156)), closes [#87](https://github.com/yao-pkg/pkg/issues/87) [#181](https://github.com/yao-pkg/pkg/issues/181)
+
+### Bug Fixes
+
+- **docs:** repair migration link and mermaid label clipping ([#237](https://github.com/yao-pkg/pkg/issues/237)) ([7a97430](https://github.com/yao-pkg/pkg/commit/7a97430ab4a97a86ac13eaf676e15f52ef3e6ccc))
+- fall back to source on bytecode fabrication failure ([46a7f8e](https://github.com/yao-pkg/pkg/commit/46a7f8e0caff6673d505eb1fb292790ccbfdcb46)), closes [#87](https://github.com/yao-pkg/pkg/issues/87) [#181](https://github.com/yao-pkg/pkg/issues/181)
+- **sea:** prevent sentinel duplication when pkg is in dependencies ([#243](https://github.com/yao-pkg/pkg/issues/243)) ([79f3f2d](https://github.com/yao-pkg/pkg/commit/79f3f2db408629b6f22758686270f63d5bab3f14))
+
+### Documentation
+
+- add dotenvx sponsor logo to README ([d315eaa](https://github.com/yao-pkg/pkg/commit/d315eaaaddee7c74852bf37e6f72f20d4fc452a5))
+- host documentation on GitHub Pages with VitePress ([#234](https://github.com/yao-pkg/pkg/issues/234)) ([22fc2ed](https://github.com/yao-pkg/pkg/commit/22fc2ed6279509afe7a70cba3ced6b0bc57c9676)), closes [#231](https://github.com/yao-pkg/pkg/issues/231) [#231](https://github.com/yao-pkg/pkg/issues/231) [#87](https://github.com/yao-pkg/pkg/issues/87) [#181](https://github.com/yao-pkg/pkg/issues/181) [#229](https://github.com/yao-pkg/pkg/issues/229)
+
 ## [6.15.0](https://github.com/yao-pkg/pkg/compare/v6.14.2...v6.15.0) (2026-04-14)
 
 ### Features

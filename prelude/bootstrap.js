@@ -20,12 +20,6 @@ const path = require('path');
 const { promisify } = require('util');
 const { Script } = require('vm');
 const util = require('util');
-const {
-  brotliDecompress,
-  brotliDecompressSync,
-  gunzip,
-  gunzipSync,
-} = require('zlib');
 
 const common = {};
 REQUIRE_COMMON(common);
@@ -447,40 +441,29 @@ function payloadCopyManySync(source, target, targetStart, sourceStart) {
   }
 }
 
-const GZIP = 1;
-const BROTLI = 2;
+// Resolve decompressors once at module load: DOCOMPRESS is a compile-time
+// constant baked in by the packer, so the pick never varies across calls —
+// and if the runtime is missing a Zstd API the binary should fail at startup
+// rather than on the first snapshot read.
+const decompressAsync = REQUIRE_SHARED.pickDecompressorAsync(DOCOMPRESS);
+const decompressSync = REQUIRE_SHARED.pickDecompressorSync(DOCOMPRESS);
+
 function payloadFile(pointer, cb) {
   const target = Buffer.alloc(pointer[1]);
   payloadCopyMany(pointer, target, 0, 0, (error) => {
     if (error) return cb(error);
-    if (DOCOMPRESS === GZIP) {
-      gunzip(target, (error2, target2) => {
-        if (error2) return cb(error2);
-        cb(null, target2);
-      });
-    } else if (DOCOMPRESS === BROTLI) {
-      brotliDecompress(target, (error2, target2) => {
-        if (error2) return cb(error2);
-        cb(null, target2);
-      });
-    } else {
-      return cb(null, target);
-    }
+    if (!decompressAsync) return cb(null, target);
+    decompressAsync(target, (error2, target2) => {
+      if (error2) return cb(error2);
+      cb(null, target2);
+    });
   });
 }
 
 function payloadFileSync(pointer) {
   const target = Buffer.alloc(pointer[1]);
   payloadCopyManySync(pointer, target, 0, 0);
-  if (DOCOMPRESS === GZIP) {
-    const target1 = gunzipSync(target);
-    return target1;
-  }
-  if (DOCOMPRESS === BROTLI) {
-    const target1 = brotliDecompressSync(target);
-    return target1;
-  }
-  return target;
+  return decompressSync ? decompressSync(target) : target;
 }
 
 // /////////////////////////////////////////////////////////////////
@@ -955,19 +938,15 @@ function payloadFileSync(pointer) {
     if (entityBlob) {
       return cb2(null, Buffer.from('source-code-not-available'));
     }
-    // why return empty buffer?
-    // otherwise this error will arise:
-    // Error: UNEXPECTED-20
-    //     at readFileFromSnapshot (e:0)
-    //     at Object.fs.readFileSync (e:0)
-    //     at Object.Module._extensions..js (module.js:421:20)
-    //     at Module.load (module.js:357:32)
-    //     at Function.Module._load (module.js:314:12)
-    //     at Function.Module.runMain (e:0)
-    //     at startup (node.js:140:18)
-    //     at node.js:1001:3
-
-    return cb2(new Error('UNEXPECTED-20'));
+    return cb2(
+      new Error(
+        '[pkg] UNEXPECTED-20: no source or bytecode for ' +
+          path_ +
+          '. This usually means V8 bytecode generation failed during ' +
+          'packaging (e.g. cross-compilation without QEMU). Rebuild with ' +
+          '--fallback-to-source, --no-bytecode, or --sea to fix this.',
+      ),
+    );
   }
 
   fs.readFileSync = function readFileSync(path_, options_) {
