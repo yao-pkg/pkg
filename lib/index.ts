@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, stat } from 'fs/promises';
 import minimist from 'minimist';
 import { need, system } from '@yao-pkg/pkg-fetch';
 import path from 'path';
+import { pathToFileURL } from 'url';
 
 import { log, wasReported } from './log';
 import help from './help';
@@ -36,14 +37,53 @@ function isConfiguration(file: string) {
   return isPackageJson(file) || file.endsWith('.config.json');
 }
 
+// Auto-discovered config filenames, in precedence order. First match wins.
+const PKGRC_FILENAMES = [
+  '.pkgrc',
+  '.pkgrc.json',
+  'pkg.config.js',
+  'pkg.config.cjs',
+  'pkg.config.mjs',
+];
+
+function findPkgrc(baseDir: string): string | undefined {
+  for (const name of PKGRC_FILENAMES) {
+    const candidate = path.join(baseDir, name);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+// TypeScript with `module: commonjs` rewrites `import(...)` as `require(...)`,
+// which breaks ESM loading. `new Function(...)` forces a genuine dynamic import.
+const nativeImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string,
+) => Promise<{ default?: unknown; [k: string]: unknown }>;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadPkgrc(file: string): Promise<any> {
+  const base = path.basename(file);
+  // `.pkgrc` has no extension and `.pkgrc.json` is JSON only — parse directly.
+  if (base === '.pkgrc' || file.endsWith('.json')) {
+    return JSON.parse(readFileSync(file, 'utf-8'));
+  }
+  // .js / .cjs / .mjs — load via dynamic import so ESM configs (and projects
+  // with `"type": "module"`) work. `.mjs` is the portable way to expose
+  // functions in config (planned for future options like hooks/transforms).
+  const mod = await nativeImport(pathToFileURL(file).href);
+  return mod.default ?? mod;
+}
+
 function buildMarker(
   configJson: Record<string, unknown> | undefined,
-  config: string,
+  config: string | undefined,
   inputJson: Record<string, unknown> | undefined,
   input: string,
 ): Marker {
   const marker: Marker = configJson
-    ? { config: configJson, base: path.dirname(config), configPath: config }
+    ? { config: configJson, base: path.dirname(config!), configPath: config! }
     : {
         config: inputJson || {},
         base: path.dirname(input),
@@ -459,10 +499,23 @@ export async function exec(
 
   // config
 
-  let config = argv.c || argv.config;
+  const explicitConfig = argv.c || argv.config;
+  let config: string | undefined = explicitConfig;
 
-  if (inputJson && config) {
+  if (inputJson && explicitConfig) {
     throw wasReported("Specify either 'package.json' or config. Not both");
+  }
+
+  // Auto-discover .pkgrc / .pkgrc.json / pkg.config.js / pkg.config.cjs /
+  // pkg.config.mjs in the input's directory when --config wasn't passed. A
+  // pkgrc is complementary to package.json: metadata (name/bin) comes from
+  // package.json, pkg config from the pkgrc.
+  if (!explicitConfig) {
+    const discovered = findPkgrc(path.dirname(input));
+    if (discovered) {
+      config = discovered;
+      log.info(`Using config ${path.relative(process.cwd(), discovered)}`);
+    }
   }
 
   // configJson
@@ -475,8 +528,7 @@ export async function exec(
       throw wasReported('Config file does not exist', [config]);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    configJson = require(config); // may be either json or js
+    configJson = await loadPkgrc(config); // json / js / cjs / mjs
 
     if (
       !configJson.name &&
@@ -484,9 +536,16 @@ export async function exec(
       !configJson.dependencies &&
       !configJson.pkg
     ) {
-      // package.json not detected
+      // bare pkg config → wrap it
       configJson = { pkg: configJson };
     }
+  }
+
+  if (!explicitConfig && config && inputJson?.pkg) {
+    log.warn(
+      `Both ${path.basename(config)} and "pkg" field in package.json were found. ` +
+        `The ${path.basename(config)} file takes precedence.`,
+    );
   }
 
   // output, outputPath
@@ -517,10 +576,10 @@ export async function exec(
     }
 
     if (!outputPath) {
-      if (inputJson && inputJson.pkg) {
-        outputPath = inputJson.pkg.outputPath;
-      } else if (configJson && configJson.pkg) {
+      if (configJson && configJson.pkg) {
         outputPath = configJson.pkg.outputPath;
+      } else if (inputJson && inputJson.pkg) {
+        outputPath = inputJson.pkg.outputPath;
       }
 
       outputPath = outputPath || '';
@@ -549,10 +608,10 @@ export async function exec(
   if (!targets.length) {
     let jsonTargets;
 
-    if (inputJson && inputJson.pkg) {
-      jsonTargets = inputJson.pkg.targets;
-    } else if (configJson && configJson.pkg) {
+    if (configJson && configJson.pkg) {
       jsonTargets = configJson.pkg.targets;
+    } else if (inputJson && inputJson.pkg) {
+      jsonTargets = inputJson.pkg.targets;
     }
 
     if (jsonTargets) {
