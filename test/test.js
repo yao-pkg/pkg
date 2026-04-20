@@ -2,13 +2,11 @@
 
 'use strict';
 
-const os = require('os');
 const path = require('path');
 const pc = require('picocolors');
 const { globSync } = require('tinyglobby');
 const utils = require('./utils.js');
 const { spawn } = require('child_process');
-const { need } = require('@yao-pkg/pkg-fetch');
 const host = 'node' + utils.getNodeMajorVersion();
 let target = process.argv[2] || 'host';
 if (target === 'host') target = host;
@@ -24,19 +22,12 @@ const testFilter = process.argv[4] || (flavor.match(/^test/) ? flavor : null);
 
 const isCI = process.env.CI === 'true';
 
-// Concurrency for parallel test execution. Defaults to CPU count (capped at 4).
-// Set TEST_CONCURRENCY=1 to run tests sequentially.
-const concurrency =
-  parseInt(process.env.TEST_CONCURRENCY, 10) ||
-  Math.min(os.availableParallelism?.() ?? os.cpus().length, 4);
-
 console.log('');
 console.log('*************************************');
 console.log(target + ' ' + flavor);
 console.log(
   `Host Info: ${process.version} ${process.platform} ${process.arch}`,
 );
-console.log(`Concurrency: ${concurrency}`);
 console.log('*************************************');
 console.log('');
 
@@ -193,29 +184,16 @@ async function run() {
   let failed = [];
   const start = Date.now();
 
-  const isParallel = concurrency > 1;
-
-  function addLog(log, isError = false) {
-    // Only use TTY line-clearing in sequential mode — parallel output
-    // interleaves, so clearing lines would eat other tests' results.
-    if (!isParallel) clearLastLine();
-    if (isError) {
-      console.error(log);
-    } else {
-      console.log(log);
-    }
-  }
-
-  const promises = files.sort().map((file) => async () => {
-    file = path.resolve(file);
+  for (const file of files.sort().map((f) => path.resolve(f))) {
     const startTest = Date.now();
     try {
-      if (!isParallel && !isCI && process.stdout.isTTY) {
+      if (!isCI && process.stdout.isTTY) {
         console.log(pc.gray(`⏳ ${file} - ${done}/${files.length}`));
       }
       await runTest(file);
       ok++;
-      addLog(
+      clearLastLine();
+      console.log(
         pc.green(`✔ ${file} ok - ${msToHumanDuration(Date.now() - startTest)}`),
       );
     } catch (error) {
@@ -223,54 +201,16 @@ async function run() {
         file,
         output: error.logOutput,
       });
-      addLog(
+      clearLastLine();
+      console.error(
         pc.red(
           `✖ ${file} FAILED (in ${target}) - ${msToHumanDuration(Date.now() - startTest)}\n${error.message}`,
         ),
-        true,
       );
     }
 
     done++;
-  });
-
-  if (isParallel) {
-    // Pre-download pkg-fetch binaries for every platform/arch the tests
-    // could target. pkg-fetch uses a deterministic `*.downloading` temp
-    // filename that collides when multiple processes download the same
-    // binary concurrently, so we serialize fetches here via the pkg-fetch
-    // API (cleaner than spawning pkg, and skips pkg's codesign step).
-    const platforms = ['linux', 'macos', 'win'];
-    const arches = ['x64', 'arm64'];
-    console.log(
-      `Warming binary cache for ${target} (${platforms.length * arches.length} targets)...`,
-    );
-    for (const platform of platforms) {
-      for (const arch of arches) {
-        try {
-          await need({ nodeRange: target, platform, arch });
-        } catch (err) {
-          // Best-effort — if a particular combination isn't available,
-          // tests that need it will surface the error themselves.
-          console.log(
-            pc.gray(`  skip ${target}-${platform}-${arch}: ${err.message}`),
-          );
-        }
-      }
-    }
-    console.log('Binary cache ready.');
   }
-
-  // Run tests with bounded concurrency
-  const executing = new Set();
-  for (const task of promises) {
-    const p = task().finally(() => executing.delete(p));
-    executing.add(p);
-    if (executing.size >= concurrency) {
-      await Promise.race(executing);
-    }
-  }
-  await Promise.all(executing);
 
   const end = Date.now();
 

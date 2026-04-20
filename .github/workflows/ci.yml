@@ -66,9 +66,6 @@ jobs:
     with:
       npm_command: test:host
       should_run: ${{ needs.changes.outputs.code }}
-      # Keep sequential — pnpm tests install global packages and SEA tests
-      # download binaries to a shared cache, both of which race under concurrency.
-      test_concurrency: '1'
 
   test_22:
     needs: [changes, build]
@@ -76,7 +73,6 @@ jobs:
     with:
       npm_command: test:22
       should_run: ${{ needs.changes.outputs.code }}
-      test_concurrency: '4'
 
   test_24:
     needs: [changes, build]
@@ -84,4 +80,3 @@ jobs:
     with:
       npm_command: test:24
       should_run: ${{ needs.changes.outputs.code }}
-      test_concurrency: '4'
