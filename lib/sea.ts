@@ -93,51 +93,47 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
 async function extract(os: string, archivePath: string): Promise<string> {
   const nodeDir = basename(archivePath, os === 'win' ? '.zip' : '.tar.gz');
   const archiveDir = dirname(archivePath);
-  let nodePath = '';
+  const nodePath =
+    os === 'win'
+      ? join(archiveDir, `${nodeDir}.exe`)
+      : join(archiveDir, nodeDir, 'bin', 'node');
+
+  // Skip extraction when a sentinel marks the previous extract as complete.
+  // Both tar and unzipper write to the final path directly, so a crash
+  // mid-extract would otherwise leave a truncated binary that silently
+  // poisons future runs. The sentinel is only written after extraction
+  // succeeds, so its absence forces a re-extract.
+  const sentinel = `${nodePath}.ok`;
+  if (await exists(sentinel)) {
+    return nodePath;
+  }
+
+  // Clear any partial output from a previously interrupted extract.
+  await rm(nodePath, { force: true });
 
   if (os === 'win') {
-    nodePath = join(archiveDir, `${nodeDir}.exe`);
-
-    // Skip extraction if already extracted — the node binary is immutable
-    // per archive, so re-extracting on every pkg invocation just wastes time.
-    if (await exists(nodePath)) {
-      return nodePath;
-    }
-
-    // use unzipper to extract the archive
     const { files } = await unzipper.Open.file(archivePath);
     const nodeBinPath = `${nodeDir}/node.exe`;
-
     const nodeBin = files.find((file) => file.path === nodeBinPath);
 
     if (!nodeBin) {
       throw new Error('Node executable not found in the archive');
     }
 
-    // extract the node executable
     await pipeline(nodeBin.stream(), createWriteStream(nodePath));
   } else {
-    const nodeBinPath = `${nodeDir}/bin/node`;
-    nodePath = join(archiveDir, nodeBinPath);
-
-    // Skip extraction if already extracted (see above)
-    if (await exists(nodePath)) {
-      return nodePath;
-    }
-
-    // use tar to extract the archive
     await tarExtract({
       file: archivePath,
       cwd: archiveDir,
-      filter: (path) => path === nodeBinPath,
+      filter: (path) => path === `${nodeDir}/bin/node`,
     });
   }
 
-  // check if the node executable exists
   if (!(await exists(nodePath))) {
     throw new Error('Node executable not found in the archive');
   }
 
+  await writeFile(sentinel, '');
   return nodePath;
 }
 
