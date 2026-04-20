@@ -279,7 +279,7 @@ const MINIMIST_OPTS = {
   default: FLAG_DEFAULTS,
 };
 
-function joinList(v: string | string[] | undefined): string | undefined {
+function joinList(v: string[] | string | undefined): string | undefined {
   if (v === undefined) return undefined;
   const joined = Array.isArray(v) ? v.join(',') : v;
   return joined === '' ? undefined : joined;
@@ -307,10 +307,7 @@ function optionsToParsed(options: PkgExecOptions): minimist.ParsedArgs {
   setIfDefined('config', options.config);
   setIfDefined('output', options.output);
   setIfDefined('out-path', options.outputPath);
-  setIfDefined(
-    'compress',
-    options.compress === 'None' ? undefined : options.compress,
-  );
+  setIfDefined('compress', options.compress);
   setIfDefined('sea', options.sea);
   setIfDefined('options', joinList(options.bakeOptions));
   setIfDefined('debug', options.debug);

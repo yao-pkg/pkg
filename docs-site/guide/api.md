@@ -58,25 +58,25 @@ The strings are exactly what you'd pass on the command line — see [Getting sta
 
 ### `PkgExecOptions` fields
 
-| Field              | Type                                     | CLI equivalent         | Notes                                                |
-| ------------------ | ---------------------------------------- | ---------------------- | ---------------------------------------------------- |
-| `input`            | `string`                                 | positional `<input>`   | **Required.** Entry file or directory.               |
-| `targets`          | `string \| string[]`                     | `--targets`            | e.g. `'host'` or `['node22-linux-x64', ...]`.        |
-| `config`           | `string`                                 | `--config`             | Path to `package.json` or standalone config JSON.    |
-| `output`           | `string`                                 | `--output`             | Output file name or template.                        |
-| `outputPath`       | `string`                                 | `--out-path`           | Output directory (mutually exclusive with `output`). |
-| `compress`         | `'None' \| 'Brotli' \| 'GZip' \| 'Zstd'` | `--compress`           | Default `'None'`.                                    |
-| `sea`              | `boolean`                                | `--sea`                | Use Single Executable Application mode.              |
-| `bakeOptions`      | `string \| string[]`                     | `--options`            | Node/V8 flags baked into the binary.                 |
-| `debug`            | `boolean`                                | `--debug`              | Verbose packaging logs.                              |
-| `build`            | `boolean`                                | `--build`              | Build base binaries from source.                     |
-| `bytecode`         | `boolean`                                | `--no-bytecode`        | Default `true`. Set `false` to ship plain JS.        |
-| `nativeBuild`      | `boolean`                                | `--no-native-build`    | Default `true`.                                      |
-| `fallbackToSource` | `boolean`                                | `--fallback-to-source` | Ship source when bytecode compile fails.             |
-| `public`           | `boolean`                                | `--public`             | Top-level project is public.                         |
-| `publicPackages`   | `string \| string[]`                     | `--public-packages`    | Use `['*']` for all.                                 |
-| `noDictionary`     | `string \| string[]`                     | `--no-dict`            | Use `['*']` to disable all dictionaries.             |
-| `signature`        | `boolean`                                | `--no-signature`       | Default `true` (macOS signing when applicable).      |
+| Field              | Type                                     | CLI equivalent         | Notes                                                       |
+| ------------------ | ---------------------------------------- | ---------------------- | ----------------------------------------------------------- |
+| `input`            | `string`                                 | positional `<input>`   | **Required.** Entry file or directory.                      |
+| `targets`          | `string[]`                               | `--targets`            | e.g. `['host']` or `['node22-linux-x64', ...]`.             |
+| `config`           | `string`                                 | `--config`             | Path to `package.json` or standalone config JSON.           |
+| `output`           | `string`                                 | `--output`             | Output file name or template.                               |
+| `outputPath`       | `string`                                 | `--out-path`           | Output directory (mutually exclusive with `output`).        |
+| `compress`         | `'None' \| 'Brotli' \| 'GZip' \| 'Zstd'` | `--compress`           | Default `'None'`.                                           |
+| `sea`              | `boolean`                                | `--sea`                | Use Single Executable Application mode.                     |
+| `bakeOptions`      | `string \| string[]`                     | `--options`            | Node/V8 flags baked into the binary (e.g. `['expose-gc']`). |
+| `debug`            | `boolean`                                | `--debug`              | Verbose packaging logs.                                     |
+| `build`            | `boolean`                                | `--build`              | Build base binaries from source.                            |
+| `bytecode`         | `boolean`                                | `--no-bytecode`        | Default `true`. Set `false` to ship plain JS.               |
+| `nativeBuild`      | `boolean`                                | `--no-native-build`    | Default `true`.                                             |
+| `fallbackToSource` | `boolean`                                | `--fallback-to-source` | Ship source when bytecode compile fails.                    |
+| `public`           | `boolean`                                | `--public`             | Top-level project is public.                                |
+| `publicPackages`   | `string[]`                               | `--public-packages`    | Use `['*']` for all.                                        |
+| `noDictionary`     | `string[]`                               | `--no-dict`            | Use `['*']` to disable all dictionaries.                    |
+| `signature`        | `boolean`                                | `--no-signature`       | Default `true` (macOS signing when applicable).             |
 
 ## Build a full release pipeline
 

@@ -115,8 +115,8 @@ export type PkgCompressType = keyof typeof CompressType;
 export interface PkgExecOptions {
   /** Entry file or directory (required). */
   input: string;
-  /** Target spec(s), e.g. 'node22-linux-x64' or 'host'. */
-  targets?: string | string[];
+  /** Target specs, e.g. `['node22-linux-x64']` or `['host']`. */
+  targets?: string[];
   /** Path to a `package.json` or standalone config JSON. */
   config?: string;
   /** Output file name or template for multiple targets. */
@@ -142,9 +142,9 @@ export interface PkgExecOptions {
   /** Treat the top-level project as public (faster, discloses sources). */
   public?: boolean;
   /** Package names to treat as public. `['*']` for all packages. */
-  publicPackages?: string | string[];
+  publicPackages?: string[];
   /** Package names to ignore dictionaries for. `['*']` to disable all. */
-  noDictionary?: string | string[];
+  noDictionary?: string[];
   /** Sign macOS binaries when applicable. Default `true`. */
   signature?: boolean;
 }
