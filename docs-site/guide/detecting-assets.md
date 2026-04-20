@@ -31,9 +31,9 @@ path.join(__dirname, p); // ❌ variable, not literal
 
 For these, list the file(s) manually in the `assets` glob — see [Configuration → Assets](/guide/configuration#assets).
 
-## Why this matters
+## How detection works
 
-The static walker rewrites detected calls so that at runtime, the resolved path points at `/snapshot/...` and the asset is served from the virtual filesystem. If the call isn't detected, the asset isn't bundled — and your packaged binary will throw `ENOENT` at runtime.
+The static walker rewrites detected calls so that at runtime, the resolved path points at `/snapshot/...` and the asset is served from the virtual filesystem. If the call isn't detected, the asset isn't bundled and the packaged binary throws `ENOENT` at runtime.
 
 ## How to find missing assets
 

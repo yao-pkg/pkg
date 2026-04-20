@@ -297,14 +297,67 @@ module.exports.shouldSkipPnpm = function () {
   return false;
 };
 
+const SEA_PLATFORM_SUFFIX = {
+  linux: 'linux',
+  darwin: 'macos',
+  win32: 'win.exe',
+};
+
+/**
+ * The files produced by a SEA test's pkg invocation. On the three platforms
+ * pkg ships SEA support for we build only the host binary (the only one the
+ * test actually runs); on other hosts the default multi-target build is used
+ * for coverage.
+ *
+ * @param {string} testName - Base output name (e.g. 'test-85-sea-enhanced')
+ * @returns {string[]} Relative output paths
+ */
+module.exports.seaHostOutputs = function (testName) {
+  const suffix = SEA_PLATFORM_SUFFIX[process.platform];
+  if (!suffix) {
+    return [`${testName}-linux`, `${testName}-macos`, `${testName}-win.exe`];
+  }
+  return [`${testName}-${suffix}`];
+};
+
+/**
+ * Build a SEA binary for the host platform only. Each postject invocation
+ * takes several seconds; building only the one binary the test actually
+ * executes cuts SEA test time to roughly a third.
+ *
+ * @param {string} input - pkg input (entry script or package.json)
+ * @param {string} testName - Base output name (e.g. 'test-85-sea-enhanced')
+ * @param {string[]} [extraArgs] - Extra args to pass after --sea
+ */
+module.exports.runSeaHostOnly = function (input, testName, extraArgs = []) {
+  const suffix = SEA_PLATFORM_SUFFIX[process.platform];
+  if (!suffix) {
+    module.exports.pkg.sync([input, '--sea', ...extraArgs], {
+      stdio: 'inherit',
+    });
+    return;
+  }
+  module.exports.pkg.sync(
+    [
+      input,
+      '--sea',
+      '--target',
+      'host',
+      '--output',
+      `${testName}-${suffix}`,
+      ...extraArgs,
+    ],
+    { stdio: 'inherit' },
+  );
+};
+
 /**
  * Assert SEA executable output for the current platform.
  * @param {string} testName - Base name of the test executable (e.g. 'test-85-sea-enhanced')
  * @param {string} expected - Expected stdout output
  */
 module.exports.assertSeaOutput = function (testName, expected) {
-  const platformSuffix = { linux: 'linux', darwin: 'macos', win32: 'win.exe' };
-  const suffix = platformSuffix[process.platform];
+  const suffix = SEA_PLATFORM_SUFFIX[process.platform];
   if (!suffix) {
     console.log(
       `  Skipping SEA assertion: unsupported platform '${process.platform}'`,

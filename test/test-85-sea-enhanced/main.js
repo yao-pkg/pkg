@@ -13,16 +13,13 @@ if (utils.getNodeMajorVersion() < 22) {
 assert(__dirname === process.cwd());
 
 const input = './package.json';
+const testName = 'test-85-sea-enhanced';
 
-const newcomers = [
-  'test-85-sea-enhanced-linux',
-  'test-85-sea-enhanced-macos',
-  'test-85-sea-enhanced-win.exe',
-];
+const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
 
-utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
+utils.runSeaHostOnly(input, testName);
 
 const expected =
   'hello from lib\n' +
@@ -32,6 +29,6 @@ const expected =
   'pkg-path-resolve:true\n' +
   'pkg-mount:throws\n';
 
-utils.assertSeaOutput('test-85-sea-enhanced', expected);
+utils.assertSeaOutput(testName, expected);
 
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

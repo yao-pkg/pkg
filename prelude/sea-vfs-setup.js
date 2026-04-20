@@ -4,6 +4,9 @@
 // Both import this module to avoid duplicating the SEAProvider + mount logic.
 
 var sea = require('node:sea');
+var shared = require('./bootstrap-shared');
+
+var COMPRESS_NONE = shared.COMPRESS_NONE;
 
 var vfsModule;
 try {
@@ -180,10 +183,18 @@ try {
 }
 perf.end('manifest parse');
 
-// Manifest keys are always POSIX (forward slashes, no drive letter).
-function toManifestKey(p) {
-  return p.replace(/\\/g, '/');
-}
+// Manifest keys are always POSIX (forward slashes, no drive letter).  Gate
+// the regex on platform: on POSIX hosts paths already match, so the replace
+// is a pure allocation and we skip it (~30K calls per startup on large
+// projects).  On Windows, backslash normalization is mandatory.
+var toManifestKey =
+  process.platform === 'win32'
+    ? function (p) {
+        return p.replace(/\\/g, '/');
+      }
+    : function (p) {
+        return p;
+      };
 
 function _enoent(syscall, filePath) {
   var err = new Error(
@@ -280,6 +291,13 @@ class SEAProvider extends MemoryProvider {
     this._manifest = seaManifest;
     this._fileCache = new Map();
 
+    // Pick the per-file decompressor once at construction time.  Absent or 0 =
+    // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
+    // shared helper raises a uniformly-worded error when the host Node.js is
+    // missing the Zstd API.
+    this._compression = seaManifest.compression || COMPRESS_NONE;
+    this._decompress = shared.pickDecompressorSync(this._compression);
+
     // Load the single archive blob — zero-copy view of the SEA asset's
     // ArrayBuffer.  All file contents are packed here; individual files
     // are extracted via subarray() using manifest.offsets.
@@ -302,10 +320,16 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p, syscall) {
+  _resolveSymlink(p) {
+    // Fast path: the vast majority of lookups (~30K per startup on large
+    // projects) are not symlinks. A single object-has-key check avoids
+    // entering the loop and the i++/target fetch overhead for the common
+    // case.
+    var symlinks = this._manifest.symlinks;
+    if (symlinks[p] === undefined) return p;
     var original = p;
     for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
-      var target = this._manifest.symlinks[p];
+      var target = symlinks[p];
       if (!target) return p;
       p = target;
     }
@@ -314,7 +338,7 @@ class SEAProvider extends MemoryProvider {
     );
     err.code = 'ELOOP';
     err.errno = -40;
-    err.syscall = syscall || 'stat';
+    err.syscall = 'stat';
     err.path = original;
     throw err;
   }
@@ -325,20 +349,28 @@ class SEAProvider extends MemoryProvider {
 
   readFileSync(filePath, options) {
     var p = this._resolveSymlink(toManifestKey(filePath));
-    // Fast path: zero-copy subarray from the archive with a Map cache,
-    // bypassing the MemoryProvider tree entirely.
-    var buf = this._fileCache.get(p);
-    if (buf === undefined) {
+    // Fast path: for compressed archives, a per-file decompressed Buffer is
+    // memoised in _fileCache (decompression is expensive and most prelude
+    // modules are read once during module resolution, twice for the compile
+    // step).  For uncompressed archives, a direct zero-copy subarray over the
+    // embedded archive is cheaper than any cache lookup, so we skip the Map
+    // entirely to avoid pinning archive slices we'll never re-read.
+    var cached = this._decompress ? this._fileCache.get(p) : undefined;
+    var buf;
+    if (cached !== undefined) {
+      buf = cached;
+    } else {
       var entry = this._manifest.offsets[p];
       if (!entry) throw _enoent('open', filePath);
       var off = entry[0];
       var len = entry[1];
       // Validate before subarray — Buffer.subarray clamps silently, so a
       // corrupt manifest would otherwise return truncated bytes instead of
-      // surfacing the corruption.
+      // surfacing the corruption.  Use Number.isInteger (rejects NaN, ±Inf,
+      // and non-integer floats) rather than typeof === 'number'.
       if (
-        typeof off !== 'number' ||
-        typeof len !== 'number' ||
+        !Number.isInteger(off) ||
+        !Number.isInteger(len) ||
         off < 0 ||
         len < 0 ||
         off + len > this._archive.length
@@ -355,14 +387,40 @@ class SEAProvider extends MemoryProvider {
             ')',
         );
       }
-      buf = this._archive.subarray(off, off + len);
-      this._fileCache.set(p, buf);
+      var slice = this._archive.subarray(off, off + len);
+      if (this._decompress) {
+        // Cap zlib output at the size the manifest claims for this entry.
+        // This does NOT defend against a consistent tamper (an attacker who
+        // can rewrite the blob can rewrite `stats[p].size` to match), but it
+        // does bound the allocation to whatever the manifest declared — so a
+        // broken/corrupt blob with a plausible manifest can't request
+        // unbounded memory at startup, and the cap is as generous as the
+        // declared file already is.  Validation of stats.size is still
+        // load-bearing: maxOutputLength requires a finite number, so NaN /
+        // negative / missing values have to be rejected up front.
+        var meta = this._manifest.stats[p];
+        var maxOutputLength =
+          meta && Number.isInteger(meta.size) && meta.size >= 0
+            ? meta.size
+            : null;
+        if (maxOutputLength === null) {
+          throw new Error(
+            'pkg: corrupt SEA manifest — missing or invalid stats.size for ' +
+              filePath,
+          );
+        }
+        buf = this._decompress(slice, { maxOutputLength: maxOutputLength });
+        this._fileCache.set(p, buf);
+      } else {
+        buf = slice;
+      }
       perf.count('files loaded');
     }
     var encoding =
       typeof options === 'string' ? options : options && options.encoding;
-    // Strings are immutable — safe to derive from the archive view.
-    // Buffers must be copied to prevent callers from corrupting the archive.
+    // Strings are immutable — safe to derive directly.
+    // Buffers are copied before returning so a caller mutation cannot corrupt
+    // the archive (uncompressed view) or poison the decompressed cache.
     if (encoding) return buf.toString(encoding);
     var copy = Buffer.allocUnsafe(buf.length);
     buf.copy(copy);

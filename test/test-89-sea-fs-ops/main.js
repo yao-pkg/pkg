@@ -13,16 +13,13 @@ if (utils.getNodeMajorVersion() < 22) {
 assert(__dirname === process.cwd());
 
 const input = './package.json';
+const testName = 'test-89-sea-fs-ops';
 
-const newcomers = [
-  'test-89-sea-fs-ops-linux',
-  'test-89-sea-fs-ops-macos',
-  'test-89-sea-fs-ops-win.exe',
-];
+const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
 
-utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
+utils.runSeaHostOnly(input, testName);
 
 const expectedOutput =
   'exists-index:true\n' +
@@ -36,6 +33,6 @@ const expectedOutput =
   'stat-missing:ENOENT\n' +
   'read-missing:ENOENT\n';
 
-utils.assertSeaOutput('test-89-sea-fs-ops', expectedOutput);
+utils.assertSeaOutput(testName, expectedOutput);
 
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, stat } from 'fs/promises';
 import minimist from 'minimist';
 import { need, system } from '@yao-pkg/pkg-fetch';
 import path from 'path';
+import { pathToFileURL } from 'url';
 
 import { log, wasReported } from './log';
 import help from './help';
@@ -14,11 +15,19 @@ import producer from './producer';
 import refine from './refiner';
 import { shutdown } from './fabricator';
 import walk, { Marker, WalkerParams } from './walker';
-import { Target, NodeTarget, SymLinks } from './types';
+import {
+  Target,
+  NodeTarget,
+  SymLinks,
+  PkgExecOptions,
+  PkgCompressType,
+} from './types';
 import { CompressType } from './compress_type';
 import { signMachOExecutable } from './mach-o';
 import pkgOptions from './options';
 import sea, { seaEnhanced, signMacOSIfNeeded } from './sea';
+
+export type { PkgExecOptions, PkgCompressType };
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
@@ -28,14 +37,53 @@ function isConfiguration(file: string) {
   return isPackageJson(file) || file.endsWith('.config.json');
 }
 
+// Auto-discovered config filenames, in precedence order. First match wins.
+const PKGRC_FILENAMES = [
+  '.pkgrc',
+  '.pkgrc.json',
+  'pkg.config.js',
+  'pkg.config.cjs',
+  'pkg.config.mjs',
+];
+
+function findPkgrc(baseDir: string): string | undefined {
+  for (const name of PKGRC_FILENAMES) {
+    const candidate = path.join(baseDir, name);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+// TypeScript with `module: commonjs` rewrites `import(...)` as `require(...)`,
+// which breaks ESM loading. `new Function(...)` forces a genuine dynamic import.
+const nativeImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string,
+) => Promise<{ default?: unknown; [k: string]: unknown }>;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadPkgrc(file: string): Promise<any> {
+  const base = path.basename(file);
+  // `.pkgrc` has no extension and `.pkgrc.json` is JSON only — parse directly.
+  if (base === '.pkgrc' || file.endsWith('.json')) {
+    return JSON.parse(readFileSync(file, 'utf-8'));
+  }
+  // .js / .cjs / .mjs — load via dynamic import so ESM configs (and projects
+  // with `"type": "module"`) work. `.mjs` is the portable way to expose
+  // functions in config (planned for future options like hooks/transforms).
+  const mod = await nativeImport(pathToFileURL(file).href);
+  return mod.default ?? mod;
+}
+
 function buildMarker(
   configJson: Record<string, unknown> | undefined,
-  config: string,
+  config: string | undefined,
   inputJson: Record<string, unknown> | undefined,
   input: string,
 ): Marker {
   const marker: Marker = configJson
-    ? { config: configJson, base: path.dirname(config), configPath: config }
+    ? { config: configJson, base: path.dirname(config!), configPath: config! }
     : {
         config: inputJson || {},
         base: path.dirname(input),
@@ -227,44 +275,102 @@ async function needViaCache(target: NodeTarget) {
   return c;
 }
 
-export async function exec(argv2: string[]) {
-  const argv = minimist(argv2, {
-    boolean: [
-      'b',
-      'build',
-      'bytecode',
-      'native-build',
-      'd',
-      'debug',
-      'fallback-to-source',
-      'h',
-      'help',
-      'public',
-      'v',
-      'version',
-      'signature',
-      'sea',
-    ],
-    string: [
-      '_',
-      'c',
-      'config',
-      'o',
-      'options',
-      'output',
-      'outdir',
-      'out-dir',
-      'out-path',
-      'public-packages',
-      'no-dict',
-      't',
-      'target',
-      'targets',
-      'C',
-      'compress',
-    ],
-    default: { bytecode: true, 'native-build': true, signature: true },
-  });
+const FLAG_DEFAULTS = {
+  bytecode: true,
+  'native-build': true,
+  signature: true,
+};
+
+const MINIMIST_OPTS = {
+  boolean: [
+    'b',
+    'build',
+    'bytecode',
+    'native-build',
+    'd',
+    'debug',
+    'fallback-to-source',
+    'h',
+    'help',
+    'public',
+    'v',
+    'version',
+    'signature',
+    'sea',
+  ],
+  string: [
+    '_',
+    'c',
+    'config',
+    'o',
+    'options',
+    'output',
+    'outdir',
+    'out-dir',
+    'out-path',
+    'public-packages',
+    'no-dict',
+    't',
+    'target',
+    'targets',
+    'C',
+    'compress',
+  ],
+  default: FLAG_DEFAULTS,
+};
+
+function joinList(v: string[] | string | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  const joined = Array.isArray(v) ? v.join(',') : v;
+  return joined === '' ? undefined : joined;
+}
+
+function optionsToParsed(options: PkgExecOptions): minimist.ParsedArgs {
+  if (!options || typeof options !== 'object') {
+    throw wasReported('exec() options must be an object');
+  }
+
+  if (!options.input || typeof options.input !== 'string') {
+    throw wasReported('exec() options.input is required and must be a string');
+  }
+
+  const argv: minimist.ParsedArgs = {
+    ...FLAG_DEFAULTS,
+    _: [options.input],
+  };
+
+  const setIfDefined = (key: string, value: unknown) => {
+    if (value !== undefined) argv[key] = value;
+  };
+
+  setIfDefined('targets', joinList(options.targets));
+  setIfDefined('config', options.config);
+  setIfDefined('output', options.output);
+  setIfDefined('out-path', options.outputPath);
+  setIfDefined('compress', options.compress);
+  setIfDefined('sea', options.sea);
+  setIfDefined('options', joinList(options.bakeOptions));
+  setIfDefined('debug', options.debug);
+  setIfDefined('build', options.build);
+  setIfDefined('bytecode', options.bytecode);
+  setIfDefined('native-build', options.nativeBuild);
+  setIfDefined('fallback-to-source', options.fallbackToSource);
+  setIfDefined('public', options.public);
+  setIfDefined('public-packages', joinList(options.publicPackages));
+  setIfDefined('no-dict', joinList(options.noDictionary));
+  setIfDefined('signature', options.signature);
+
+  return argv;
+}
+
+export async function exec(argv: string[]): Promise<void>;
+export async function exec(options: PkgExecOptions): Promise<void>;
+export async function exec(
+  argvOrOptions: string[] | PkgExecOptions,
+): Promise<void> {
+  const argv = Array.isArray(argvOrOptions)
+    ? minimist(argvOrOptions, MINIMIST_OPTS)
+    : optionsToParsed(argvOrOptions);
 
   if (argv.h || argv.help) {
     help();
@@ -301,15 +407,19 @@ export async function exec(argv2: string[]) {
     case 'gz':
       doCompress = CompressType.GZip;
       break;
+    case 'zstd':
+    case 'zs':
+      doCompress = CompressType.Zstd;
+      break;
     case 'none':
       break;
     default:
       throw wasReported(
-        `Invalid compression algorithm ${algo} ( should be None, Brotli or Gzip)`,
+        `Invalid compression algorithm "${algo}" (accepted: None/none, Brotli/br, GZip/gz/gzip, or Zstd/zs/zstd)`,
       );
   }
   if (doCompress !== CompressType.None) {
-    console.log('compression: ', CompressType[doCompress]);
+    log.info(`compression: ${CompressType[doCompress]}`);
   }
 
   // _
@@ -389,10 +499,23 @@ export async function exec(argv2: string[]) {
 
   // config
 
-  let config = argv.c || argv.config;
+  const explicitConfig = argv.c || argv.config;
+  let config: string | undefined = explicitConfig;
 
-  if (inputJson && config) {
+  if (inputJson && explicitConfig) {
     throw wasReported("Specify either 'package.json' or config. Not both");
+  }
+
+  // Auto-discover .pkgrc / .pkgrc.json / pkg.config.js / pkg.config.cjs /
+  // pkg.config.mjs in the input's directory when --config wasn't passed. A
+  // pkgrc is complementary to package.json: metadata (name/bin) comes from
+  // package.json, pkg config from the pkgrc.
+  if (!explicitConfig) {
+    const discovered = findPkgrc(path.dirname(input));
+    if (discovered) {
+      config = discovered;
+      log.info(`Using config ${path.relative(process.cwd(), discovered)}`);
+    }
   }
 
   // configJson
@@ -405,8 +528,7 @@ export async function exec(argv2: string[]) {
       throw wasReported('Config file does not exist', [config]);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    configJson = require(config); // may be either json or js
+    configJson = await loadPkgrc(config); // json / js / cjs / mjs
 
     if (
       !configJson.name &&
@@ -414,9 +536,16 @@ export async function exec(argv2: string[]) {
       !configJson.dependencies &&
       !configJson.pkg
     ) {
-      // package.json not detected
+      // bare pkg config → wrap it
       configJson = { pkg: configJson };
     }
+  }
+
+  if (!explicitConfig && config && inputJson?.pkg) {
+    log.warn(
+      `Both ${path.basename(config)} and "pkg" field in package.json were found. ` +
+        `The ${path.basename(config)} file takes precedence.`,
+    );
   }
 
   // output, outputPath
@@ -447,10 +576,10 @@ export async function exec(argv2: string[]) {
     }
 
     if (!outputPath) {
-      if (inputJson && inputJson.pkg) {
-        outputPath = inputJson.pkg.outputPath;
-      } else if (configJson && configJson.pkg) {
+      if (configJson && configJson.pkg) {
         outputPath = configJson.pkg.outputPath;
+      } else if (inputJson && inputJson.pkg) {
+        outputPath = inputJson.pkg.outputPath;
       }
 
       outputPath = outputPath || '';
@@ -479,10 +608,10 @@ export async function exec(argv2: string[]) {
   if (!targets.length) {
     let jsonTargets;
 
-    if (inputJson && inputJson.pkg) {
-      jsonTargets = inputJson.pkg.targets;
-    } else if (configJson && configJson.pkg) {
+    if (configJson && configJson.pkg) {
       jsonTargets = configJson.pkg.targets;
+    } else if (inputJson && inputJson.pkg) {
+      jsonTargets = inputJson.pkg.targets;
     }
 
     if (jsonTargets) {
@@ -583,9 +712,18 @@ export async function exec(argv2: string[]) {
         marker,
         params: { ...params, seaMode: true },
         addition: isConfiguration(input) ? input : undefined,
+        doCompress,
       });
     } else {
-      // Simple SEA mode — plain .js file without package.json
+      // Simple SEA mode — plain .js file without package.json.
+      // No walker → no per-file archive → nothing to compress here.
+      if (doCompress !== CompressType.None) {
+        throw wasReported(
+          'Simple SEA mode (--sea without a package.json) does not support --compress. ' +
+            'Add a package.json with a "pkg" / "bin" entry to use the enhanced SEA pipeline, ' +
+            'which supports compression.',
+        );
+      }
       await sea(inputFin, {
         targets,
         signature: argv.signature,

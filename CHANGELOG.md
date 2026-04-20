@@ -1,5 +1,26 @@
 # Changelog
 
+## [6.18.0](https://github.com/yao-pkg/pkg/compare/v6.17.0...v6.18.0) (2026-04-20)
+
+### Features
+
+- **api:** typed options object for exec() ([#253](https://github.com/yao-pkg/pkg/issues/253)) ([f061f72](https://github.com/yao-pkg/pkg/commit/f061f7250915e1fa176a9e5bceb7be34bd0edac2)), closes [#242](https://github.com/yao-pkg/pkg/issues/242)
+- auto-discover .pkgrc / pkg.config.{js,cjs,mjs} ([#254](https://github.com/yao-pkg/pkg/issues/254)) ([53ce68b](https://github.com/yao-pkg/pkg/commit/53ce68be30efa2a34a3d8324111bcf987e9460c2)), closes [#238](https://github.com/yao-pkg/pkg/issues/238)
+
+### Documentation
+
+- tighten guide pages — remove AI-slop headings and verbose framing ([cc331fa](https://github.com/yao-pkg/pkg/commit/cc331fa161216ef0b10f8364d04d9fb3694ea886))
+
+## [6.17.0](https://github.com/yao-pkg/pkg/compare/v6.16.0...v6.17.0) (2026-04-18)
+
+### Features
+
+- **sea:** add per-file compression to SEA archive (closes [#250](https://github.com/yao-pkg/pkg/issues/250)) ([#251](https://github.com/yao-pkg/pkg/issues/251)) ([fdf8046](https://github.com/yao-pkg/pkg/commit/fdf8046dd74bc34719845f4700c8d68afe23fe3b))
+
+### Documentation
+
+- add in-depth comparison vs Bun and Deno ([#249](https://github.com/yao-pkg/pkg/issues/249)) ([0cf75a8](https://github.com/yao-pkg/pkg/commit/0cf75a8dfbbf763479f1abafddb999447e554475))
+
 ## [6.16.0](https://github.com/yao-pkg/pkg/compare/v6.15.0...v6.16.0) (2026-04-17)
 
 ### Features
