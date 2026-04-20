@@ -13,16 +13,13 @@ if (utils.getNodeMajorVersion() < 22) {
 assert(__dirname === process.cwd());
 
 const input = './package.json';
+const testName = 'test-90-sea-worker-threads';
 
-const newcomers = [
-  'test-90-sea-worker-threads-linux',
-  'test-90-sea-worker-threads-macos',
-  'test-90-sea-worker-threads-win.exe',
-];
+const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
 
-utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
+utils.runSeaHostOnly(input, testName);
 
 const expected =
   'echo:ping\n' +
@@ -30,6 +27,6 @@ const expected =
   'hasDirname:true\n' +
   'helperResult:hello world\n';
 
-utils.assertSeaOutput('test-90-sea-worker-threads', expected);
+utils.assertSeaOutput(testName, expected);
 
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

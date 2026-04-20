@@ -13,17 +13,14 @@ if (utils.getNodeMajorVersion() < 22) {
 assert(__dirname === process.cwd());
 
 const input = './app/package.json';
+const testName = 'test-91-sea-esm-entry';
 
-const newcomers = [
-  'test-91-sea-esm-entry-linux',
-  'test-91-sea-esm-entry-macos',
-  'test-91-sea-esm-entry-win.exe',
-];
+const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
 
-utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
+utils.runSeaHostOnly(input, testName);
 
-utils.assertSeaOutput('test-91-sea-esm-entry', 'add:5\ngreet:hello world\n');
+utils.assertSeaOutput(testName, 'add:5\ngreet:hello world\n');
 
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

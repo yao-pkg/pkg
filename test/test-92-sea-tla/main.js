@@ -13,17 +13,14 @@ if (utils.getNodeMajorVersion() < 22) {
 assert(__dirname === process.cwd());
 
 const input = './app/package.json';
+const testName = 'test-92-sea-tla';
 
-const newcomers = [
-  'test-92-sea-tla-linux',
-  'test-92-sea-tla-macos',
-  'test-92-sea-tla-win.exe',
-];
+const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
 
-utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
+utils.runSeaHostOnly(input, testName);
 
-utils.assertSeaOutput('test-92-sea-tla', 'before-tla\nafter-tla:42\n');
+utils.assertSeaOutput(testName, 'before-tla\nafter-tla:42\n');
 
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

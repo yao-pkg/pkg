@@ -33,13 +33,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pkg-cache/
-          key: ${{ matrix.os }}-${{ matrix.node-version }}
+          key: pkg-cache-${{ matrix.os }}-${{ matrix.node-version }}
+          restore-keys: |
+            pkg-cache-${{ matrix.os }}-
+            ${{ matrix.os }}-${{ matrix.node-version }}
 
       - if: inputs.should_run == 'true'
         run: yarn install
 
+      # Download pre-built lib-es5/ from the build job instead of rebuilding.
       - if: inputs.should_run == 'true'
-        run: yarn build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
       - if: inputs.should_run == 'true'
         run: yarn ${{ inputs.npm_command }}
         env:

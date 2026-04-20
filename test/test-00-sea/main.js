@@ -14,6 +14,13 @@ assert(__dirname === process.cwd());
 
 const input = './test-sea.js';
 
+// This is the one SEA test that cross-compiles: it builds binaries for
+// all three supported target platforms so we keep coverage of pkg's
+// SEA build path for non-host targets (postject invocation, node-archive
+// download, platform-specific segment naming). The sibling SEA tests
+// (test-85-sea-enhanced, etc.) build host-only to keep CI fast — they
+// exercise SEA features that don't vary per target, so one cross-compile
+// smoke test here is enough.
 const newcomers = ['test-sea-linux', 'test-sea-macos', 'test-sea-win.exe'];
 
 const before = utils.filesBefore(newcomers);
