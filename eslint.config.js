@@ -104,6 +104,9 @@ module.exports = [
       'no-continue': 'off',
       'no-param-reassign': 'off',
       'no-restricted-syntax': 'off',
+      // Core `no-redeclare` doesn't understand TypeScript function overloads.
+      'no-redeclare': 'off',
+      '@typescript-eslint/no-redeclare': 'error',
     },
   },
 

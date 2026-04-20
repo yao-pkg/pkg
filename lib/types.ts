@@ -109,3 +109,42 @@ export interface SeaEnhancedOptions {
 }
 
 export type SymLinks = Record<string, string>;
+
+export type PkgCompressType = keyof typeof CompressType;
+
+export interface PkgExecOptions {
+  /** Entry file or directory (required). */
+  input: string;
+  /** Target specs, e.g. `['node22-linux-x64']` or `['host']`. */
+  targets?: string[];
+  /** Path to a `package.json` or standalone config JSON. */
+  config?: string;
+  /** Output file name or template for multiple targets. */
+  output?: string;
+  /** Directory to save the output executable(s). Mutually exclusive with `output`. */
+  outputPath?: string;
+  /** VFS compression algorithm. Default `'None'`. */
+  compress?: PkgCompressType;
+  /** Use Node.js Single Executable Application mode. */
+  sea?: boolean;
+  /** Bake Node/V8 CLI options into the executable (e.g. `['expose-gc']`). */
+  bakeOptions?: string | string[];
+  /** Enable verbose packaging logs. */
+  debug?: boolean;
+  /** Build base binaries from source instead of downloading prebuilt ones. */
+  build?: boolean;
+  /** Compile bytecode. Default `true`. Set to `false` to ship plain JS. */
+  bytecode?: boolean;
+  /** Build native addons. Default `true`. */
+  nativeBuild?: boolean;
+  /** If bytecode compilation fails for a file, ship it as plain source. */
+  fallbackToSource?: boolean;
+  /** Treat the top-level project as public (faster, discloses sources). */
+  public?: boolean;
+  /** Package names to treat as public. `['*']` for all packages. */
+  publicPackages?: string[];
+  /** Package names to ignore dictionaries for. `['*']` to disable all. */
+  noDictionary?: string[];
+  /** Sign macOS binaries when applicable. Default `true`. */
+  signature?: boolean;
+}

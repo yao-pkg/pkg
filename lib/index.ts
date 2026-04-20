@@ -15,11 +15,19 @@ import producer from './producer';
 import refine from './refiner';
 import { shutdown } from './fabricator';
 import walk, { Marker, WalkerParams } from './walker';
-import { Target, NodeTarget, SymLinks } from './types';
+import {
+  Target,
+  NodeTarget,
+  SymLinks,
+  PkgExecOptions,
+  PkgCompressType,
+} from './types';
 import { CompressType } from './compress_type';
 import { signMachOExecutable } from './mach-o';
 import pkgOptions from './options';
 import sea, { seaEnhanced, signMacOSIfNeeded } from './sea';
+
+export type { PkgExecOptions, PkgCompressType };
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
@@ -267,44 +275,102 @@ async function needViaCache(target: NodeTarget) {
   return c;
 }
 
-export async function exec(argv2: string[]) {
-  const argv = minimist(argv2, {
-    boolean: [
-      'b',
-      'build',
-      'bytecode',
-      'native-build',
-      'd',
-      'debug',
-      'fallback-to-source',
-      'h',
-      'help',
-      'public',
-      'v',
-      'version',
-      'signature',
-      'sea',
-    ],
-    string: [
-      '_',
-      'c',
-      'config',
-      'o',
-      'options',
-      'output',
-      'outdir',
-      'out-dir',
-      'out-path',
-      'public-packages',
-      'no-dict',
-      't',
-      'target',
-      'targets',
-      'C',
-      'compress',
-    ],
-    default: { bytecode: true, 'native-build': true, signature: true },
-  });
+const FLAG_DEFAULTS = {
+  bytecode: true,
+  'native-build': true,
+  signature: true,
+};
+
+const MINIMIST_OPTS = {
+  boolean: [
+    'b',
+    'build',
+    'bytecode',
+    'native-build',
+    'd',
+    'debug',
+    'fallback-to-source',
+    'h',
+    'help',
+    'public',
+    'v',
+    'version',
+    'signature',
+    'sea',
+  ],
+  string: [
+    '_',
+    'c',
+    'config',
+    'o',
+    'options',
+    'output',
+    'outdir',
+    'out-dir',
+    'out-path',
+    'public-packages',
+    'no-dict',
+    't',
+    'target',
+    'targets',
+    'C',
+    'compress',
+  ],
+  default: FLAG_DEFAULTS,
+};
+
+function joinList(v: string[] | string | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  const joined = Array.isArray(v) ? v.join(',') : v;
+  return joined === '' ? undefined : joined;
+}
+
+function optionsToParsed(options: PkgExecOptions): minimist.ParsedArgs {
+  if (!options || typeof options !== 'object') {
+    throw wasReported('exec() options must be an object');
+  }
+
+  if (!options.input || typeof options.input !== 'string') {
+    throw wasReported('exec() options.input is required and must be a string');
+  }
+
+  const argv: minimist.ParsedArgs = {
+    ...FLAG_DEFAULTS,
+    _: [options.input],
+  };
+
+  const setIfDefined = (key: string, value: unknown) => {
+    if (value !== undefined) argv[key] = value;
+  };
+
+  setIfDefined('targets', joinList(options.targets));
+  setIfDefined('config', options.config);
+  setIfDefined('output', options.output);
+  setIfDefined('out-path', options.outputPath);
+  setIfDefined('compress', options.compress);
+  setIfDefined('sea', options.sea);
+  setIfDefined('options', joinList(options.bakeOptions));
+  setIfDefined('debug', options.debug);
+  setIfDefined('build', options.build);
+  setIfDefined('bytecode', options.bytecode);
+  setIfDefined('native-build', options.nativeBuild);
+  setIfDefined('fallback-to-source', options.fallbackToSource);
+  setIfDefined('public', options.public);
+  setIfDefined('public-packages', joinList(options.publicPackages));
+  setIfDefined('no-dict', joinList(options.noDictionary));
+  setIfDefined('signature', options.signature);
+
+  return argv;
+}
+
+export async function exec(argv: string[]): Promise<void>;
+export async function exec(options: PkgExecOptions): Promise<void>;
+export async function exec(
+  argvOrOptions: string[] | PkgExecOptions,
+): Promise<void> {
+  const argv = Array.isArray(argvOrOptions)
+    ? minimist(argvOrOptions, MINIMIST_OPTS)
+    : optionsToParsed(argvOrOptions);
 
   if (argv.h || argv.help) {
     help();
