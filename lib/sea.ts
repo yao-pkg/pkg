@@ -617,7 +617,7 @@ export async function seaEnhanced(
       refinedEntry,
       symLinks,
       tmpDir,
-      { debug: log.debugMode },
+      { debug: log.debugMode, doCompress: opts.doCompress },
     );
 
     // Always use the CJS bootstrap. Native ESM SEA main

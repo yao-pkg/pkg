@@ -1,6 +1,12 @@
 import { createReadStream } from 'fs';
-import { FileHandle, open, writeFile } from 'fs/promises';
+import {
+  FileHandle,
+  open,
+  readFile as readFileAsync,
+  writeFile,
+} from 'fs/promises';
 import { join } from 'path';
+import * as zlib from 'zlib';
 
 import {
   STORE_CONTENT,
@@ -10,6 +16,8 @@ import {
   replaceSlashes,
   snapshotify,
 } from './common';
+import { log } from './log';
+import { CompressType, getZstdCompressSync } from './compress_type';
 import { FileRecords, SymLinks } from './types';
 
 // Normalize a refiner path to a platform-independent POSIX key.
@@ -47,14 +55,46 @@ export interface SeaManifest {
     { size: number; isFile: boolean; isDirectory: boolean }
   >;
   symlinks: Record<string, string>;
+  // [offset, lengthInArchive] — lengthInArchive equals the compressed byte count
+  // when `compression` is set, or the raw byte count when it is absent.  The
+  // uncompressed size lives in `stats[key].size`.
   offsets: Record<string, [number, number]>;
+  // Numeric CompressType value.  Absent means uncompressed (backward compat).
+  compression?: number;
   debug?: boolean;
+}
+
+/**
+ * Resolve the per-codec sync compressor once, up front.  Sync compression is
+ * fine here: each file is MB-scale at worst, the archive build is offline,
+ * and plumbing a stream through `writeAll` would buy negligible real-world
+ * benefit.  Zstd resolution routes through compress_type.ts's zstdBuildError
+ * so build-time missing-API wording stays consistent with producer.ts.
+ */
+function resolveCompressor(type: CompressType): (buf: Buffer) => Buffer {
+  switch (type) {
+    case CompressType.None:
+      return (buf) => buf;
+    case CompressType.GZip:
+      return zlib.gzipSync;
+    case CompressType.Brotli:
+      return zlib.brotliCompressSync;
+    case CompressType.Zstd:
+      return getZstdCompressSync();
+    default: {
+      // Exhaustiveness: adding a new CompressType without wiring it here
+      // would otherwise emit a manifest that claims compression with raw
+      // payload, producing a cryptic runtime error instead of a clear build
+      // failure.
+      const exhaustive: never = type;
+      throw new Error(`pkg: unsupported CompressType ${exhaustive}`);
+    }
+  }
 }
 
 export interface SeaAssetsResult {
   assets: Record<string, string>;
   manifestPath: string;
-  entryIsESM: boolean;
 }
 
 /**
@@ -76,8 +116,14 @@ export async function generateSeaAssets(
   entrypoint: string,
   symLinks: SymLinks,
   tmpDir: string,
-  options?: { debug?: boolean },
+  options?: { debug?: boolean; doCompress?: CompressType },
 ): Promise<SeaAssetsResult> {
+  const doCompress = options?.doCompress ?? CompressType.None;
+  const isCompressing = doCompress !== CompressType.None;
+  // Resolve the compressor (or throw with a clear error) BEFORE we start
+  // writing any stripes, so a host missing zlib.zstdCompressSync fails
+  // immediately instead of mid-archive.
+  const compress = isCompressing ? resolveCompressor(doCompress) : null;
   // Normalize symlink paths to use the same refiner-style POSIX keys as
   // directories/stats/assets. Do not add the /snapshot prefix because the
   // VFS provider receives paths after the mount prefix is stripped.
@@ -100,6 +146,7 @@ export async function generateSeaAssets(
     stats: {},
     symlinks: normalizedSymlinks,
     offsets: {},
+    ...(isCompressing ? { compression: doCompress } : {}),
     ...(options?.debug ? { debug: true } : {}),
   };
 
@@ -170,30 +217,81 @@ export async function generateSeaAssets(
   const fd = await open(archivePath, 'w');
   let offset = 0;
 
+  // Debug-mode running totals for per-stripe compression stats
+  let totalUncompressed = 0;
+  let totalCompressed = 0;
+
   try {
     for (const { key, source } of entries) {
+      let uncompressedLen: number;
       let length: number;
-      if (Buffer.isBuffer(source)) {
-        // Modified file content already in memory
+
+      if (compress) {
+        // Compression needs the full content in memory to feed zlib.*Sync.
+        const raw = Buffer.isBuffer(source)
+          ? source
+          : await readFileAsync(source);
+        uncompressedLen = raw.length;
+        const payload = compress(raw);
+        length = await writeAll(fd, payload);
+
+        totalUncompressed += uncompressedLen;
+        totalCompressed += length;
+        if (options?.debug) {
+          const ratio = uncompressedLen
+            ? ((length / uncompressedLen) * 100).toFixed(1)
+            : '0.0';
+          log.debug(
+            `sea-stripe ${key}: ${uncompressedLen} → ${length} bytes (${ratio}%)`,
+          );
+        }
+      } else if (Buffer.isBuffer(source)) {
+        // Modified file content already in memory.
         length = await writeAll(fd, source);
+        uncompressedLen = length;
       } else {
-        // Unmodified file — stream from disk, accumulate actual bytes
-        // written (avoids stat→read race if the file changes between calls)
+        // Unmodified disk-resident file — stream chunk-by-chunk so peak RSS
+        // stays bounded when packaging large asset sets.  Accumulate actual
+        // bytes written (avoids stat→read race if the file changes between
+        // calls).
         length = 0;
         const stream = createReadStream(source);
         for await (const chunk of stream) {
           length += await writeAll(fd, chunk as Buffer);
         }
+        uncompressedLen = length;
       }
+
       manifest.offsets[key] = [offset, length];
-      // Fix manifest stat size to reflect actual content for modified files
+
+      // `stats[key].size` must report the uncompressed size — that is what
+      // user code sees from fs.statSync() AND what the runtime uses to cap
+      // zlib output and validate the decompressed length.  Synthesize a
+      // minimal file stat when the record had no STORE_STAT so every entry
+      // with content has an authoritative size.
       if (manifest.stats[key]) {
-        manifest.stats[key].size = length;
+        manifest.stats[key].size = uncompressedLen;
+      } else {
+        manifest.stats[key] = {
+          size: uncompressedLen,
+          isFile: true,
+          isDirectory: false,
+        };
       }
+
       offset += length;
     }
   } finally {
     await fd.close();
+  }
+
+  if (isCompressing) {
+    const ratio = totalUncompressed
+      ? ((totalCompressed / totalUncompressed) * 100).toFixed(1)
+      : '0.0';
+    log.info(
+      `SEA archive compressed with ${CompressType[doCompress]}: ${totalUncompressed} → ${totalCompressed} bytes (${ratio}%)`,
+    );
   }
 
   const manifestPath = join(tmpDir, '__pkg_manifest__.json');
@@ -202,6 +300,5 @@ export async function generateSeaAssets(
   return {
     assets: { __pkg_archive__: archivePath },
     manifestPath,
-    entryIsESM,
   };
 }

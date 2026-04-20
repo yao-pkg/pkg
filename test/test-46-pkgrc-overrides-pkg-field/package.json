@@ -1,0 +1,9 @@
+{
+  "name": "palookaville",
+  "bin": "test-x-index.js",
+  "pkg": {
+    "targets": [
+      "win"
+    ]
+  }
+}

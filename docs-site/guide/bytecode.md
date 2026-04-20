@@ -11,12 +11,12 @@ By default, your source code is precompiled to **V8 bytecode** before being writ
 pkg --no-bytecode index.js
 ```
 
-## Why bytecode is on by default
+## Default behavior
 
-- **Source obscurity.** With `--no-bytecode`, raw JavaScript is embedded directly. On a \*nix machine, `pkg` a project with `--no-bytecode` and run GNU `strings` on the output — you can grep your source. Bytecode doesn't make it _secure_, but it adds a layer of friction that deters casual reverse engineering.
+- **Source obscurity.** With `--no-bytecode`, raw JavaScript is embedded directly — running GNU `strings` on the output will surface your source. Bytecode isn't encryption, but it adds friction that deters casual reverse engineering.
 - **Faster startup.** V8 can skip parsing and directly execute the bytecode.
 
-## Why you might disable it
+## When to disable bytecode
 
 ### Reproducible builds
 
@@ -54,9 +54,19 @@ pkg --no-bytecode --public-packages "*" --public index.js
 
 `--public` additionally exposes the **top-level project** sources (i.e. your own code) as plain text.
 
+## Fallback to source on failure
+
+When bytecode generation fails for a specific file (e.g. during cross-compilation without QEMU), `pkg` logs a warning and **skips the file** — it won't be available at runtime. If you'd rather ship the affected files as plain source instead of skipping them, pass `--fallback-to-source`:
+
+```sh
+pkg --fallback-to-source -t node22-linux-arm64 index.js
+```
+
+Files that compile successfully still ship as bytecode; only the ones that fail are included as plain JavaScript. A warning is emitted for each file that falls back.
+
 ## SEA mode
 
-SEA mode **never uses bytecode**. Source is always plaintext in a SEA binary. This is a deliberate trade-off — see [SEA vs Standard](/guide/sea-vs-standard).
+SEA mode never uses bytecode — source is always plaintext in a SEA binary. See [SEA vs Standard](/guide/sea-vs-standard) for the trade-off.
 
 ## See also
 
