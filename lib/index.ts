@@ -14,11 +14,19 @@ import producer from './producer';
 import refine from './refiner';
 import { shutdown } from './fabricator';
 import walk, { Marker, WalkerParams } from './walker';
-import { Target, NodeTarget, SymLinks } from './types';
+import {
+  Target,
+  NodeTarget,
+  SymLinks,
+  PkgExecOptions,
+  PkgCompressType,
+} from './types';
 import { CompressType } from './compress_type';
 import { signMachOExecutable } from './mach-o';
 import pkgOptions from './options';
 import sea, { seaEnhanced, signMacOSIfNeeded } from './sea';
+
+export type { PkgExecOptions, PkgCompressType };
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
@@ -227,7 +235,56 @@ async function needViaCache(target: NodeTarget) {
   return c;
 }
 
-export async function exec(argv2: string[]) {
+function optionsToArgv(options: PkgExecOptions): string[] {
+  if (!options || typeof options !== 'object') {
+    throw wasReported('exec() options must be an object');
+  }
+
+  if (!options.input || typeof options.input !== 'string') {
+    throw wasReported('exec() options.input is required and must be a string');
+  }
+
+  const argv: string[] = [];
+
+  const pushList = (flag: string, value: string | string[] | undefined) => {
+    if (value === undefined) return;
+    const joined = Array.isArray(value) ? value.join(',') : value;
+    if (joined !== '') argv.push(flag, joined);
+  };
+
+  pushList('--targets', options.targets);
+  if (options.config !== undefined) argv.push('--config', options.config);
+  if (options.output !== undefined) argv.push('--output', options.output);
+  if (options.outputPath !== undefined) {
+    argv.push('--out-path', options.outputPath);
+  }
+  if (options.compress !== undefined && options.compress !== 'None') {
+    argv.push('--compress', options.compress);
+  }
+  if (options.sea) argv.push('--sea');
+  pushList('--options', options.bakeOptions);
+  if (options.debug) argv.push('--debug');
+  if (options.build) argv.push('--build');
+  if (options.bytecode === false) argv.push('--no-bytecode');
+  if (options.nativeBuild === false) argv.push('--no-native-build');
+  if (options.fallbackToSource) argv.push('--fallback-to-source');
+  if (options.public) argv.push('--public');
+  pushList('--public-packages', options.publicPackages);
+  pushList('--no-dict', options.noDictionary);
+  if (options.signature === false) argv.push('--no-signature');
+
+  argv.push(options.input);
+  return argv;
+}
+
+export async function exec(argv: string[]): Promise<void>;
+export async function exec(options: PkgExecOptions): Promise<void>;
+export async function exec(
+  argvOrOptions: string[] | PkgExecOptions,
+): Promise<void> {
+  const argv2 = Array.isArray(argvOrOptions)
+    ? argvOrOptions
+    : optionsToArgv(argvOrOptions);
   const argv = minimist(argv2, {
     boolean: [
       'b',
