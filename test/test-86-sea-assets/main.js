@@ -13,20 +13,14 @@ if (utils.getNodeMajorVersion() < 22) {
 assert(__dirname === process.cwd());
 
 const input = './package.json';
+const testName = 'test-86-sea-assets';
 
-const newcomers = [
-  'test-86-sea-assets-linux',
-  'test-86-sea-assets-macos',
-  'test-86-sea-assets-win.exe',
-];
+const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
 
-utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
+utils.runSeaHostOnly(input, testName);
 
-utils.assertSeaOutput(
-  'test-86-sea-assets',
-  'config:test-value\ndata:hello world\n',
-);
+utils.assertSeaOutput(testName, 'config:test-value\ndata:hello world\n');
 
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });

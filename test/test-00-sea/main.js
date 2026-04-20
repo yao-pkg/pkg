@@ -13,14 +13,15 @@ if (utils.getNodeMajorVersion() < 20) {
 assert(__dirname === process.cwd());
 
 const input = './test-sea.js';
+const testName = 'test-sea';
 
-const newcomers = ['test-sea-linux', 'test-sea-macos', 'test-sea-win.exe'];
+const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
 
-utils.pkg.sync([input, '--sea'], { stdio: 'inherit' });
+utils.runSeaHostOnly(input, testName);
 
-utils.assertSeaOutput('test-sea', 'Hello world\n');
+utils.assertSeaOutput(testName, 'Hello world\n');
 
 try {
   // FIXME: on windows this throws
