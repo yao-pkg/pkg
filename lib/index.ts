@@ -301,15 +301,19 @@ export async function exec(argv2: string[]) {
     case 'gz':
       doCompress = CompressType.GZip;
       break;
+    case 'zstd':
+    case 'zs':
+      doCompress = CompressType.Zstd;
+      break;
     case 'none':
       break;
     default:
       throw wasReported(
-        `Invalid compression algorithm ${algo} ( should be None, Brotli or Gzip)`,
+        `Invalid compression algorithm "${algo}" (accepted: None/none, Brotli/br, GZip/gz/gzip, or Zstd/zs/zstd)`,
       );
   }
   if (doCompress !== CompressType.None) {
-    console.log('compression: ', CompressType[doCompress]);
+    log.info(`compression: ${CompressType[doCompress]}`);
   }
 
   // _
@@ -583,9 +587,18 @@ export async function exec(argv2: string[]) {
         marker,
         params: { ...params, seaMode: true },
         addition: isConfiguration(input) ? input : undefined,
+        doCompress,
       });
     } else {
-      // Simple SEA mode — plain .js file without package.json
+      // Simple SEA mode — plain .js file without package.json.
+      // No walker → no per-file archive → nothing to compress here.
+      if (doCompress !== CompressType.None) {
+        throw wasReported(
+          'Simple SEA mode (--sea without a package.json) does not support --compress. ' +
+            'Add a package.json with a "pkg" / "bin" entry to use the enhanced SEA pipeline, ' +
+            'which supports compression.',
+        );
+      }
       await sea(inputFin, {
         targets,
         signature: argv.signature,

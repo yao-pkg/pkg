@@ -11,7 +11,75 @@ var childProcess = require('child_process');
 var { createHash } = require('crypto');
 var fs = require('fs');
 var path = require('path');
+var zlib = require('zlib');
 var { homedir } = require('os');
+
+// /////////////////////////////////////////////////////////////////
+// COMPRESSION CODECS //////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// Numeric codec ids. MUST stay in sync with lib/compress_type.ts.  Only
+// COMPRESS_NONE is re-exported because sea-vfs-setup reads it directly; the
+// pickDecompressor* helpers encapsulate the rest so no consumer needs to
+// know the numeric values.
+var COMPRESS_NONE = 0;
+var COMPRESS_GZIP = 1;
+var COMPRESS_BROTLI = 2;
+var COMPRESS_ZSTD = 3;
+
+// A SEA binary embeds Node.js, so the end user cannot "upgrade Node" — they
+// either need a re-packaged binary or a different codec.  Callers pass the
+// name of the missing zlib symbol for easier triage.
+function zstdMissingError(symbol) {
+  return new Error(
+    'pkg: Zstd compression requires Node.js >= 22.15 ' +
+      '(runtime missing zlib.' +
+      symbol +
+      '). Re-package this binary with pkg >= the version that embeds Node ' +
+      '22.15+, or contact the distributor for a --compress Brotli/GZip build.',
+  );
+}
+
+// Return the sync decompressor for the given codec id, or throw a
+// uniformly-worded error when the runtime is missing the Zstd API.
+function pickDecompressorSync(compression) {
+  switch (compression) {
+    case COMPRESS_NONE:
+      return null;
+    case COMPRESS_GZIP:
+      return zlib.gunzipSync;
+    case COMPRESS_BROTLI:
+      return zlib.brotliDecompressSync;
+    case COMPRESS_ZSTD:
+      if (typeof zlib.zstdDecompressSync !== 'function') {
+        throw zstdMissingError('zstdDecompressSync');
+      }
+      return zlib.zstdDecompressSync;
+    default:
+      throw new Error(
+        'pkg: unknown compression codec id ' + compression + ' in manifest',
+      );
+  }
+}
+
+// Async variant — `cb`-style zlib decompress fns for the payload pipeline.
+function pickDecompressorAsync(compression) {
+  switch (compression) {
+    case COMPRESS_NONE:
+      return null;
+    case COMPRESS_GZIP:
+      return zlib.gunzip;
+    case COMPRESS_BROTLI:
+      return zlib.brotliDecompress;
+    case COMPRESS_ZSTD:
+      if (typeof zlib.zstdDecompress !== 'function') {
+        throw zstdMissingError('zstdDecompress');
+      }
+      return zlib.zstdDecompress;
+    default:
+      throw new Error('pkg: unknown compression codec id ' + compression);
+  }
+}
 
 // /////////////////////////////////////////////////////////////////
 // NATIVE ADDON EXTRACTION /////////////////////////////////////////
@@ -498,4 +566,7 @@ module.exports = {
   patchChildProcess: patchChildProcess,
   setupProcessPkg: setupProcessPkg,
   installDiagnostic: installDiagnostic,
+  COMPRESS_NONE: COMPRESS_NONE,
+  pickDecompressorSync: pickDecompressorSync,
+  pickDecompressorAsync: pickDecompressorAsync,
 };

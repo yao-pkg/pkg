@@ -5,7 +5,7 @@ description: Copy-paste solutions for common pkg tasks — cross-compile, compre
 
 # Recipes
 
-Copy-paste solutions for tasks you actually do. Each recipe is self-contained — no prose, just the config and the command.
+Copy-paste solutions for common packaging tasks. Each recipe is self-contained — just the config and the command.
 
 **Jump to a recipe:**
 

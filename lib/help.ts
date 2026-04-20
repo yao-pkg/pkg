@@ -21,7 +21,7 @@ export default function help() {
     --no-native-build    skip native addons build
     --fallback-to-source if bytecode generation fails for a file, ship it as plain source instead of skipping it
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
-    -C, --compress       [default=None] compression algorithm = Brotli or GZip
+    -C, --compress       [default=None] compression algorithm = Brotli, GZip, or Zstd (Zstd requires Node.js >= 22.15)
     --sea                (Experimental) compile give file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
 
   ${pc.dim('Examples:')}
@@ -44,6 +44,8 @@ export default function help() {
     ${pc.cyan('$ pkg --options expose-gc index.js')}
   ${pc.gray('–')} reduce size of the data packed inside the executable with GZip
     ${pc.cyan('$ pkg --compress GZip index.js')}
+  ${pc.gray('–')} reduce size further with Zstd (Node.js >= 22.15 required on the build host)
+    ${pc.cyan('$ pkg --compress Zstd index.js')}
   ${pc.gray('–')} compile the file using node's SEA feature. Creates executables for Linux, macOS and Windows
     ${pc.cyan('$ pkg --sea index.js')}
 `);

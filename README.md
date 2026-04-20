@@ -19,6 +19,11 @@
   <strong>📚 Full documentation: <a href="https://yao-pkg.github.io/pkg/">yao-pkg.github.io/pkg</a></strong>
 </p>
 
+<p align="center">
+  <sub>Sponsored by</sub><br />
+  <a href="https://dotenvx.com"><img src="https://dotenvx.com/logo.png" alt="dotenvx" width="100" height="100" /></a>
+</p>
+
 ---
 
 `pkg` takes your Node.js project and ships it as a single binary that runs on devices without Node.js installed. Cross-compile for Linux, macOS, and Windows from any host.

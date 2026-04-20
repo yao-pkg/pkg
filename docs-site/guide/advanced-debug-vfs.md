@@ -7,7 +7,7 @@ description: Inspect the contents of a packaged binary's virtual filesystem at r
 
 When you build with `--debug`, `pkg` injects a diagnostic prelude into the binary. At runtime, setting the `DEBUG_PKG` environment variable dumps the virtual filesystem tree and the symlink table to the console at startup — before your app runs.
 
-This is the single most useful workflow for answering "why isn't my asset in the binary?" and "which dependency is bloating my bundle?".
+Use this workflow to answer "why isn't my asset in the binary?" and "which dependency is bloating my bundle?".
 
 ## Basic usage
 
