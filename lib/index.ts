@@ -235,7 +235,57 @@ async function needViaCache(target: NodeTarget) {
   return c;
 }
 
-function optionsToArgv(options: PkgExecOptions): string[] {
+const FLAG_DEFAULTS = {
+  bytecode: true,
+  'native-build': true,
+  signature: true,
+};
+
+const MINIMIST_OPTS = {
+  boolean: [
+    'b',
+    'build',
+    'bytecode',
+    'native-build',
+    'd',
+    'debug',
+    'fallback-to-source',
+    'h',
+    'help',
+    'public',
+    'v',
+    'version',
+    'signature',
+    'sea',
+  ],
+  string: [
+    '_',
+    'c',
+    'config',
+    'o',
+    'options',
+    'output',
+    'outdir',
+    'out-dir',
+    'out-path',
+    'public-packages',
+    'no-dict',
+    't',
+    'target',
+    'targets',
+    'C',
+    'compress',
+  ],
+  default: FLAG_DEFAULTS,
+};
+
+function joinList(v: string | string[] | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  const joined = Array.isArray(v) ? v.join(',') : v;
+  return joined === '' ? undefined : joined;
+}
+
+function optionsToParsed(options: PkgExecOptions): minimist.ParsedArgs {
   if (!options || typeof options !== 'object') {
     throw wasReported('exec() options must be an object');
   }
@@ -244,36 +294,35 @@ function optionsToArgv(options: PkgExecOptions): string[] {
     throw wasReported('exec() options.input is required and must be a string');
   }
 
-  const argv: string[] = [];
-
-  const pushList = (flag: string, value: string | string[] | undefined) => {
-    if (value === undefined) return;
-    const joined = Array.isArray(value) ? value.join(',') : value;
-    if (joined !== '') argv.push(flag, joined);
+  const argv: minimist.ParsedArgs = {
+    ...FLAG_DEFAULTS,
+    _: [options.input],
   };
 
-  pushList('--targets', options.targets);
-  if (options.config !== undefined) argv.push('--config', options.config);
-  if (options.output !== undefined) argv.push('--output', options.output);
-  if (options.outputPath !== undefined) {
-    argv.push('--out-path', options.outputPath);
-  }
-  if (options.compress !== undefined && options.compress !== 'None') {
-    argv.push('--compress', options.compress);
-  }
-  if (options.sea) argv.push('--sea');
-  pushList('--options', options.bakeOptions);
-  if (options.debug) argv.push('--debug');
-  if (options.build) argv.push('--build');
-  if (options.bytecode === false) argv.push('--no-bytecode');
-  if (options.nativeBuild === false) argv.push('--no-native-build');
-  if (options.fallbackToSource) argv.push('--fallback-to-source');
-  if (options.public) argv.push('--public');
-  pushList('--public-packages', options.publicPackages);
-  pushList('--no-dict', options.noDictionary);
-  if (options.signature === false) argv.push('--no-signature');
+  const setIfDefined = (key: string, value: unknown) => {
+    if (value !== undefined) argv[key] = value;
+  };
 
-  argv.push(options.input);
+  setIfDefined('targets', joinList(options.targets));
+  setIfDefined('config', options.config);
+  setIfDefined('output', options.output);
+  setIfDefined('out-path', options.outputPath);
+  setIfDefined(
+    'compress',
+    options.compress === 'None' ? undefined : options.compress,
+  );
+  setIfDefined('sea', options.sea);
+  setIfDefined('options', joinList(options.bakeOptions));
+  setIfDefined('debug', options.debug);
+  setIfDefined('build', options.build);
+  setIfDefined('bytecode', options.bytecode);
+  setIfDefined('native-build', options.nativeBuild);
+  setIfDefined('fallback-to-source', options.fallbackToSource);
+  setIfDefined('public', options.public);
+  setIfDefined('public-packages', joinList(options.publicPackages));
+  setIfDefined('no-dict', joinList(options.noDictionary));
+  setIfDefined('signature', options.signature);
+
   return argv;
 }
 
@@ -282,46 +331,9 @@ export async function exec(options: PkgExecOptions): Promise<void>;
 export async function exec(
   argvOrOptions: string[] | PkgExecOptions,
 ): Promise<void> {
-  const argv2 = Array.isArray(argvOrOptions)
-    ? argvOrOptions
-    : optionsToArgv(argvOrOptions);
-  const argv = minimist(argv2, {
-    boolean: [
-      'b',
-      'build',
-      'bytecode',
-      'native-build',
-      'd',
-      'debug',
-      'fallback-to-source',
-      'h',
-      'help',
-      'public',
-      'v',
-      'version',
-      'signature',
-      'sea',
-    ],
-    string: [
-      '_',
-      'c',
-      'config',
-      'o',
-      'options',
-      'output',
-      'outdir',
-      'out-dir',
-      'out-path',
-      'public-packages',
-      'no-dict',
-      't',
-      'target',
-      'targets',
-      'C',
-      'compress',
-    ],
-    default: { bytecode: true, 'native-build': true, signature: true },
-  });
+  const argv = Array.isArray(argvOrOptions)
+    ? minimist(argvOrOptions, MINIMIST_OPTS)
+    : optionsToParsed(argvOrOptions);
 
   if (argv.h || argv.help) {
     help();
