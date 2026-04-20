@@ -19,11 +19,7 @@ import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
 import { log, wasReported } from './log';
 import { NodeTarget, Target, SeaEnhancedOptions } from './types';
-import {
-  patchMachOExecutable,
-  removeMachOExecutableSignature,
-  signMachOExecutable,
-} from './mach-o';
+import { patchMachOExecutable, signMachOExecutable } from './mach-o';
 import walk from './walker';
 import refine from './refiner';
 import { generateSeaAssets } from './sea-assets';
@@ -344,13 +340,16 @@ async function bake(
   await copyFile(nodePath, outPath);
 
   log.info(`Injecting the blob into ${outPath}...`);
-  if (target.platform === 'macos') {
-    // codesign is only available on macOS — skip signature removal when
-    // cross-compiling from another platform
-    if (process.platform === 'darwin') {
-      removeMachOExecutableSignature(outPath);
-    }
-  }
+  // Do NOT pre-strip the downloaded node binary's signature on macOS hosts:
+  // signMacOSIfNeeded → codesign -f --sign - force-replaces the signature
+  // after postject injection, so the pre-strip is redundant. On macOS
+  // Tahoe 26.x with non-trivial SEA payloads (e.g. NestJS, ~9 MB),
+  // `codesign --remove-signature` before postject leaves the Mach-O in a
+  // state that crashes Node at load time with
+  // `v8::ToLocalChecked Empty MaybeLocal` inside
+  // `node::sea::LoadSingleExecutableApplication` (discussion #236).
+  // Cross-host Linux-to-macOS builds (which never pre-stripped) are
+  // known-good on the same payload, confirming this is the corrupter.
 
   // Use postject JS API directly instead of spawning npx.
   // This avoids two CI issues:
