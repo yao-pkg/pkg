@@ -102,14 +102,19 @@ async function extract(os: string, archivePath: string): Promise<string> {
   // Both tar and unzipper write to the final path directly, so a crash
   // mid-extract would otherwise leave a truncated binary that silently
   // poisons future runs. The sentinel is only written after extraction
-  // succeeds, so its absence forces a re-extract.
+  // succeeds, so its absence forces a re-extract. We also require the
+  // binary itself to be present — if a user or cleanup tool removed the
+  // extracted binary, returning a stale `nodePath` would surface as a
+  // confusing ENOENT at bake() time.
   const sentinel = `${nodePath}.ok`;
-  if (await exists(sentinel)) {
+  if ((await exists(sentinel)) && (await exists(nodePath))) {
     return nodePath;
   }
 
-  // Clear any partial output from a previously interrupted extract.
+  // Clear any partial output or stale sentinel from a previously
+  // interrupted extract or out-of-band cache cleanup.
   await rm(nodePath, { force: true });
+  await rm(sentinel, { force: true });
 
   if (os === 'win') {
     const { files } = await unzipper.Open.file(archivePath);
@@ -309,15 +314,23 @@ async function getNodejsExecutable(
   }
 
   const filePath = join(downloadDir, fileName);
+  const archiveSentinel = `${filePath}.ok`;
 
-  // Skip download + checksum if the archive is already cached. Archives
-  // from nodejs.org are immutable, so re-verifying on every pkg invocation
-  // just re-hashes 100 MB for no benefit (and re-fetches SHASUMS256.txt).
-  if (!(await exists(filePath))) {
+  // Skip download + checksum only when a sentinel marks the previous run as
+  // verified. downloadFile writes straight to filePath without tmp+rename,
+  // so an interrupted download would otherwise leave a partial archive that
+  // later skips checksum verification and fails cryptically at extract time.
+  if (!((await exists(archiveSentinel)) && (await exists(filePath)))) {
+    // Clear any partial download or stale sentinel.
+    await rm(filePath, { force: true });
+    await rm(archiveSentinel, { force: true });
+
     log.info(`Downloading nodejs executable from ${url}...`);
     await downloadFile(url, filePath);
     log.info(`Verifying checksum of ${fileName}`);
     await verifyChecksum(filePath, checksumUrl, fileName);
+
+    await writeFile(archiveSentinel, '');
   }
 
   log.info(`Extracting node binary from ${fileName}`);
