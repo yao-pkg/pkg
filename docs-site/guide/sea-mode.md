@@ -5,9 +5,9 @@ description: Use Node.js Single Executable Applications to package your project 
 
 # SEA mode
 
-`--sea` packages your project using **stock, unmodified Node.js** via the official [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) API — no custom patches, no `pkg-fetch`.
+`--sea` packages your project using stock, unmodified Node.js via the official [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) API — no custom patches, no `pkg-fetch`.
 
-Looking for a conceptual overview? Jump to [SEA vs Standard](/guide/sea-vs-standard) for the full comparison, feature matrix, and patch-elimination roadmap.
+For a conceptual overview, feature matrix, and patch-elimination roadmap, see [SEA vs Standard](/guide/sea-vs-standard).
 
 ## Your first SEA binary
 
@@ -31,7 +31,7 @@ Run it:
 # → stock-node hello!
 ```
 
-That's it. No patched Node, no `pkg-fetch` cache touched.
+No patched Node, no `pkg-fetch` cache touched.
 
 ## Two SEA variants
 

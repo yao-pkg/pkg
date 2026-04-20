@@ -5,7 +5,7 @@ description: In-depth comparison of @yao-pkg/pkg, Bun's single-file executable, 
 
 # pkg vs Bun vs Deno
 
-Three tools can turn JavaScript into a standalone executable today: `@yao-pkg/pkg`, `bun build --compile`, and `deno compile`. They solve the same problem three different ways — stock Node + VFS, JavaScriptCore + embedded FS, V8 + eszip. This page lays out the trade-offs, then runs the same project through all three to show what actually happens.
+Three tools turn JavaScript into a standalone executable: `@yao-pkg/pkg`, `bun build --compile`, and `deno compile`. Each solves the problem differently — stock Node + VFS, JavaScriptCore + embedded FS, V8 + eszip. This page lays out the trade-offs and runs the same project through all three.
 
 ::: tip TL;DR
 
@@ -51,11 +51,11 @@ flowchart LR
     end
 ```
 
-All three produce one binary, all three expose embedded files to `fs.readFileSync`, all three launch in under a second. What differs is **whose runtime you are shipping**. pkg ships the _same Node.js_ you tested against. Bun and Deno ship their own runtime with their own compat layer.
+All three produce one binary, expose embedded files to `fs.readFileSync`, and launch in under a second. What differs is whose runtime you are shipping: pkg ships the same Node.js you tested against, while Bun and Deno ship their own runtime and compat layer.
 
-## Native addon support — the real differentiator
+## Native addon support
 
-Almost all non-trivial Node projects load something through `dlopen`: `better-sqlite3`, `sharp`, `bcrypt`, `canvas`, Prisma's query engine, etc. How each tool handles this is the most common reason a migration stalls.
+Most non-trivial Node projects load something through `dlopen`: `better-sqlite3`, `sharp`, `bcrypt`, `canvas`, Prisma's query engine, etc. How each tool handles this is the most common reason a migration stalls.
 
 | Scenario                                                                            | pkg                                                                               | Bun                                                                                                                                                                          | Deno                                                                     |
 | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -63,11 +63,11 @@ Almost all non-trivial Node projects load something through `dlopen`: `better-sq
 | `node-pre-gyp` / `node-gyp-build` indirection (`sharp`, `better-sqlite3`, `bcrypt`) | ✅ walker detects + bundles                                                       | ⚠️ [docs](https://bun.sh/docs/bundler/executables#embedding-nodejs-addons) say "you'll need to make sure the `.node` file is directly required or it won't bundle correctly" | ⚠️ needs `--self-extracting` to land the `.node` on disk before `dlopen` |
 | ABI compatibility                                                                   | Exactly matches the Node version in the binary                                    | JSC's N-API compatibility layer — works for most but not all addons                                                                                                          | Node-API compat layer in Deno 2+                                         |
 
-For anything that uses `node-pre-gyp` today (which is a large fraction of native addons), Bun requires you to pin the specific `.node` file and `require` it directly. pkg's walker and Deno's extraction do this transparently.
+For packages that use `node-pre-gyp` (a large fraction of native addons), Bun requires you to pin the specific `.node` file and `require` it directly. pkg's walker and Deno's extraction do this transparently.
 
 ## Claude Code case study
 
-We took the last pure-JS release of `@anthropic-ai/claude-code` (v1.0.100) — an ESM-only, 9 MB minified single-file CLI that uses **top-level `await`**, loads `yoga.wasm` at startup via `require.resolve`, ships `ripgrep` as a vendored binary, and has `sharp` as an optional native dep. Perfect stress test.
+The last pure-JS release of `@anthropic-ai/claude-code` (v1.0.100) is a good stress test: an ESM-only, 9 MB minified single-file CLI with top-level `await`, `yoga.wasm` loaded at startup via `require.resolve`, a vendored `ripgrep` binary, and `sharp` as an optional native dep.
 
 All numbers on Linux x64, Node 22.22.1, Bun 1.3.12, Deno 2.7.12:
 
@@ -87,20 +87,20 @@ All numbers on Linux x64, Node 22.22.1, Bun 1.3.12, Deno 2.7.12:
 | `deno compile --allow-all --include yoga.wasm cli.js`                | ✅ auto-included the entire `node_modules/`                                                                                                          | **183 MB** | **740 ms**        |
 
 ::: tip Cold-start vs binary size
-The `--compress` flag's cold-start overhead is effectively noise on this workload (+10 to +30 ms across codecs vs uncompressed; lazy per-file decompression means we only pay for files the CLI actually reads). The size reduction is where the win is: **Zstd and Brotli close more than half the gap to Bun's 108 MB binary** while keeping stock Node.js semantics.
+Cold-start overhead from `--compress` is negligible on this workload (+10–30 ms across codecs; lazy per-file decompression means only files the CLI reads pay a decode cost). The win is size: Zstd and Brotli close more than half the gap to Bun's 108 MB binary while keeping stock Node.js semantics.
 
-Brotli compresses hardest but the build takes ~3 min on this archive — a cost paid once at package time, not per launch. For CI builds where build time matters, **Zstd** is the better default.
+Brotli compresses hardest but takes ~3 min to build on this archive — a cost paid once at package time. For CI builds, Zstd is the better default.
 :::
 
-### What this reveals
+### Observations
 
-- **Nothing in the matrix "just works."** Every tool needs a hint about `yoga.wasm` — the symptoms just differ. pkg silently succeeds with a broken binary if you forget `pkg.assets`; Bun silently succeeds but renames the asset unless you pass `--asset-naming`; Deno auto-hoovers `node_modules` (which is convenient but ballooned the binary to 184 MB).
-- **Bun produced the smallest working binary (108 MB) and the fastest cold start (510 ms)** — at the cost of running claude-code on JavaScriptCore, not the V8 it was tested against.
-- **pkg SEA with `--compress Zstd` lands at 152 MB** (down from 194 MB uncompressed) with no measurable cold-start regression. Per-file lazy decompression means the files the CLI never touches never pay a decode cost. Brotli pushes size further to 147 MB at the cost of a ~3 minute one-time build.
-- **The remaining ~40 MB gap to Bun is the Node.js binary itself.** Today `pkg-fetch` ships the stock Node build with full-ICU bundled (~30 MB of locale data) plus `inspector`, `npm`, and `corepack`. A Node built with `./configure --without-intl --without-inspector --without-npm --without-corepack --fully-static` would bring the base binary from ~70 MB down to ~40 MB — putting a Brotli-compressed SEA claude-code binary in the ~115 MB range, **within 10 MB of Bun**. This is a `pkg-fetch` change, not a `pkg` change, and is tracked as the first follow-up in #250.
-- **Bun's `--bytecode` nearly doubled the binary (190 MB) without improving startup** for this async-heavy CLI. The docs warn that bytecode output can be ~8× larger per module and skips async/generator/eval, which matches what we saw.
-- **pkg Standard mode is the wrong choice for ESM-first apps with top-level await.** Use `--sea`. This is explicitly why SEA mode exists and is the [recommended default going forward](/guide/sea-vs-standard#when-to-pick-which).
-- **Deno's startup penalty (~740 ms vs ~550 ms for pkg/Bun)** is explained by the permission system init + Node compat layer boot; the runtime still parses source at launch (no ahead-of-time V8 snapshot of user code).
+- **No tool "just works."** Every one needs a hint about `yoga.wasm` — the symptoms differ. pkg silently succeeds with a broken binary if you forget `pkg.assets`; Bun silently succeeds but renames the asset unless you pass `--asset-naming`; Deno auto-includes `node_modules`, which inflated the binary to 183 MB.
+- **Bun produced the smallest working binary (108 MB) and the fastest cold start (510 ms)** — at the cost of running on JavaScriptCore instead of V8.
+- **pkg SEA with `--compress Zstd` lands at 152 MB** (down from 194 MB uncompressed) with no measurable cold-start regression. Per-file lazy decompression means files the CLI never touches never pay a decode cost. Brotli pushes size to 147 MB at the cost of a ~3 minute one-time build.
+- **The remaining ~40 MB gap to Bun is the Node.js binary itself.** `pkg-fetch` ships stock Node with full-ICU (~30 MB of locale data) plus `inspector`, `npm`, and `corepack`. A Node built with `./configure --without-intl --without-inspector --without-npm --without-corepack --fully-static` drops the base from ~70 MB to ~40 MB — putting a Brotli-compressed SEA binary of claude-code near ~115 MB, within 10 MB of Bun. This is a `pkg-fetch` change tracked as follow-up in #250.
+- **Bun's `--bytecode` nearly doubled the binary (190 MB) without improving startup** for this async-heavy CLI. The Bun docs warn bytecode output can be ~8× larger per module and skips async/generator/eval, matching what we saw.
+- **pkg Standard is the wrong choice for ESM-first apps with top-level await.** Use `--sea` — this is why SEA mode exists and is the [recommended default](/guide/sea-vs-standard#when-to-pick-which).
+- **Deno's ~740 ms cold start vs ~550 ms for pkg/Bun** comes from permission-system init and Node compat boot; source is still parsed at launch (no ahead-of-time V8 snapshot).
 
 ### Hello-world baseline for reference
 
@@ -142,74 +142,63 @@ If source protection is a hard requirement, pkg Standard is the only option. For
 - **You have `sharp` / `better-sqlite3` / `bcrypt` / anything via `node-pre-gyp`** → `pkg` (either mode) — no flag gymnastics, no first-run extraction tax.
 - **You need musl / Alpine** → `pkg` (via [`linux-arm64-musl` build from source](/guide/targets)) or `bun` (`bun-linux-x64-musl`, `bun-linux-arm64-musl`).
 
-## Final verdict
+## Summary
 
-There is no single winner. Each tool owns a different lane.
+Each tool owns a different lane:
 
-### Lane-by-lane
+- **Bun** — smallest binary (108 MB), fastest cold start (510 ms), and the widest target list (musl + baseline/modern CPU variants). Best for greenfield CLIs with no `node-pre-gyp` addons. Trade: JavaScriptCore instead of V8 and bundler-hostile footguns.
+- **Deno** — lowest-effort build in the matrix thanks to `--include` and automatic `node_modules` detection. Best fit for Deno-first projects, not as a drop-in for existing Node apps. Slowest cold start (740 ms) and a handful of stubbed Node built-ins (`node:cluster`, `node:sea`, `node:wasi`).
+- **`pkg --sea`** — runs the stock Node binary you tested against: same V8, same N-API ABI, same npm semantics. `node-pre-gyp` addons (`sharp`, `better-sqlite3`, `bcrypt`) bundle transparently. Per-file Brotli/GZip/Zstd closes most of the size gap with Bun. Ships Node CVE fixes the same day Node releases them.
+- **`pkg` Standard** — the only option that ships the binary without recoverable source code, via V8 bytecode with `sourceless: true`. Required if IP protection is a hard constraint.
 
-- **Bun wins on raw numbers.** 108 MB binary, 510 ms cold start for claude-code, and the widest target list (musl + baseline/modern CPU variants). Best default for **greenfield CLIs with no `node-pre-gyp` native addons** when size and cold start are the KPIs. The trade is a runtime swap (JavaScriptCore instead of V8) and a handful of bundler-hostile footguns.
+For a production Node.js app: **`pkg --sea`** is the safest default. Not for performance or size — Bun wins those — but because you are not swapping runtimes.
 
-- **Deno wins on DX for Deno-first apps.** `--include` and automatic `node_modules` detection made it the lowest-effort build in the matrix. Pick it if you already run `deno` day-to-day — not as a drop-in for an existing Node project. Startup is the slowest here (740 ms for this workload) and a handful of Node built-ins are stubbed (`node:cluster`, `node:sea`, `node:wasi`).
-
-- **`pkg --sea` is the safest default for shipping a real Node.js app.** It runs the **stock Node binary you tested against** — same V8, same N-API ABI, same npm semantics. Native addons with `node-pre-gyp` (`sharp`, `better-sqlite3`, `bcrypt`) bundle transparently. Per-file Brotli/GZip/Zstd compression closes most of the size gap with Bun. When Node ships a CVE fix, your next build has it the same day.
-
-- **`pkg` Standard is the only answer to one specific question:** _can the shipped binary contain no recoverable source code?_ V8 bytecode with `sourceless: true` is the only mechanism any tool here offers. Nothing else is in the running if IP protection is a hard requirement.
-
-### If we had to name one default
-
-For a production Node.js app in 2026: **`pkg --sea`**. The reason isn't performance or size — Bun wins those. The reason is **you are not swapping runtimes**. You are wrapping the Node.js you already tested against. "Ships stock Node.js" is a boring feature, and boring is exactly what you want in production.
-
-## Be critical — what these claims don't prove
-
-This section is here because picking a bundler on marketing copy is how people ship surprises. Some of the claims above deserve scrutiny.
+## What these claims don't prove
 
 ### "V8 beats JavaScriptCore"
 
-We never make that claim, and you should not read it into "pkg ships V8." **JavaScriptCore is a peer-grade engine** — it ships in Safari, powers billions of devices, and routinely wins specific benchmarks against V8. Bun's own perf work shows JSC holding its own or ahead on many JS-heavy workloads.
+We don't make that claim. JavaScriptCore ships in Safari, powers billions of devices, and often wins specific benchmarks against V8. The argument for V8 here isn't "faster" — it's "identical to what you tested":
 
-The real argument for V8 here is **not "faster," it's "identical to what you tested"**:
+- npm packages are tested under V8/Node. Running them on JSC means trusting Bun's Node-API and built-in compat layers. Those layers are well-maintained but have gaps you only discover at runtime.
+- V8-specific behaviours (stack trace formatting, `Error.prepareStackTrace`, `%Opt` natives, `--max-old-space-size` semantics, async-hook timings) sometimes leak into production code via observability and framework internals. They surface on the engine swap.
 
-- Every npm package was tested under V8/Node. Running it on JSC means trusting Bun's Node-API and built-in compat layers. Those layers are large, well-maintained, and broken in a small number of places you will only discover at runtime.
-- Obscure V8-specific behaviors (stack trace formatting, `Error.prepareStackTrace`, `%Opt` natives, `--max-old-space-size` semantics, async-hook timings) sometimes leak into production code, especially in observability and framework internals. Those bugs surface on the engine swap, not before.
-
-This is a **compatibility risk axis**, not an engine-quality axis. On a greenfield codebase where you control every dep, the argument evaporates.
+This is a compatibility-risk axis, not an engine-quality one. On a greenfield codebase where you control every dep, the argument evaporates.
 
 ### "Bytecode protects your source"
 
-Overstated. V8 bytecode is not encryption — it's a serialization format with public decompilers ([`bytenode`](https://github.com/bytenode/bytenode), `v8-decompile-bytecode`, several research tools). It raises the bar past "`strings(1)` and read the secret," but a determined reverse engineer will get readable JS back. Treat `pkg` Standard's source-stripping as a speed bump, not a vault. If you need real IP protection, you need obfuscation + licensing + server-side secrets — none of these tools solve that.
+V8 bytecode is a serialization format with public decompilers ([`bytenode`](https://github.com/bytenode/bytenode), `v8-decompile-bytecode`, research tools). It raises the bar past `strings(1)`, but a determined reverse engineer will recover readable JS. Treat `pkg` Standard's source-stripping as a speed bump. Real IP protection needs obfuscation + licensing + server-side secrets — none of these tools solve that.
 
 ### "pkg Standard ships stock Node.js"
 
-No — **only `pkg --sea` ships stock Node.js.** Standard mode ships a **patched** Node.js distributed through `pkg-fetch` (~600–850 lines of patches per release). That is precisely why SEA mode exists and why the project is moving toward it. Do not conflate the two.
+Only `pkg --sea` ships stock Node.js. Standard mode ships a patched Node.js distributed through `pkg-fetch` (~600–850 lines of patches per release). That is why SEA mode exists.
 
 ### "The claude-code numbers prove Bun is faster / smaller"
 
 n=1 on a single package on a single Linux x64 host. The conclusion scales narrowly:
 
-- The Bun number is flattering partly because claude-code's `cli.js` is already a single pre-bundled file — Bun's bundler has almost nothing to do. A project with a sprawling dep graph and lots of dynamic `require` will look different.
-- Deno's 740 ms cold start includes permission-system init and the Node compat boot; for a long-running process (server, daemon) it's amortized to zero. Cold start matters for CLIs, not for servers.
-- pkg SEA's 194 MB baseline was measured with an uncompressed SEA archive. With `--compress Zstd` the binary drops to **152 MB** (archive 77.5 MB → 33.9 MB, 44% of original) and with `--compress Brotli` to **147 MB** (archive 77.5 MB → 28.3 MB, 37% of original). That's still ~40 MB larger than Bun, but the remaining gap is the Node binary itself plus metadata — essentially the cost of shipping unmodified Node.js. A second lever — not yet taken by `pkg-fetch` — is shipping a **trimmed Node build**: `./configure --without-intl --fully-static` strips full-ICU (~30 MB of locale data, the single biggest contributor after V8) and builds the static `linuxstatic` variant in one step. Dropping inspector/npm/corepack via `--without-inspector --without-npm --without-corepack` shaves a few more MB. An Intl-free Node brings our floor closer to 75–80 MB, which would put a Brotli-compressed SEA binary of claude-code in the ~115 MB range — within spitting distance of Bun. Tracked as follow-up work in #250. Standard mode with Brotli would also be smaller, but Standard couldn't build this package at all — so that original comparison is apples-to-oranges.
-- Bun's `--bytecode` doubled the binary _on this workload_ because it's async-heavy ESM with lots of generator / `eval` sites that fall back to shipping source alongside bytecode. A synchronous CJS-heavy app would see a different (smaller) delta.
+- claude-code's `cli.js` is already a single pre-bundled file, so Bun's bundler has little to do. Projects with a sprawling dep graph and dynamic `require` will look different.
+- Deno's 740 ms cold start includes permission-system init and Node compat boot; amortized to zero for long-running servers. Cold start matters for CLIs, not servers.
+- pkg SEA's 194 MB baseline was uncompressed. With `--compress Zstd` the binary drops to 152 MB (archive 77.5 → 33.9 MB), with `--compress Brotli` to 147 MB (77.5 → 28.3 MB). The remaining ~40 MB gap to Bun is the Node binary and metadata. A trimmed Node build (`./configure --without-intl --without-inspector --without-npm --without-corepack --fully-static`) would drop ~30 MB of ICU locale data plus a few more MB, bringing a Brotli SEA binary to ~115 MB. Tracked in #250. Standard mode with Brotli would also be smaller, but Standard couldn't build this package at all — so the comparison is apples-to-oranges.
+- Bun's `--bytecode` doubled the binary on this workload because async-heavy ESM with generator / `eval` sites falls back to shipping source alongside bytecode. A synchronous CJS-heavy app would see a smaller delta.
 
-Treat the matrix as "here is what these tools actually do, and here is one realistic data point." Not as a benchmark.
+Treat the matrix as one realistic data point, not a benchmark.
 
 ### "You get Node security fixes the day they ship"
 
-True for `pkg --sea` — it downloads the released Node binary from the official Node.js project. **False for `pkg` Standard** — you wait for `pkg-fetch` to rebase the patch stack. **Also false for Bun and Deno** — you wait for the Bun/Deno maintainers to pick up the V8 / JSC fix and cut a release. Bun and Deno generally move fast, but they are not on Node's release cadence.
+True for `pkg --sea` — it downloads the released Node binary from the Node.js project. False for `pkg` Standard — you wait for `pkg-fetch` to rebase the patch stack. Also false for Bun and Deno — you wait for their maintainers to pick up the V8/JSC fix and cut a release.
 
 ### "Bun and Deno can't bundle `sharp` / `better-sqlite3`"
 
-Softer than the matrix implies. Both can — you just have more steps. Bun wants the `.node` file required directly; Deno wants `--self-extracting` so the addon lands on disk before `dlopen`. For a handful of addons you control, both work. The advantage pkg holds is that the walker does this detection automatically for the long tail of `node-pre-gyp` packages without per-addon configuration.
+Both can, with extra steps. Bun requires the `.node` file to be required directly; Deno needs `--self-extracting` so the addon lands on disk before `dlopen`. For a handful of addons you control, both work. pkg's advantage is that the walker detects `node-pre-gyp` packages automatically without per-addon configuration.
 
-### TL;DR of the caveats
+### Rule of thumb
 
-These tools are closer than the headline table suggests. Pick on **what you'll regret later**, not on benchmark deltas:
+Pick on what you'll regret later, not on benchmark deltas:
 
 - Regret running on a non-V8 engine? → pkg
 - Regret your binary being 80 MB heavier than it needed to be? → Bun
 - Regret that new Node CVEs take a week to land? → pkg SEA
-- Regret that your source is shippable with `strings(1)`? → pkg Standard (with obfuscation as belt-and-braces)
+- Regret that your source is shippable with `strings(1)`? → pkg Standard (plus obfuscation)
 
 ## Reproducing the numbers
 
