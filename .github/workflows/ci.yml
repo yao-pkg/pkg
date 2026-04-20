@@ -24,6 +24,42 @@ jobs:
             code:
               - '!docs-site/**'
 
+  # Single-purpose job that produces the build artifact test jobs consume.
+  # Non-matrix, Linux only, so tests don't block on the slowest matrix cell
+  # (Windows build can take 80-150s). Build output is platform-independent
+  # compiled TS + bundled JS.
+  build_artifact:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'yarn'
+
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn install
+
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn lint
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn build
+
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            lib-es5/
+            prelude/sea-bootstrap.bundle.js
+          retention-days: 1
+
+  # Sanity check: `yarn build` succeeds on every supported OS + Node combo.
+  # Runs in parallel with tests (they don't consume this job's output) so
+  # failures still mark the PR red without gating the test jobs.
   build:
     needs: changes
     strategy:
@@ -43,39 +79,25 @@ jobs:
 
       - if: needs.changes.outputs.code == 'true'
         run: yarn install
-
-      - if: needs.changes.outputs.code == 'true' && matrix['node-version'] == '22.x' && matrix['os'] == 'ubuntu-latest'
-        run: yarn lint
       - if: needs.changes.outputs.code == 'true'
         run: yarn build
 
-      # Upload build output once — test jobs download it instead of rebuilding.
-      # Build output is platform-independent (compiled TS + bundled JS).
-      - if: needs.changes.outputs.code == 'true' && matrix['node-version'] == '22.x' && matrix['os'] == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: |
-            lib-es5/
-            prelude/sea-bootstrap.bundle.js
-          retention-days: 1
-
   test_host:
-    needs: [changes, build]
+    needs: [changes, build_artifact]
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:host
       should_run: ${{ needs.changes.outputs.code }}
 
   test_22:
-    needs: [changes, build]
+    needs: [changes, build_artifact]
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:22
       should_run: ${{ needs.changes.outputs.code }}
 
   test_24:
-    needs: [changes, build]
+    needs: [changes, build_artifact]
     uses: ./.github/workflows/test.yml
     with:
       npm_command: test:24
