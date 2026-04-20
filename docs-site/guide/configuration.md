@@ -82,7 +82,7 @@ export default {
 Precedence (highest to lowest):
 
 1. `--config <file>` passed on the CLI
-2. Auto-discovered `.pkgrc` / `.pkgrc.json` / `pkg.config.js` / `pkg.config.cjs`
+2. Auto-discovered `.pkgrc` / `.pkgrc.json` / `pkg.config.js` / `pkg.config.cjs` / `pkg.config.mjs`
 3. `pkg` field in `package.json`
 
 When both a pkgrc and a `pkg` field in `package.json` are present, the pkgrc wins and `pkg` logs a warning. `name` and `bin` are still read from `package.json`.

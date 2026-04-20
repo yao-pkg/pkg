@@ -440,10 +440,10 @@ export async function exec(argv2: string[]) {
     throw wasReported("Specify either 'package.json' or config. Not both");
   }
 
-  // Auto-discover .pkgrc / .pkgrc.json / pkg.config.js / pkg.config.cjs in the
-  // input's directory when --config wasn't passed. A pkgrc is complementary to
-  // package.json: metadata (name/bin) comes from package.json, pkg config from
-  // the pkgrc.
+  // Auto-discover .pkgrc / .pkgrc.json / pkg.config.js / pkg.config.cjs /
+  // pkg.config.mjs in the input's directory when --config wasn't passed. A
+  // pkgrc is complementary to package.json: metadata (name/bin) comes from
+  // package.json, pkg config from the pkgrc.
   if (!explicitConfig) {
     const discovered = findPkgrc(path.dirname(input));
     if (discovered) {
