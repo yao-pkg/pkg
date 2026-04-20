@@ -39,6 +39,54 @@ You may also specify arrays of globs:
 
 Call `pkg package.json` or `pkg .` to make use of the `package.json` configuration.
 
+## Standalone config file
+
+If you prefer to keep `package.json` clean, drop a dedicated config file next to your entry point. `pkg` looks for these names, in order, and uses the first one it finds:
+
+1. `.pkgrc` — JSON
+2. `.pkgrc.json` — JSON
+3. `pkg.config.js` — CommonJS or ESM (follows `"type"` in `package.json`)
+4. `pkg.config.cjs` — CommonJS
+5. `pkg.config.mjs` — ESM (use this when you need to export functions)
+
+The file contains a bare pkg config (no `pkg` wrapper):
+
+```json
+{
+  "scripts": "build/**/*.js",
+  "assets": "views/**/*",
+  "targets": ["node22-linux-x64"],
+  "outputPath": "dist"
+}
+```
+
+```js
+// pkg.config.js — use this when you need comments or computed values
+module.exports = {
+  scripts: 'build/**/*.js',
+  assets: ['views/**/*', process.env.EXTRA_ASSET].filter(Boolean),
+  targets: ['node22-linux-x64'],
+  outputPath: 'dist',
+};
+```
+
+```js
+// pkg.config.mjs — ESM; use this to expose functions
+export default {
+  scripts: 'build/**/*.js',
+  targets: ['node22-linux-x64'],
+  outputPath: 'dist',
+};
+```
+
+Precedence (highest to lowest):
+
+1. `--config <file>` passed on the CLI
+2. Auto-discovered `.pkgrc` / `.pkgrc.json` / `pkg.config.js` / `pkg.config.cjs`
+3. `pkg` field in `package.json`
+
+When both a pkgrc and a `pkg` field in `package.json` are present, the pkgrc wins and `pkg` logs a warning. `name` and `bin` are still read from `package.json`.
+
 ## Full schema
 
 | Key            | Type             | Description                                                                                                                      |

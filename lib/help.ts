@@ -10,6 +10,7 @@ export default function help() {
     -v, --version        output pkg version
     -t, --targets        comma-separated list of targets (see examples)
     -c, --config         package.json or any json file with top-level config
+                         (auto-discovered as .pkgrc, .pkgrc.json, pkg.config.js, .cjs or .mjs)
     --options            bake v8 options into executable to run with them on
     -o, --output         output file name or template for several files
     --out-path           path to save output one or more executables
