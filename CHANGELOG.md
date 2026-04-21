@@ -1,5 +1,11 @@
 # Changelog
 
+## [6.18.1](https://github.com/yao-pkg/pkg/compare/v6.18.0...v6.18.1) (2026-04-21)
+
+### Bug Fixes
+
+- **pkg:** ship all .d.ts files in npm package ([#258](https://github.com/yao-pkg/pkg/issues/258)) ([7e10ce2](https://github.com/yao-pkg/pkg/commit/7e10ce2123b26d75afc6d4de24a02e272fa628cf))
+
 ## [6.18.0](https://github.com/yao-pkg/pkg/compare/v6.17.0...v6.18.0) (2026-04-20)
 
 ### Features
