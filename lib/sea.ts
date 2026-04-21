@@ -343,16 +343,10 @@ async function bake(
   await copyFile(nodePath, outPath);
 
   log.info(`Injecting the blob into ${outPath}...`);
-  // Do NOT pre-strip the downloaded node binary's signature on macOS hosts:
-  // signMacOSIfNeeded → codesign -f --sign - force-replaces the signature
-  // after postject injection, so the pre-strip is redundant. On macOS
-  // Tahoe 26.x with non-trivial SEA payloads (e.g. NestJS, ~9 MB),
-  // `codesign --remove-signature` before postject leaves the Mach-O in a
-  // state that crashes Node at load time with
-  // `v8::ToLocalChecked Empty MaybeLocal` inside
-  // `node::sea::LoadSingleExecutableApplication` (discussion #236).
-  // Cross-host Linux-to-macOS builds (which never pre-stripped) are
-  // known-good on the same payload, confirming this is the corrupter.
+  // No pre-strip of the downloaded node binary's signature on macOS:
+  // the final `codesign -f --sign -` in signMacOSIfNeeded force-replaces
+  // any existing signature after postject injection, so a preliminary
+  // `codesign --remove-signature` is redundant.
 
   // Use postject JS API directly instead of spawning npx.
   // This avoids two CI issues:
@@ -373,11 +367,13 @@ async function bake(
  * covered by __LINKEDIT — so the segment must be extended to include the
  * payload before signing.
  *
- * Pass `isSea: true` to skip the patch. For SEA, postject creates a
- * dedicated NODE_SEA segment with a proper LC_SEGMENT_64 (per the
- * Node.js SEA docs), so __LINKEDIT doesn't need to grow. Patching it
- * anyway has been observed to corrupt the SEA blob on macOS arm64 for
- * non-trivial payloads (NestJS — see discussion #236).
+ * Pass `isSea: true` to skip the patch. For SEA binaries postject
+ * already creates a dedicated NODE_SEA `LC_SEGMENT_64` (per the
+ * [Node.js SEA docs](https://nodejs.org/api/single-executable-applications.html))
+ * and __LINKEDIT already sits at the file tail with
+ * `filesize = file.length - fileoff`, so the patch is a no-op on the
+ * resulting Mach-O. The docs call for just `codesign --sign -` after
+ * postject, which is what `signMachOExecutable` does.
  */
 export async function signMacOSIfNeeded(
   output: string,
