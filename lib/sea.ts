@@ -24,6 +24,9 @@ import walk from './walker';
 import refine from './refiner';
 import { generateSeaAssets } from './sea-assets';
 import { inject as postjectInject } from 'postject';
+import { system } from '@yao-pkg/pkg-fetch';
+
+const { hostPlatform, hostArch } = system;
 
 const execFileAsync = util.promisify(cExecFile);
 
@@ -526,17 +529,8 @@ function pickBlobGeneratorBinary(
   targets: (NodeTarget & Partial<Target>)[],
   nodePaths: string[],
 ): string {
-  const hostPlatform =
-    process.platform === 'darwin'
-      ? 'macos'
-      : process.platform === 'win32'
-        ? 'win'
-        : process.platform;
   for (let i = 0; i < targets.length; i += 1) {
-    if (
-      targets[i].platform === hostPlatform &&
-      targets[i].arch === process.arch
-    ) {
+    if (targets[i].platform === hostPlatform && targets[i].arch === hostArch) {
       return nodePaths[i];
     }
   }
