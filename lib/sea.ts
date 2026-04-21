@@ -506,31 +506,61 @@ function assertSingleTargetMajor(
  * `EXC_BAD_ACCESS` inside `BlobDeserializer::ReadArithmetic` — see
  * discussion #236.
  *
- * Strategy:
+ * Strategy (all paths guarantee the generator is the same version as the
+ * reader, eliminating patch-version skew):
+ *
  *   1. Prefer a downloaded target binary whose platform & arch match the
- *      host.  It's guaranteed to be the same version as the one we're
- *      injecting the blob into, and it's executable on the host — so the
- *      generator and reader are byte-for-byte version-matched.
- *   2. Fall back to `process.execPath` only for true cross-platform
- *      builds (e.g. Linux host producing Windows SEA) where no downloaded
- *      target is runnable on the host.  Patch-version skew within the
- *      same major is possible here, but there's no alternative — pkg has
- *      no way to produce a host-runnable binary of the exact target
- *      version for a foreign platform.
+ *      host — already downloaded, guaranteed version-matched.
+ *   2. Otherwise (pure cross-platform build, e.g. Linux host producing
+ *      only a macos-arm64 binary), download a host-platform/arch node
+ *      binary at the same node range as the targets and use it purely
+ *      as the generator.
+ *   3. Fall back to `process.execPath` only if the host-matching
+ *      download fails (unsupported host platform such as alpine/musl,
+ *      no network, etc.). This path still has the skew risk and emits
+ *      a warning.
  *
  * All targets share a single node major (enforced by
  * {@link assertSingleTargetMajor}).
  */
-function pickBlobGeneratorBinary(
+async function pickBlobGeneratorBinary(
   targets: (NodeTarget & Partial<Target>)[],
   nodePaths: string[],
-): string {
+  opts: GetNodejsExecutableOptions,
+): Promise<string> {
   for (let i = 0; i < targets.length; i += 1) {
     if (targets[i].platform === hostPlatform && targets[i].arch === hostArch) {
       return nodePaths[i];
     }
   }
-  return process.execPath;
+
+  // No target is runnable on the host. Download a host-platform binary
+  // at the target's node range so the blob generator and the SEA reader
+  // baked into each target share the exact same version — otherwise we
+  // regress into the discussion #236 crash on any host/target patch skew.
+  log.info(
+    `No target matches host ${hostPlatform}-${hostArch}; downloading a ` +
+      `host-platform node binary to generate the SEA blob at the exact ` +
+      `target version (avoids SEA header version skew — see discussion #236).`,
+  );
+  try {
+    const hostGeneratorTarget = {
+      platform: hostPlatform,
+      arch: hostArch,
+      nodeRange: targets[0].nodeRange,
+    } as NodeTarget;
+    return await getNodejsExecutable(hostGeneratorTarget, opts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      `Could not download a host-platform node for SEA blob generation ` +
+        `(${msg}); falling back to process.execPath. If the resulting ` +
+        `binary crashes at startup with EXC_BAD_ACCESS in ` +
+        `node::sea::FindSingleExecutableResource, pin your local node to ` +
+        `the same patch release as the target.`,
+    );
+    return process.execPath;
+  }
 }
 
 /**
@@ -674,7 +704,7 @@ export async function seaEnhanced(
 
     await generateSeaBlob(
       seaConfigFilePath,
-      pickBlobGeneratorBinary(opts.targets, nodePaths),
+      await pickBlobGeneratorBinary(opts.targets, nodePaths, opts),
     );
 
     // Read the blob once and share the buffer across all targets — avoids
@@ -725,7 +755,7 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
 
     await generateSeaBlob(
       seaConfigFilePath,
-      pickBlobGeneratorBinary(opts.targets, nodePaths),
+      await pickBlobGeneratorBinary(opts.targets, nodePaths, opts),
     );
 
     const blobData = await readFile(blobPath);
