@@ -250,6 +250,29 @@ async function getNodeVersion(os: string, arch: string, nodeVersion: string) {
   return latestVersionAndFiles[0];
 }
 
+/**
+ * Resolve the concrete Node.js version (e.g. `v22.22.2`) pkg will use
+ * for `target` — mirrors the version selection done inside
+ * {@link getNodejsExecutable} without performing the download, so
+ * callers can reason about host/target version skew independently of
+ * the download itself.
+ */
+async function resolveTargetNodeVersion(
+  target: NodeTarget,
+  opts: GetNodejsExecutableOptions,
+): Promise<string> {
+  if (opts.useLocalNode) return process.version;
+  if (opts.nodePath) {
+    // A user-supplied binary can be any version — don't assume it
+    // matches the host. Ask it directly.
+    const { stdout } = await execFileAsync(opts.nodePath, ['--version']);
+    return stdout.trim();
+  }
+  const os = getNodeOs(target.platform);
+  const arch = getNodeArch(target.arch);
+  return getNodeVersion(os, arch, target.nodeRange.replace('node', ''));
+}
+
 /** Fetch, validate and extract nodejs binary. Returns a path to it */
 async function getNodejsExecutable(
   target: NodeTarget,
@@ -273,11 +296,7 @@ async function getNodejsExecutable(
   const os = getNodeOs(target.platform);
   const arch = getNodeArch(target.arch);
 
-  const nodeVersion = await getNodeVersion(
-    os,
-    arch,
-    target.nodeRange.replace('node', ''),
-  );
+  const nodeVersion = await resolveTargetNodeVersion(target, opts);
 
   const fileName = `node-${nodeVersion}-${os}-${arch}.${os === 'win' ? 'zip' : 'tar.gz'}`;
 
@@ -515,23 +534,45 @@ function assertSingleTargetMajor(
  *      only a macos-arm64 binary), download a host-platform/arch node
  *      binary at the same node range as the targets and use it purely
  *      as the generator.
- *   3. Fall back to `process.execPath` only if the host-matching
- *      download fails (unsupported host platform such as alpine/musl,
- *      no network, etc.). This path still has the skew risk and emits
- *      a warning.
+ *   3. If the host-platform download fails (unsupported host such as
+ *      alpine/musl, offline, checksum mismatch, …), fall back to
+ *      `process.execPath` only when its version exactly matches the
+ *      resolved target version. Otherwise hard-fail — silently running
+ *      the generator with a skewed node would reintroduce the same
+ *      EXC_BAD_ACCESS this function exists to prevent.
  *
  * All targets share a single node major (enforced by
  * {@link assertSingleTargetMajor}).
  */
+/**
+ * Index into `targets` of the first entry whose platform+arch match
+ * `host`, or -1 when no target is runnable on the host. Exported for
+ * unit testing step 1 of the SEA blob-generator selection without
+ * spinning up a full pkg invocation.
+ */
+export function pickMatchingHostTargetIndex(
+  host: { platform: string; arch: string },
+  targets: readonly { platform: string; arch: string }[],
+): number {
+  return targets.findIndex(
+    (t) => t.platform === host.platform && t.arch === host.arch,
+  );
+}
+
 async function pickBlobGeneratorBinary(
   targets: (NodeTarget & Partial<Target>)[],
   nodePaths: string[],
   opts: GetNodejsExecutableOptions,
 ): Promise<string> {
-  for (let i = 0; i < targets.length; i += 1) {
-    if (targets[i].platform === hostPlatform && targets[i].arch === hostArch) {
-      return nodePaths[i];
-    }
+  const matchIdx = pickMatchingHostTargetIndex(
+    { platform: hostPlatform, arch: hostArch },
+    targets,
+  );
+  if (matchIdx !== -1) {
+    log.debug(
+      `SEA blob generator: host matches ${targets[matchIdx].platform}-${targets[matchIdx].arch} target, reusing its downloaded binary (${nodePaths[matchIdx]}).`,
+    );
+    return nodePaths[matchIdx];
   }
 
   // No target is runnable on the host. Download a host-platform binary
@@ -551,15 +592,33 @@ async function pickBlobGeneratorBinary(
     } as NodeTarget;
     return await getNodejsExecutable(hostGeneratorTarget, opts);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn(
-      `Could not download a host-platform node for SEA blob generation ` +
-        `(${msg}); falling back to process.execPath. If the resulting ` +
-        `binary crashes at startup with EXC_BAD_ACCESS in ` +
-        `node::sea::FindSingleExecutableResource, pin your local node to ` +
-        `the same patch release as the target.`,
+    // Last-resort fallback: process.execPath is only safe when its
+    // version exactly equals the resolved target version. Otherwise we
+    // would silently re-enable the discussion #236 crash.
+    let targetVersion: string | undefined;
+    try {
+      targetVersion = await resolveTargetNodeVersion(targets[0], opts);
+    } catch {
+      // Target version resolution itself failed (e.g. alpine host
+      // resolving a `linuxstatic` target, offline). Treat as unknown —
+      // cannot prove the fallback is safe.
+    }
+
+    if (targetVersion && targetVersion === process.version) {
+      return process.execPath;
+    }
+
+    const reason = err instanceof Error ? err.message : String(err);
+    throw wasReported(
+      `Cannot generate SEA blob: host node ${process.version} differs ` +
+        `from target ${targetVersion ?? '<unknown>'} and the host-platform ` +
+        `download failed (${reason}). Running the generator with a skewed ` +
+        `node would crash the final binary at startup with EXC_BAD_ACCESS ` +
+        `in node::sea::FindSingleExecutableResource (see discussion #236). ` +
+        `Install node ${targetVersion ?? '<target>'} locally (e.g. via nvm) ` +
+        `or pass nodePath pointing to a host-runnable node binary of that ` +
+        `version.`,
     );
-    return process.execPath;
   }
 }
 

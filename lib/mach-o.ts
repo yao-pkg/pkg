@@ -72,14 +72,4 @@ function signMachOExecutable(executable: string) {
   }
 }
 
-function removeMachOExecutableSignature(executable: string) {
-  execFileSync('codesign', ['--remove-signature', executable], {
-    stdio: 'inherit',
-  });
-}
-
-export {
-  patchMachOExecutable,
-  removeMachOExecutableSignature,
-  signMachOExecutable,
-};
+export { patchMachOExecutable, signMachOExecutable };
