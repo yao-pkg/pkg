@@ -14,7 +14,7 @@
   },
   "files": [
     "lib-es5/*.js",
-    "lib-es5/index.d.ts",
+    "lib-es5/*.d.ts",
     "dictionary/*.js",
     "prelude/*.js"
   ],
