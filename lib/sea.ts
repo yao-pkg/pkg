@@ -57,6 +57,35 @@ export type GetNodejsExecutableOptions = {
   nodePath?: string;
 };
 
+/**
+ * Canonical Node.js version string as produced by nodejs.org/dist and
+ * `process.version`: `v<major>.<minor>.<patch>`. Consistently v-prefixed
+ * across every producer in this file — downstream callsites rely on the
+ * prefix to build archive filenames
+ * (`node-v22.22.2-linux-x64.tar.gz`) and to compare against
+ * `process.version`.
+ */
+export type NodeVersion = `v${number}.${number}.${number}`;
+
+/** Node-side OS name (as used in nodejs.org archive URLs). */
+const NODE_OSES = ['darwin', 'linux', 'win'] as const;
+type NodeOs = (typeof NODE_OSES)[number];
+
+/** Node-side arch name (as used in nodejs.org archive URLs). */
+const NODE_ARCHS = [
+  'x64',
+  'arm64',
+  'armv7l',
+  'ppc64',
+  's390x',
+  'riscv64',
+  'loong64',
+] as const;
+type NodeArch = (typeof NODE_ARCHS)[number];
+
+/** pkg convention: `nodeRange` is `node<bare-semver-fragment>` (e.g. `node22`, `node22.22.2`). */
+type NodeRange = `node${string}`;
+
 export type SeaConfig = {
   disableExperimentalSEAWarning: boolean;
   useSnapshot: boolean; // must be set to false when cross-compiling
@@ -89,7 +118,7 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
 }
 
 /** Extract node executable from the archive */
-async function extract(os: string, archivePath: string): Promise<string> {
+async function extract(os: NodeOs, archivePath: string): Promise<string> {
   const nodeDir = basename(archivePath, os === 'win' ? '.zip' : '.tar.gz');
   const archiveDir = dirname(archivePath);
   let nodePath = '';
@@ -163,42 +192,39 @@ async function verifyChecksum(
 }
 
 /** Get the node os based on target platform */
-function getNodeOs(platform: string) {
-  const allowedOSs = ['darwin', 'linux', 'win'];
+function getNodeOs(platform: string): NodeOs {
   const platformsMap: Record<string, string> = {
     macos: 'darwin',
   };
 
   const validatedPlatform = platformsMap[platform] || platform;
 
-  if (!allowedOSs.includes(validatedPlatform)) {
+  if (!(NODE_OSES as readonly string[]).includes(validatedPlatform)) {
     throw new Error(`Unsupported OS: ${platform}`);
   }
 
-  return validatedPlatform;
+  return validatedPlatform as NodeOs;
 }
 
 /** Get the node arch based on target arch */
-function getNodeArch(arch: string) {
-  const allowedArchs = [
-    'x64',
-    'arm64',
-    'armv7l',
-    'ppc64',
-    's390x',
-    'riscv64',
-    'loong64',
-  ];
-
-  if (!allowedArchs.includes(arch)) {
+function getNodeArch(arch: string): NodeArch {
+  if (!(NODE_ARCHS as readonly string[]).includes(arch)) {
     throw new Error(`Unsupported architecture: ${arch}`);
   }
 
-  return arch;
+  return arch as NodeArch;
 }
 
-/** Get latest node version based on the provided partial version */
-async function getNodeVersion(os: string, arch: string, nodeVersion: string) {
+/**
+ * Get latest Node.js version covering a partial range. Accepts `22`,
+ * `22.22`, or `22.22.2`; returns the canonical v-prefixed triple the
+ * rest of the file expects.
+ */
+async function getNodeVersion(
+  os: NodeOs,
+  arch: NodeArch,
+  nodeVersion: string,
+): Promise<NodeVersion> {
   // validate nodeVersion using regex. Allowed formats: 16, 16.0, 16.0.0
   const regex = /^\d{1,2}(\.\d{1,2}){0,2}$/;
   if (!regex.test(nodeVersion)) {
@@ -212,7 +238,7 @@ async function getNodeVersion(os: string, arch: string, nodeVersion: string) {
   }
 
   if (parts.length === 3) {
-    return `v${nodeVersion}`;
+    return `v${nodeVersion}` as NodeVersion;
   }
 
   let url;
@@ -232,22 +258,23 @@ async function getNodeVersion(os: string, arch: string, nodeVersion: string) {
     throw new Error('Failed to fetch node versions');
   }
 
-  const versions = await response.json();
+  const versions = (await response.json()) as {
+    version: string;
+    files: string[];
+  }[];
 
   const nodeOS = os === 'darwin' ? 'osx' : os;
-  const latestVersionAndFiles = versions
-    .map((v: { version: string; files: string[] }) => [v.version, v.files])
-    .find(
-      ([v, files]: [string, string[]]) =>
-        v.startsWith(`v${nodeVersion}`) &&
-        files.find((f: string) => f.startsWith(`${nodeOS}-${arch}`)),
-    );
+  const latest = versions.find(
+    (v) =>
+      v.version.startsWith(`v${nodeVersion}`) &&
+      v.files.some((f) => f.startsWith(`${nodeOS}-${arch}`)),
+  );
 
-  if (!latestVersionAndFiles) {
+  if (!latest) {
     throw new Error(`Node version ${nodeVersion} not found`);
   }
 
-  return latestVersionAndFiles[0];
+  return latest.version as NodeVersion;
 }
 
 /**
@@ -260,13 +287,13 @@ async function getNodeVersion(os: string, arch: string, nodeVersion: string) {
 async function resolveTargetNodeVersion(
   target: NodeTarget,
   opts: GetNodejsExecutableOptions,
-): Promise<string> {
-  if (opts.useLocalNode) return process.version;
+): Promise<NodeVersion> {
+  if (opts.useLocalNode) return process.version as NodeVersion;
   if (opts.nodePath) {
     // A user-supplied binary can be any version — don't assume it
     // matches the host. Ask it directly.
     const { stdout } = await execFileAsync(opts.nodePath, ['--version']);
-    return stdout.trim();
+    return stdout.trim() as NodeVersion;
   }
   const os = getNodeOs(target.platform);
   const arch = getNodeArch(target.arch);
@@ -277,7 +304,7 @@ async function resolveTargetNodeVersion(
 async function getNodejsExecutable(
   target: NodeTarget,
   opts: GetNodejsExecutableOptions,
-) {
+): Promise<string> {
   if (opts.nodePath) {
     // check if the nodePath exists
     if (!(await exists(opts.nodePath))) {
@@ -343,7 +370,7 @@ async function bake(
   nodePath: string,
   target: NodeTarget & Partial<Target>,
   blobData: Buffer,
-) {
+): Promise<void> {
   const outPath = resolve(process.cwd(), target.output as string);
 
   log.info(
@@ -399,7 +426,7 @@ export async function signMacOSIfNeeded(
   target: NodeTarget & Partial<Target>,
   signature?: boolean,
   isSea?: boolean,
-) {
+): Promise<void> {
   if (!signature || target.platform !== 'macos') return;
 
   if (!isSea) {
@@ -460,7 +487,7 @@ async function withSeaTmpDir<T>(
  * Host-only check — target Node majors are validated via
  * {@link resolveMinTargetMajor}.
  */
-function assertHostSeaNodeVersion() {
+function assertHostSeaNodeVersion(): number {
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
   if (nodeMajor < 22) {
     throw new Error(
@@ -514,6 +541,21 @@ function assertSingleTargetMajor(
 }
 
 /**
+ * Index into `targets` of the first entry whose platform+arch match
+ * `host`, or -1 when no target is runnable on the host. Exported for
+ * unit testing step 1 of the SEA blob-generator selection without
+ * spinning up a full pkg invocation.
+ */
+export function pickMatchingHostTargetIndex(
+  host: { platform: string; arch: string },
+  targets: readonly { platform: string; arch: string }[],
+): number {
+  return targets.findIndex(
+    (t) => t.platform === host.platform && t.arch === host.arch,
+  );
+}
+
+/**
  * Pick the node binary used to generate the SEA prep blob.
  *
  * The blob layout is node-version specific — not just major-version
@@ -544,21 +586,6 @@ function assertSingleTargetMajor(
  * All targets share a single node major (enforced by
  * {@link assertSingleTargetMajor}).
  */
-/**
- * Index into `targets` of the first entry whose platform+arch match
- * `host`, or -1 when no target is runnable on the host. Exported for
- * unit testing step 1 of the SEA blob-generator selection without
- * spinning up a full pkg invocation.
- */
-export function pickMatchingHostTargetIndex(
-  host: { platform: string; arch: string },
-  targets: readonly { platform: string; arch: string }[],
-): number {
-  return targets.findIndex(
-    (t) => t.platform === host.platform && t.arch === host.arch,
-  );
-}
-
 async function pickBlobGeneratorBinary(
   targets: (NodeTarget & Partial<Target>)[],
   nodePaths: string[],
@@ -599,10 +626,14 @@ async function pickBlobGeneratorBinary(
     // nodeRange must be `node<bare>` so
     // getNodejsExecutable → getNodeVersion's `replace('node','')` + regex
     // sees a clean `22.22.2` (v-prefix would fail the validator).
+    // `hostPlatform` from pkg-fetch is wider than NodeTarget.platform
+    // (e.g. 'alpine', 'linuxstatic'); getNodejsExecutable only reads
+    // platform/arch to route the download, so the assertion is safe.
+    const nodeRange: NodeRange = `node${targetVersion.slice(1)}`;
     const hostGeneratorTarget = {
       platform: hostPlatform,
       arch: hostArch,
-      nodeRange: `node${targetVersion.replace(/^v/, '')}`,
+      nodeRange,
     } as NodeTarget;
     // Drop user-supplied nodePath / useLocalNode: they'd short-circuit
     // the download in getNodejsExecutable and reintroduce version skew.
@@ -637,7 +668,7 @@ async function pickBlobGeneratorBinary(
 async function generateSeaBlob(
   seaConfigFilePath: string,
   generatorBinary: string,
-) {
+): Promise<void> {
   log.info('Generating the blob...');
   await execFileAsync(generatorBinary, [
     '--experimental-sea-config',
