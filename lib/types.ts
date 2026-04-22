@@ -61,6 +61,37 @@ export const platform = {
   linux: 'linux',
 };
 
+/**
+ * Canonical Node.js version string as produced by nodejs.org/dist and
+ * `process.version`: `v<major>.<minor>.<patch>`. Always v-prefixed —
+ * downstream consumers rely on the prefix to build archive filenames
+ * (`node-v22.22.2-linux-x64.tar.gz`) and to compare against
+ * `process.version`.
+ */
+export type NodeVersion = `v${number}.${number}.${number}`;
+
+/**
+ * pkg's `nodeRange` format: `node<bare-semver-fragment>` (e.g. `node22`,
+ * `node22.22.2`). Matches `NodeTarget.nodeRange` by convention.
+ */
+export type NodeRange = `node${string}`;
+
+/** OS segment used in nodejs.org archive filenames. */
+export const NODE_OSES = ['darwin', 'linux', 'win'] as const;
+export type NodeOs = (typeof NODE_OSES)[number];
+
+/** Arch segment used in nodejs.org archive filenames. */
+export const NODE_ARCHS = [
+  'x64',
+  'arm64',
+  'armv7l',
+  'ppc64',
+  's390x',
+  'riscv64',
+  'loong64',
+] as const;
+export type NodeArch = (typeof NODE_ARCHS)[number];
+
 export interface NodeTarget {
   nodeRange: string;
   arch: string;

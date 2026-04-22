@@ -18,7 +18,17 @@ import { homedir, tmpdir } from 'os';
 import unzipper from 'unzipper';
 import { extract as tarExtract } from 'tar';
 import { log, wasReported } from './log';
-import { NodeTarget, Target, SeaEnhancedOptions } from './types';
+import {
+  NodeTarget,
+  Target,
+  SeaEnhancedOptions,
+  NodeVersion,
+  NodeRange,
+  NodeOs,
+  NodeArch,
+  NODE_OSES,
+  NODE_ARCHS,
+} from './types';
 import { patchMachOExecutable, signMachOExecutable } from './mach-o';
 import walk from './walker';
 import refine from './refiner';
@@ -56,35 +66,6 @@ export type GetNodejsExecutableOptions = {
   useLocalNode?: boolean;
   nodePath?: string;
 };
-
-/**
- * Canonical Node.js version string as produced by nodejs.org/dist and
- * `process.version`: `v<major>.<minor>.<patch>`. Consistently v-prefixed
- * across every producer in this file — downstream callsites rely on the
- * prefix to build archive filenames
- * (`node-v22.22.2-linux-x64.tar.gz`) and to compare against
- * `process.version`.
- */
-export type NodeVersion = `v${number}.${number}.${number}`;
-
-/** Node-side OS name (as used in nodejs.org archive URLs). */
-const NODE_OSES = ['darwin', 'linux', 'win'] as const;
-type NodeOs = (typeof NODE_OSES)[number];
-
-/** Node-side arch name (as used in nodejs.org archive URLs). */
-const NODE_ARCHS = [
-  'x64',
-  'arm64',
-  'armv7l',
-  'ppc64',
-  's390x',
-  'riscv64',
-  'loong64',
-] as const;
-type NodeArch = (typeof NODE_ARCHS)[number];
-
-/** pkg convention: `nodeRange` is `node<bare-semver-fragment>` (e.g. `node22`, `node22.22.2`). */
-type NodeRange = `node${string}`;
 
 export type SeaConfig = {
   disableExperimentalSEAWarning: boolean;
