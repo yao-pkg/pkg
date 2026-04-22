@@ -76,6 +76,7 @@ const npmTests = [
   // SEA tests — they ignore the target argument (always build for the host
   // Node version), so running them in both test:22 and test:24 is redundant.
   'test-00-sea',
+  'test-00-sea-picker',
   'test-85-sea-enhanced',
   'test-86-sea-assets',
   'test-87-sea-esm',
