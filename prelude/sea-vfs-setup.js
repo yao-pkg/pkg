@@ -195,13 +195,12 @@ perf.end('manifest parse');
 // match the non-slashed manifest keys.  The root '/' is preserved as-is.
 // Mirrors removeTrailingSlashes() in lib/common.ts, which handles the same
 // case for the classic (non-SEA) bootstrap.
+//
+// Only '/' is checked: the Windows branch below normalizes '\' to '/' before
+// calling this, so by the time we reach here every separator is a '/'.
 function _stripTrailingSeps(p) {
   var i = p.length;
-  while (i > 1) {
-    var c = p.charCodeAt(i - 1);
-    if (c !== 47 /* / */ && c !== 92 /* \\ */) break;
-    i--;
-  }
+  while (i > 1 && p.charCodeAt(i - 1) === 47 /* / */) i--;
   return i === p.length ? p : p.slice(0, i);
 }
 var toManifestKey =
