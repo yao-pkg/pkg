@@ -73,8 +73,17 @@ const npmTests = [
   'test-99-#1135',
   'test-99-#1191',
   'test-99-#1192',
+  // SEA tests — they ignore the target argument (always build for the host
+  // Node version), so running them in both test:22 and test:24 is redundant.
   'test-00-sea',
   'test-00-sea-picker',
+  'test-85-sea-enhanced',
+  'test-86-sea-assets',
+  'test-87-sea-esm',
+  'test-89-sea-fs-ops',
+  'test-90-sea-worker-threads',
+  'test-91-sea-esm-entry',
+  'test-92-sea-tla',
 ];
 
 if (testFilter) {
@@ -176,17 +185,7 @@ async function run() {
   let failed = [];
   const start = Date.now();
 
-  function addLog(log, isError = false) {
-    clearLastLine();
-    if (isError) {
-      console.error(log);
-    } else {
-      console.log(log);
-    }
-  }
-
-  const promises = files.sort().map((file) => async () => {
-    file = path.resolve(file);
+  for (const file of files.sort().map((f) => path.resolve(f))) {
     const startTest = Date.now();
     try {
       if (!isCI && process.stdout.isTTY) {
@@ -194,7 +193,8 @@ async function run() {
       }
       await runTest(file);
       ok++;
-      addLog(
+      clearLastLine();
+      console.log(
         pc.green(`✔ ${file} ok - ${msToHumanDuration(Date.now() - startTest)}`),
       );
     } catch (error) {
@@ -202,19 +202,15 @@ async function run() {
         file,
         output: error.logOutput,
       });
-      addLog(
+      clearLastLine();
+      console.error(
         pc.red(
           `✖ ${file} FAILED (in ${target}) - ${msToHumanDuration(Date.now() - startTest)}\n${error.message}`,
         ),
-        true,
       );
     }
 
     done++;
-  });
-
-  for (let i = 0; i < promises.length; i++) {
-    await promises[i]();
   }
 
   const end = Date.now();

@@ -40,3 +40,26 @@ try {
 } catch (e) {
   console.log('read-missing:' + e.code);
 }
+
+// Regression: directory lookups with trailing slash must resolve (issue #260).
+// Libraries like nestjs-i18n append '/' to __dirname; classic pkg strips it
+// via normalizePath, SEA must do the same in the manifest-key normalizer.
+const dirSlash = __dirname + '/';
+console.log('exists-dir-slash:' + fs.existsSync(dirSlash));
+console.log('stat-dir-slash-isDir:' + fs.statSync(dirSlash).isDirectory());
+console.log('readdir-dir-slash:' + fs.readdirSync(dirSlash).sort().join(','));
+try {
+  fs.accessSync(dirSlash);
+  console.log('accessSync-dir-slash:ok');
+} catch (e) {
+  console.log('accessSync-dir-slash:' + e.code);
+}
+
+require('fs/promises')
+  .access(dirSlash)
+  .then(function () {
+    console.log('access-promise-dir-slash:ok');
+  })
+  .catch(function (e) {
+    console.log('access-promise-dir-slash:' + e.code);
+  });

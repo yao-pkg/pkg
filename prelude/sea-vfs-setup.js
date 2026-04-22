@@ -183,17 +183,34 @@ try {
 }
 perf.end('manifest parse');
 
-// Manifest keys are always POSIX (forward slashes, no drive letter).  Gate
-// the regex on platform: on POSIX hosts paths already match, so the replace
-// is a pure allocation and we skip it (~30K calls per startup on large
-// projects).  On Windows, backslash normalization is mandatory.
+// Manifest keys are always POSIX (forward slashes, no drive letter) and
+// carry no trailing separator.  Gate the backslash regex on platform: on
+// POSIX hosts paths already match, so the replace is a pure allocation and
+// we skip it (~30K calls per startup on large projects).  On Windows,
+// backslash normalization is mandatory.
+//
+// Trailing separators are stripped on both platforms so lookups with paths
+// like `/snapshot/.../dist/` — common when a path is joined with a blank
+// segment or produced by libraries that append `/` to directory paths —
+// match the non-slashed manifest keys.  The root '/' is preserved as-is.
+// Mirrors removeTrailingSlashes() in lib/common.ts, which handles the same
+// case for the classic (non-SEA) bootstrap.
+function _stripTrailingSeps(p) {
+  var i = p.length;
+  while (i > 1) {
+    var c = p.charCodeAt(i - 1);
+    if (c !== 47 /* / */ && c !== 92 /* \\ */) break;
+    i--;
+  }
+  return i === p.length ? p : p.slice(0, i);
+}
 var toManifestKey =
   process.platform === 'win32'
     ? function (p) {
-        return p.replace(/\\/g, '/');
+        return _stripTrailingSeps(p.replace(/\\/g, '/'));
       }
     : function (p) {
-        return p;
+        return _stripTrailingSeps(p);
       };
 
 function _enoent(syscall, filePath) {

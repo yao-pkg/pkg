@@ -102,42 +102,52 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
 async function extract(os: NodeOs, archivePath: string): Promise<string> {
   const nodeDir = basename(archivePath, os === 'win' ? '.zip' : '.tar.gz');
   const archiveDir = dirname(archivePath);
-  let nodePath = '';
+  const nodePath =
+    os === 'win'
+      ? join(archiveDir, `${nodeDir}.exe`)
+      : join(archiveDir, nodeDir, 'bin', 'node');
+
+  // Skip extraction when a sentinel marks the previous extract as complete.
+  // Both tar and unzipper write to the final path directly, so a crash
+  // mid-extract would otherwise leave a truncated binary that silently
+  // poisons future runs. The sentinel is only written after extraction
+  // succeeds, so its absence forces a re-extract. We also require the
+  // binary itself to be present — if a user or cleanup tool removed the
+  // extracted binary, returning a stale `nodePath` would surface as a
+  // confusing ENOENT at bake() time.
+  const sentinel = `${nodePath}.ok`;
+  if ((await exists(sentinel)) && (await exists(nodePath))) {
+    return nodePath;
+  }
+
+  // Clear any partial output or stale sentinel from a previously
+  // interrupted extract or out-of-band cache cleanup.
+  await rm(nodePath, { force: true });
+  await rm(sentinel, { force: true });
 
   if (os === 'win') {
-    // use unzipper to extract the archive
     const { files } = await unzipper.Open.file(archivePath);
     const nodeBinPath = `${nodeDir}/node.exe`;
-
     const nodeBin = files.find((file) => file.path === nodeBinPath);
 
     if (!nodeBin) {
       throw new Error('Node executable not found in the archive');
     }
 
-    nodePath = join(archiveDir, `${nodeDir}.exe`);
-
-    // extract the node executable
     await pipeline(nodeBin.stream(), createWriteStream(nodePath));
   } else {
-    const nodeBinPath = `${nodeDir}/bin/node`;
-
-    // use tar to extract the archive
     await tarExtract({
       file: archivePath,
       cwd: archiveDir,
-      filter: (path) => path === nodeBinPath,
+      filter: (path) => path === `${nodeDir}/bin/node`,
     });
-
-    // check if the node executable exists
-    nodePath = join(archiveDir, nodeBinPath);
   }
 
-  // check if the node executable exists
   if (!(await exists(nodePath))) {
     throw new Error('Node executable not found in the archive');
   }
 
+  await writeFile(sentinel, '');
   return nodePath;
 }
 
@@ -330,15 +340,24 @@ async function getNodejsExecutable(
   }
 
   const filePath = join(downloadDir, fileName);
+  const archiveSentinel = `${filePath}.ok`;
 
-  // skip download if file exists
-  if (!(await exists(filePath))) {
+  // Skip download + checksum only when a sentinel marks the previous run as
+  // verified. downloadFile writes straight to filePath without tmp+rename,
+  // so an interrupted download would otherwise leave a partial archive that
+  // later skips checksum verification and fails cryptically at extract time.
+  if (!((await exists(archiveSentinel)) && (await exists(filePath)))) {
+    // Clear any partial download or stale sentinel.
+    await rm(filePath, { force: true });
+    await rm(archiveSentinel, { force: true });
+
     log.info(`Downloading nodejs executable from ${url}...`);
     await downloadFile(url, filePath);
-  }
+    log.info(`Verifying checksum of ${fileName}`);
+    await verifyChecksum(filePath, checksumUrl, fileName);
 
-  log.info(`Verifying checksum of ${fileName}`);
-  await verifyChecksum(filePath, checksumUrl, fileName);
+    await writeFile(archiveSentinel, '');
+  }
 
   log.info(`Extracting node binary from ${fileName}`);
   const nodePath = await extract(os, filePath);

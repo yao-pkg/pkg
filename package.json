@@ -1,6 +1,6 @@
 {
   "name": "@yao-pkg/pkg",
-  "version": "6.17.0",
+  "version": "6.18.1",
   "description": "Package your Node.js project into an executable",
   "main": "lib-es5/index.js",
   "license": "MIT",
@@ -14,7 +14,7 @@
   },
   "files": [
     "lib-es5/*.js",
-    "lib-es5/index.d.ts",
+    "lib-es5/*.d.ts",
     "dictionary/*.js",
     "prelude/*.js"
   ],

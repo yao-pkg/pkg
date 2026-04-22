@@ -1,5 +1,22 @@
 # Changelog
 
+## [6.18.1](https://github.com/yao-pkg/pkg/compare/v6.18.0...v6.18.1) (2026-04-21)
+
+### Bug Fixes
+
+- **pkg:** ship all .d.ts files in npm package ([#258](https://github.com/yao-pkg/pkg/issues/258)) ([7e10ce2](https://github.com/yao-pkg/pkg/commit/7e10ce2123b26d75afc6d4de24a02e272fa628cf))
+
+## [6.18.0](https://github.com/yao-pkg/pkg/compare/v6.17.0...v6.18.0) (2026-04-20)
+
+### Features
+
+- **api:** typed options object for exec() ([#253](https://github.com/yao-pkg/pkg/issues/253)) ([f061f72](https://github.com/yao-pkg/pkg/commit/f061f7250915e1fa176a9e5bceb7be34bd0edac2)), closes [#242](https://github.com/yao-pkg/pkg/issues/242)
+- auto-discover .pkgrc / pkg.config.{js,cjs,mjs} ([#254](https://github.com/yao-pkg/pkg/issues/254)) ([53ce68b](https://github.com/yao-pkg/pkg/commit/53ce68be30efa2a34a3d8324111bcf987e9460c2)), closes [#238](https://github.com/yao-pkg/pkg/issues/238)
+
+### Documentation
+
+- tighten guide pages — remove AI-slop headings and verbose framing ([cc331fa](https://github.com/yao-pkg/pkg/commit/cc331fa161216ef0b10f8364d04d9fb3694ea886))
+
 ## [6.17.0](https://github.com/yao-pkg/pkg/compare/v6.16.0...v6.17.0) (2026-04-18)
 
 ### Features
