@@ -34,8 +34,10 @@ assert.strictEqual(
   1,
 );
 
-// Pure cross-platform build (Linux host, macOS-only targets) — no match,
-// forcing the host-platform download fallback in pickBlobGeneratorBinary.
+// Pure cross-platform build (Linux host, no Linux target in the list) —
+// no platform match, forcing the host-platform download fallback in
+// pickBlobGeneratorBinary. Multiple non-host targets included to make
+// sure none of them accidentally match.
 assert.strictEqual(
   pickMatchingHostTargetIndex({ platform: 'linux', arch: 'x64' }, [
     { platform: 'macos', arch: 'arm64' },

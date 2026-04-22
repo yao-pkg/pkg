@@ -575,49 +575,50 @@ async function pickBlobGeneratorBinary(
     return nodePaths[matchIdx];
   }
 
-  // No target is runnable on the host. Download a host-platform binary
-  // at the target's node range so the blob generator and the SEA reader
-  // baked into each target share the exact same version — otherwise we
-  // regress into the discussion #236 crash on any host/target patch skew.
+  // No target is runnable on the host. Resolve the target's concrete
+  // patch version first, then pin a host-platform download to that exact
+  // version so the blob generator and the SEA reader baked into each
+  // target share the same patch level — otherwise we regress into the
+  // discussion #236 crash on any host/target patch skew. Resolving
+  // against target's platform/arch (not host's) is what pins the
+  // version: host and target could otherwise land on different latest
+  // patches (unofficial builds, arch-specific availability).
+  const targetVersion = await resolveTargetNodeVersion(targets[0], opts);
+
+  if (targetVersion === process.version) {
+    // Host already runs the exact target version; no download needed.
+    return process.execPath;
+  }
+
   log.info(
     `No target matches host ${hostPlatform}-${hostArch}; downloading a ` +
-      `host-platform node binary to generate the SEA blob at the exact ` +
-      `target version (avoids SEA header version skew — see discussion #236).`,
+      `host-platform node ${targetVersion} to generate the SEA blob ` +
+      `(avoids SEA header version skew — see discussion #236).`,
   );
   try {
     const hostGeneratorTarget = {
       platform: hostPlatform,
       arch: hostArch,
-      nodeRange: targets[0].nodeRange,
+      nodeRange: targetVersion,
     } as NodeTarget;
-    return await getNodejsExecutable(hostGeneratorTarget, opts);
+    // Drop user-supplied nodePath / useLocalNode: they'd short-circuit
+    // the download in getNodejsExecutable and reintroduce version skew.
+    const downloadOpts: GetNodejsExecutableOptions = {
+      ...opts,
+      nodePath: undefined,
+      useLocalNode: false,
+    };
+    return await getNodejsExecutable(hostGeneratorTarget, downloadOpts);
   } catch (err) {
-    // Last-resort fallback: process.execPath is only safe when its
-    // version exactly equals the resolved target version. Otherwise we
-    // would silently re-enable the discussion #236 crash.
-    let targetVersion: string | undefined;
-    try {
-      targetVersion = await resolveTargetNodeVersion(targets[0], opts);
-    } catch {
-      // Target version resolution itself failed (e.g. alpine host
-      // resolving a `linuxstatic` target, offline). Treat as unknown —
-      // cannot prove the fallback is safe.
-    }
-
-    if (targetVersion && targetVersion === process.version) {
-      return process.execPath;
-    }
-
     const reason = err instanceof Error ? err.message : String(err);
     throw wasReported(
       `Cannot generate SEA blob: host node ${process.version} differs ` +
-        `from target ${targetVersion ?? '<unknown>'} and the host-platform ` +
-        `download failed (${reason}). Running the generator with a skewed ` +
-        `node would crash the final binary at startup with EXC_BAD_ACCESS ` +
-        `in node::sea::FindSingleExecutableResource (see discussion #236). ` +
-        `Install node ${targetVersion ?? '<target>'} locally (e.g. via nvm) ` +
-        `or pass nodePath pointing to a host-runnable node binary of that ` +
-        `version.`,
+        `from target ${targetVersion} and the host-platform download ` +
+        `failed (${reason}). Running the generator with a skewed node ` +
+        `would crash the final binary at startup with EXC_BAD_ACCESS in ` +
+        `node::sea::FindSingleExecutableResource (see discussion #236). ` +
+        `Install node ${targetVersion} locally (e.g. via nvm) or pass ` +
+        `nodePath pointing to a host-runnable node binary of that version.`,
     );
   }
 }
