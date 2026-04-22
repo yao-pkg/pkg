@@ -1,5 +1,12 @@
 # Changelog
 
+## [6.18.2](https://github.com/yao-pkg/pkg/compare/v6.18.1...v6.18.2) (2026-04-22)
+
+### Bug Fixes
+
+- **sea:** match blob generator to target Node version ([#247](https://github.com/yao-pkg/pkg/issues/247)) ([ad2a336](https://github.com/yao-pkg/pkg/commit/ad2a33684b4cf217c0dff3296e0190962badbeb7)), closes [#236](https://github.com/yao-pkg/pkg/issues/236) [#236](https://github.com/yao-pkg/pkg/issues/236) [#236](https://github.com/yao-pkg/pkg/issues/236) [#236](https://github.com/yao-pkg/pkg/issues/236) [#236](https://github.com/yao-pkg/pkg/issues/236) [#236](https://github.com/yao-pkg/pkg/issues/236) [#236](https://github.com/yao-pkg/pkg/issues/236)
+- **sea:** strip trailing slashes in manifest key lookup ([#261](https://github.com/yao-pkg/pkg/issues/261)) ([af0c086](https://github.com/yao-pkg/pkg/commit/af0c0863f258a27dfabf3505d539d7087cb0a124))
+
 ## [6.18.1](https://github.com/yao-pkg/pkg/compare/v6.18.0...v6.18.1) (2026-04-21)
 
 ### Bug Fixes
