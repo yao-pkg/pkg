@@ -31,7 +31,12 @@ const expectedOutput =
   'readdir:data.json,index.js,package.json\n' +
   'readFile:ok\n' +
   'stat-missing:ENOENT\n' +
-  'read-missing:ENOENT\n';
+  'read-missing:ENOENT\n' +
+  'exists-dir-slash:true\n' +
+  'stat-dir-slash-isDir:true\n' +
+  'readdir-dir-slash:data.json,index.js,package.json\n' +
+  'accessSync-dir-slash:ok\n' +
+  'access-promise-dir-slash:ok\n';
 
 utils.assertSeaOutput(testName, expectedOutput);
 
