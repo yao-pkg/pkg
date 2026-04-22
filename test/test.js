@@ -74,6 +74,7 @@ const npmTests = [
   'test-99-#1191',
   'test-99-#1192',
   'test-00-sea',
+  'test-00-sea-picker',
 ];
 
 if (testFilter) {

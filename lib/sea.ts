@@ -212,7 +212,7 @@ async function getNodeVersion(os: string, arch: string, nodeVersion: string) {
   }
 
   if (parts.length === 3) {
-    return nodeVersion;
+    return `v${nodeVersion}`;
   }
 
   let url;
@@ -596,10 +596,13 @@ async function pickBlobGeneratorBinary(
       `(avoids SEA header version skew — see discussion #236).`,
   );
   try {
+    // nodeRange must be `node<bare>` so
+    // getNodejsExecutable → getNodeVersion's `replace('node','')` + regex
+    // sees a clean `22.22.2` (v-prefix would fail the validator).
     const hostGeneratorTarget = {
       platform: hostPlatform,
       arch: hostArch,
-      nodeRange: targetVersion,
+      nodeRange: `node${targetVersion.replace(/^v/, '')}`,
     } as NodeTarget;
     // Drop user-supplied nodePath / useLocalNode: they'd short-circuit
     // the download in getNodejsExecutable and reintroduce version skew.
