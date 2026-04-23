@@ -284,11 +284,28 @@ function parseCliInput(argv: string[]): ParsedInput {
     config: v.config,
     output: v.output,
     outputPath: v['out-path'] ?? v.outdir ?? v['out-dir'],
-    // `target` (short -t) and `targets` accepted as aliases; collapse.
-    targets: v.targets ?? v.target,
+    targets: resolveTargetAlias(v, parsed.tokens!),
     build: v.build,
     flags,
   };
+}
+
+// `target` (short `-t`) and `targets` are aliases; when both appear pick the
+// last-specified value by walking the token stream so CLI order wins (matches
+// typical "last flag wins" behavior).
+function resolveTargetAlias(
+  values: CliValues,
+  tokens: ParseArgsTokens,
+): string | undefined {
+  if (values.target === undefined) return values.targets;
+  if (values.targets === undefined) return values.target;
+  for (let i = tokens.length - 1; i >= 0; i -= 1) {
+    const t = tokens[i];
+    if (t.kind !== 'option') continue;
+    if (t.name === 'target') return values.target;
+    if (t.name === 'targets') return values.targets;
+  }
+  return values.targets;
 }
 
 function parseOptionsInput(options: PkgExecOptions): ParsedInput {
@@ -401,6 +418,14 @@ export interface ResolvedFlags {
 // cleaned string[]. An empty-string CLI (`--options ""`) counts as "user
 // explicitly cleared the list" — it wins over config but collapses to
 // `undefined` so callers treat it the same as unset.
+function toStringList(v: unknown): string | string[] | undefined {
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v) && v.every((x) => typeof x === 'string')) {
+    return v as string[];
+  }
+  return undefined;
+}
+
 function resolveList(
   cli: string | undefined,
   cfg: string | string[] | undefined,
@@ -442,9 +467,7 @@ export function resolveFlags(raw: RawFlags, pkg: PkgOptions): ResolvedFlags {
       const rawCfg = pkg[s.cfg];
       out[s.resolved] = resolveList(
         typeof rawCli === 'string' ? rawCli : undefined,
-        typeof rawCfg === 'string' || Array.isArray(rawCfg)
-          ? rawCfg
-          : undefined,
+        toStringList(rawCfg),
       );
     } else {
       const cli = raw[s.cli];

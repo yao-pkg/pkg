@@ -44,7 +44,13 @@ export interface PkgOptions {
   log?: (logger: typeof log, context: Record<string, string>) => void;
   assets?: string[];
   ignore?: string[];
-  deployFiles?: string[];
+  /**
+   * Files that must be shipped next to the executable instead of bundled.
+   * Each entry is a tuple `[from, to]` or `[from, to, 'directory']` where
+   * `from` is the source path (relative to the package) and `to` is the
+   * destination path relative to the output binary.
+   */
+  deployFiles?: Array<[string, string] | [string, string, 'directory']>;
   patches?: Patches;
   dictionary?: ConfigDictionary;
   targets?: string | string[];

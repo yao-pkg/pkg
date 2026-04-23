@@ -1,10 +1,11 @@
 'use strict';
 
+// Pull in a couple of packages so the compression test has real payload
+// in the snapshot VFS — the algorithm ratios collapse on trivial inputs.
+require('picomatch');
+require('picocolors');
+
 /* eslint-disable no-unused-vars */
-
-const m = require('picomatch');
-const pc = require('picocolors');
-
 const loremIpsum =
   'Unus audio pluribus sibi quibusdam amicitias habere qua satis molestum sapientes molestum est vel frui non pluribus nimias possit quam esse sollicitum adducas persequantur esse audio nihil sollicitum laxissimas enim rerum vel non ad tamquam habitos implicari placuisse quibusdam nihil.';
 const loremIpsum2 =
