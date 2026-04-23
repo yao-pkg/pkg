@@ -868,11 +868,17 @@ function resolveTargetList(
 ): NodeTarget[] {
   let spec: string[] = [];
   if (cliTargets) {
-    spec = cliTargets.split(',').filter(Boolean);
+    spec = cliTargets
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   } else if (pkg.targets) {
     spec = Array.isArray(pkg.targets)
-      ? pkg.targets
-      : String(pkg.targets).split(',').filter(Boolean);
+      ? pkg.targets.map((s) => s.trim()).filter(Boolean)
+      : String(pkg.targets)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
   }
 
   let targets = parseTargets(spec);
