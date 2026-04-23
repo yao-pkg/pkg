@@ -788,7 +788,11 @@ export async function resolveConfig(
     inputJson,
   );
 
-  const pkg: PkgOptions = configJson?.pkg ?? inputJson?.pkg ?? {};
+  const rawPkg = configJson?.pkg ?? inputJson?.pkg ?? {};
+  if (typeof rawPkg !== 'object' || rawPkg === null || Array.isArray(rawPkg)) {
+    throw wasReported('pkg config: "pkg" must be an object');
+  }
+  const pkg = rawPkg as PkgOptions;
   const flags = resolveFlags(parsed.flags, pkg);
 
   const { output, autoOutput } = resolveOutput(

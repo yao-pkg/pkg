@@ -2,7 +2,7 @@
 
 /* eslint-disable no-unused-vars */
 
-const m = require('minimist');
+const m = require('picomatch');
 const pc = require('picocolors');
 
 const loremIpsum =

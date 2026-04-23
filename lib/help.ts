@@ -23,11 +23,12 @@ export default function help() {
     --fallback-to-source if bytecode generation fails for a file, ship it as plain source instead of skipping it
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli, GZip, or Zstd (Zstd requires Node.js >= 22.15)
+    --no-signature       skip macOS binary signing [default: sign]
     --sea                (Experimental) compile give file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
 
   All build-shaping flags above (compress, fallback-to-source, public, public-packages,
-  options, bytecode, no-dict, debug, signature) can also be set in the pkg config file
-  (camelCase keys). CLI flags override config values.
+  options, bytecode, native-build, no-dict, debug, signature, sea) can also be set in
+  the pkg config file (camelCase keys). CLI flags override config values.
 
   ${pc.dim('Examples:')}
 

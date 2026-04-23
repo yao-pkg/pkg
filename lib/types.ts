@@ -34,7 +34,10 @@ export type ConfigDictionary = Record<
   }
 >;
 
-export type PkgCompressType = keyof typeof CompressType;
+// CompressType is a numeric enum, so `keyof typeof` would include the
+// reverse-mapped numeric keys (0 | 1 | ...). Exclude them so only the
+// named variants (`'None' | 'Brotli' | ...`) are accepted.
+export type PkgCompressType = Exclude<keyof typeof CompressType, number>;
 
 export interface PkgOptions {
   scripts?: string[];

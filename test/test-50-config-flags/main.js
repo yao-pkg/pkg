@@ -47,6 +47,24 @@ assert(
   `expected type-mismatch error, got:\n${bad.stdout}\n${bad.stderr}`,
 );
 
+// 4a. Non-object "pkg" field is rejected clearly.
+const badPkg = utils.pkg.sync(
+  [
+    '-c',
+    'pkg.not-object.json',
+    '--target',
+    target,
+    '--output',
+    output,
+    'test-x-index.js',
+  ],
+  { stdio: 'pipe', expect: 2 },
+);
+assert(
+  /"pkg" must be an object/.test(badPkg.stdout + badPkg.stderr),
+  `expected "pkg must be an object" error, got:\n${badPkg.stdout}\n${badPkg.stderr}`,
+);
+
 // 4. Unknown key warns but does not fail.
 const unknown = utils.pkg.sync(
   [
