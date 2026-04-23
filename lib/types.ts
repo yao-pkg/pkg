@@ -34,6 +34,8 @@ export type ConfigDictionary = Record<
   }
 >;
 
+export type PkgCompressType = keyof typeof CompressType;
+
 export interface PkgOptions {
   scripts?: string[];
   log?: (logger: typeof log, context: Record<string, string>) => void;
@@ -41,7 +43,20 @@ export interface PkgOptions {
   ignore?: string[];
   deployFiles?: string[];
   patches?: Patches;
-  dictionary: ConfigDictionary;
+  dictionary?: ConfigDictionary;
+  targets?: string | string[];
+  outputPath?: string;
+  compress?: PkgCompressType;
+  fallbackToSource?: boolean;
+  public?: boolean;
+  publicPackages?: string | string[];
+  options?: string | string[];
+  bytecode?: boolean;
+  nativeBuild?: boolean;
+  noDictionary?: string | string[];
+  debug?: boolean;
+  signature?: boolean;
+  sea?: boolean;
 }
 
 export interface PackageJson {
@@ -140,8 +155,6 @@ export interface SeaEnhancedOptions {
 }
 
 export type SymLinks = Record<string, string>;
-
-export type PkgCompressType = keyof typeof CompressType;
 
 export interface PkgExecOptions {
   /** Entry file or directory (required). */

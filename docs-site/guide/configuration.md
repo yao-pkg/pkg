@@ -89,17 +89,29 @@ When both a pkgrc and a `pkg` field in `package.json` are present, the pkgrc win
 
 ## Full schema
 
-| Key            | Type             | Description                                                                                                                      |
-| -------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts`      | glob \| string[] | JS files compiled to V8 bytecode and embedded without source — see [Scripts](#scripts)                                           |
-| `assets`       | glob \| string[] | Files embedded as raw content, accessible under `/snapshot/` — see [Assets](#assets)                                             |
-| `ignore`       | string[]         | Globs excluded from the final executable — see [Ignore files](#ignore-files)                                                     |
-| `targets`      | string[]         | Target triples, e.g. `node22-linux-x64` — see [Targets](/guide/targets)                                                          |
-| `outputPath`   | string           | Directory for output binaries (equivalent to CLI `--out-path`)                                                                   |
-| `patches`      | object           | Patch modules that can't be packaged as-is — see [pkg source](https://github.com/yao-pkg/pkg/blob/main/dictionary/) for examples |
-| `sea`          | boolean          | Opt into [SEA mode](/guide/sea-mode) without passing `--sea`                                                                     |
-| `seaConfig`    | object           | Forwarded to Node.js SEA config (`useCodeCache`, `disableExperimentalSEAWarning`, etc.)                                          |
-| `deployAssets` | boolean          | Copy `assets` next to the executable at runtime instead of keeping them in the snapshot                                          |
+| Key                | Type               | Description                                                                                                                      |
+| ------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts`          | glob \| string[]   | JS files compiled to V8 bytecode and embedded without source — see [Scripts](#scripts)                                           |
+| `assets`           | glob \| string[]   | Files embedded as raw content, accessible under `/snapshot/` — see [Assets](#assets)                                             |
+| `ignore`           | string[]           | Globs excluded from the final executable — see [Ignore files](#ignore-files)                                                     |
+| `targets`          | string[]           | Target triples, e.g. `node22-linux-x64` — see [Targets](/guide/targets)                                                          |
+| `outputPath`       | string             | Directory for output binaries (equivalent to CLI `--out-path`)                                                                   |
+| `patches`          | object             | Patch modules that can't be packaged as-is — see [pkg source](https://github.com/yao-pkg/pkg/blob/main/dictionary/) for examples |
+| `sea`              | boolean            | Opt into [SEA mode](/guide/sea-mode) without passing `--sea`                                                                     |
+| `seaConfig`        | object             | Forwarded to Node.js SEA config (`useCodeCache`, `disableExperimentalSEAWarning`, etc.)                                          |
+| `deployAssets`     | boolean            | Copy `assets` next to the executable at runtime instead of keeping them in the snapshot                                          |
+| `compress`         | string             | VFS compression algorithm — `None` (default), `Brotli`, `GZip`, or `Zstd`. Equivalent to CLI `--compress`                        |
+| `fallbackToSource` | boolean            | Ship source when bytecode generation fails for a file. Equivalent to CLI `--fallback-to-source`                                  |
+| `public`           | boolean            | Speed up packaging and disclose top-level project sources. Equivalent to CLI `--public`                                          |
+| `publicPackages`   | string \| string[] | Package names treated as public. Use `"*"` for all. Equivalent to CLI `--public-packages`                                        |
+| `options`          | string \| string[] | V8 / Node options baked into the executable, e.g. `["expose-gc"]`. Equivalent to CLI `--options`                                 |
+| `bytecode`         | boolean            | Compile bytecode (default `true`). Set to `false` for source-only builds. Equivalent to CLI `--no-bytecode`                      |
+| `nativeBuild`      | boolean            | Build native addons (default `true`). Equivalent to CLI `--no-native-build` (set `false`)                                        |
+| `noDictionary`     | string \| string[] | Package names whose dictionary handling is skipped. Use `"*"` for all. Equivalent to CLI `--no-dict`                             |
+| `debug`            | boolean            | Verbose packaging logs. Equivalent to CLI `--debug`                                                                              |
+| `signature`        | boolean            | Sign macOS binaries when applicable (default `true`). Equivalent to CLI `--signature` / `--no-signature`                         |
+
+CLI flags always override config values. Unknown keys under `pkg` produce a warning.
 
 ## Scripts
 

@@ -1,0 +1,20 @@
+{
+  "name": "config-flags",
+  "bin": "test-x-index.js",
+  "pkg": {
+    "compress": "GZip",
+    "bytecode": false,
+    "public": true,
+    "publicPackages": [
+      "*"
+    ],
+    "noDictionary": [
+      "*"
+    ],
+    "fallbackToSource": true,
+    "options": [
+      "expose-gc"
+    ],
+    "signature": true
+  }
+}

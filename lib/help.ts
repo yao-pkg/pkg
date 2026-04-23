@@ -25,6 +25,10 @@ export default function help() {
     -C, --compress       [default=None] compression algorithm = Brotli, GZip, or Zstd (Zstd requires Node.js >= 22.15)
     --sea                (Experimental) compile give file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
 
+  All build-shaping flags above (compress, fallback-to-source, public, public-packages,
+  options, bytecode, no-dict, debug, signature) can also be set in the pkg config file
+  (camelCase keys). CLI flags override config values.
+
   ${pc.dim('Examples:')}
 
   ${pc.gray('–')} Makes executables for Linux, macOS and Windows
