@@ -154,6 +154,23 @@ const optionKey = (s: FlagSpec): keyof PkgExecOptions =>
 
 type ParseArgsTokens = NonNullable<ReturnType<typeof parseArgs>['tokens']>;
 
+// parseArgs types values as `string | boolean | (string | boolean)[] | undefined`
+// to accommodate `multiple: true`, which pkg does not use. Narrowing at the
+// boundary (see parseCliInput) lets every downstream read stay cast-free.
+interface CliValues {
+  help?: boolean;
+  version?: boolean;
+  build?: boolean;
+  config?: string;
+  output?: string;
+  outdir?: string;
+  'out-dir'?: string;
+  'out-path'?: string;
+  target?: string;
+  targets?: string;
+  [k: string]: string | boolean | undefined;
+}
+
 const PARSE_ARGS_OPTIONS: ParseArgsConfig['options'] = {
   // short-circuits + CLI-only controls
   help: { type: 'boolean', short: 'h' },
@@ -213,10 +230,7 @@ export interface ParsedInput {
 // Collapse `no-<flag>: true` into `<flag>: false|true` so downstream reads a
 // single canonical key. The token walk establishes last-wins order if both
 // forms were passed (`--bytecode --no-bytecode`).
-function mergeNegations(
-  values: Record<string, string | boolean | undefined>,
-  tokens: ParseArgsTokens,
-): void {
+function mergeNegations(values: CliValues, tokens: ParseArgsTokens): void {
   for (const name of NEGATABLE_BOOLS) {
     const neg = `no-${name}`;
     if (values[neg] === undefined) continue;
@@ -238,7 +252,7 @@ function joinList(v: string[] | string | undefined): string | undefined {
 }
 
 function parseCliInput(argv: string[]): ParsedInput {
-  let parsed;
+  let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs({
       args: argv,
@@ -251,8 +265,8 @@ function parseCliInput(argv: string[]): ParsedInput {
     throw wasReported((err as Error).message);
   }
 
-  const v = parsed.values as Record<string, string | boolean | undefined>;
-  mergeNegations(v, parsed.tokens);
+  const v = parsed.values as CliValues;
+  mergeNegations(v, parsed.tokens!);
 
   if (parsed.positionals.length > 1) {
     throw wasReported('Not more than one entry file/directory is expected');
@@ -264,17 +278,15 @@ function parseCliInput(argv: string[]): ParsedInput {
   }
 
   return {
-    help: v.help as boolean | undefined,
-    version: v.version as boolean | undefined,
+    help: v.help,
+    version: v.version,
     entry: parsed.positionals[0],
-    config: v.config as string | undefined,
-    output: v.output as string | undefined,
-    outputPath: (v['out-path'] ?? v.outdir ?? v['out-dir']) as
-      | string
-      | undefined,
+    config: v.config,
+    output: v.output,
+    outputPath: v['out-path'] ?? v.outdir ?? v['out-dir'],
     // `target` (short -t) and `targets` accepted as aliases; collapse.
-    targets: (v.targets ?? v.target) as string | undefined,
-    build: v.build as boolean | undefined,
+    targets: v.targets ?? v.target,
+    build: v.build,
     flags,
   };
 }
@@ -288,14 +300,15 @@ function parseOptionsInput(options: PkgExecOptions): ParsedInput {
   }
 
   const flags: RawFlags = {};
-  const rec = options as unknown as Record<string, unknown>;
   for (const s of FLAG_SPECS) {
-    const v = rec[optionKey(s) as string];
+    const v = options[optionKey(s)];
     if (v === undefined) continue;
-    flags[s.cli] =
-      s.kind === 'list'
-        ? joinList(v as string | string[] | undefined)
-        : (v as string | boolean);
+    if (s.kind === 'list') {
+      // list fields are typed as string | string[]; guard boolean defensively.
+      if (typeof v !== 'boolean') flags[s.cli] = joinList(v);
+    } else if (typeof v === 'string' || typeof v === 'boolean') {
+      flags[s.cli] = v;
+    }
   }
 
   return {
@@ -339,17 +352,16 @@ const KNOWN_PKG_KEYS = new Set<string>([
   ...FLAG_SPECS.map((s) => s.cfg),
 ]);
 
-export function validatePkgConfig(
-  cfg: Record<string, unknown> | undefined,
-): void {
-  if (!cfg) return;
-  for (const key of Object.keys(cfg)) {
+export function validatePkgConfig(cfg: unknown): void {
+  if (!cfg || typeof cfg !== 'object') return;
+  const rec = cfg as Record<string, unknown>;
+  for (const key of Object.keys(rec)) {
     if (!KNOWN_PKG_KEYS.has(key)) {
       log.warn(`Unknown key "${key}" in pkg config — ignoring.`);
     }
   }
   for (const s of FLAG_SPECS) {
-    const v = cfg[s.cfg];
+    const v = rec[s.cfg];
     if (v === undefined) continue;
     if (s.kind === 'bool') {
       if (typeof v !== 'boolean') {
@@ -421,14 +433,18 @@ function resolveCompress(raw: string): CompressType {
 }
 
 export function resolveFlags(raw: RawFlags, pkg: PkgOptions): ResolvedFlags {
-  validatePkgConfig(pkg as unknown as Record<string, unknown>);
+  validatePkgConfig(pkg);
 
-  const out = {} as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
   for (const s of FLAG_SPECS) {
     if (s.kind === 'list') {
+      const rawCli = raw[s.cli];
+      const rawCfg = pkg[s.cfg];
       out[s.resolved] = resolveList(
-        raw[s.cli] as string | undefined,
-        pkg[s.cfg] as string | string[] | undefined,
+        typeof rawCli === 'string' ? rawCli : undefined,
+        typeof rawCfg === 'string' || Array.isArray(rawCfg)
+          ? rawCfg
+          : undefined,
       );
     } else {
       const cli = raw[s.cli];
@@ -437,7 +453,7 @@ export function resolveFlags(raw: RawFlags, pkg: PkgOptions): ResolvedFlags {
         cli !== undefined ? cli : cfg !== undefined ? cfg : s.default;
     }
   }
-  out.compress = resolveCompress(out.compress as string);
+  out.compress = resolveCompress(String(out.compress));
   return out as unknown as ResolvedFlags;
 }
 
