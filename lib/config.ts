@@ -284,28 +284,11 @@ function parseCliInput(argv: string[]): ParsedInput {
     config: v.config,
     output: v.output,
     outputPath: v['out-path'] ?? v.outdir ?? v['out-dir'],
-    targets: resolveTargetAlias(v, parsed.tokens!),
+    // `target` (short -t) and `targets` accepted as aliases; collapse.
+    targets: v.targets ?? v.target,
     build: v.build,
     flags,
   };
-}
-
-// `target` (short `-t`) and `targets` are aliases; when both appear pick the
-// last-specified value by walking the token stream so CLI order wins (matches
-// typical "last flag wins" behavior).
-function resolveTargetAlias(
-  values: CliValues,
-  tokens: ParseArgsTokens,
-): string | undefined {
-  if (values.target === undefined) return values.targets;
-  if (values.targets === undefined) return values.target;
-  for (let i = tokens.length - 1; i >= 0; i -= 1) {
-    const t = tokens[i];
-    if (t.kind !== 'option') continue;
-    if (t.name === 'target') return values.target;
-    if (t.name === 'targets') return values.targets;
-  }
-  return values.targets;
 }
 
 function parseOptionsInput(options: PkgExecOptions): ParsedInput {
