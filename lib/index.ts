@@ -151,9 +151,11 @@ export async function exec(
     targets: resolvedTargets,
   } = await resolveConfig(parsed);
 
-  if (flags.debug) {
-    log.debugMode = true;
-  }
+  // Assign unconditionally: the programmatic API may call `exec()` multiple
+  // times in the same process, and `log.debugMode` is module-global. Leaving
+  // it set from a prior run would leak debug output into a later `debug:false`
+  // invocation.
+  log.debugMode = flags.debug;
 
   if (flags.compress !== CompressType.None) {
     log.info(`compression: ${CompressType[flags.compress]}`);
