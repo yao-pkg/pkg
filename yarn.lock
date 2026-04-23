@@ -685,11 +685,6 @@
   resolved "https://registry.npmjs.org/@types/json5/-/json5-0.0.29.tgz"
   integrity sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==
 
-"@types/minimist@^1.2.2":
-  version "1.2.5"
-  resolved "https://registry.npmjs.org/@types/minimist/-/minimist-1.2.5.tgz"
-  integrity sha512-hov8bUuiLiyFPGyFPE1lwWhmzYbirOXQNNo40+y3zow8aFVTeyn3VWL0VFFfdNddA8S4Vf0Tc062rzyNr7Paag==
-
 "@types/multistream@^4.1.0":
   version "4.1.3"
   resolved "https://registry.npmjs.org/@types/multistream/-/multistream-4.1.3.tgz"

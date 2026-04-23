@@ -34,14 +34,38 @@ export type ConfigDictionary = Record<
   }
 >;
 
+// CompressType is a numeric enum, so `keyof typeof` would include the
+// reverse-mapped numeric keys (0 | 1 | ...). Exclude them so only the
+// named variants (`'None' | 'Brotli' | ...`) are accepted.
+export type PkgCompressType = Exclude<keyof typeof CompressType, number>;
+
 export interface PkgOptions {
   scripts?: string[];
   log?: (logger: typeof log, context: Record<string, string>) => void;
   assets?: string[];
   ignore?: string[];
-  deployFiles?: string[];
+  /**
+   * Files that must be shipped next to the executable instead of bundled.
+   * Each entry is a tuple `[from, to]` or `[from, to, 'directory']` where
+   * `from` is the source path (relative to the package) and `to` is the
+   * destination path relative to the output binary.
+   */
+  deployFiles?: Array<[string, string] | [string, string, 'directory']>;
   patches?: Patches;
-  dictionary: ConfigDictionary;
+  dictionary?: ConfigDictionary;
+  targets?: string | string[];
+  outputPath?: string;
+  compress?: PkgCompressType;
+  fallbackToSource?: boolean;
+  public?: boolean;
+  publicPackages?: string | string[];
+  options?: string | string[];
+  bytecode?: boolean;
+  nativeBuild?: boolean;
+  noDictionary?: string | string[];
+  debug?: boolean;
+  signature?: boolean;
+  sea?: boolean;
 }
 
 export interface PackageJson {
@@ -140,8 +164,6 @@ export interface SeaEnhancedOptions {
 }
 
 export type SymLinks = Record<string, string>;
-
-export type PkgCompressType = keyof typeof CompressType;
 
 export interface PkgExecOptions {
   /** Entry file or directory (required). */

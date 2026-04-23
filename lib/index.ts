@@ -1,14 +1,11 @@
 import assert from 'assert';
 import { existsSync, readFileSync, copyFileSync } from 'fs';
-import { mkdir, readFile, rm, stat } from 'fs/promises';
-import minimist from 'minimist';
+import { mkdir, rm, stat } from 'fs/promises';
 import { need, system } from '@yao-pkg/pkg-fetch';
 import path from 'path';
-import { pathToFileURL } from 'url';
 
 import { log, wasReported } from './log';
 import help from './help';
-import { isPackageJson } from './common';
 import packer from './packer';
 import { plusx } from './chmod';
 import producer from './producer';
@@ -26,55 +23,18 @@ import { CompressType } from './compress_type';
 import { signMachOExecutable } from './mach-o';
 import pkgOptions from './options';
 import sea, { seaEnhanced, signMacOSIfNeeded } from './sea';
+import {
+  parseInput,
+  resolveConfig,
+  isConfiguration,
+  stringifyTarget,
+} from './config';
 
 export type { PkgExecOptions, PkgCompressType };
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
 );
-
-function isConfiguration(file: string) {
-  return isPackageJson(file) || file.endsWith('.config.json');
-}
-
-// Auto-discovered config filenames, in precedence order. First match wins.
-const PKGRC_FILENAMES = [
-  '.pkgrc',
-  '.pkgrc.json',
-  'pkg.config.js',
-  'pkg.config.cjs',
-  'pkg.config.mjs',
-];
-
-function findPkgrc(baseDir: string): string | undefined {
-  for (const name of PKGRC_FILENAMES) {
-    const candidate = path.join(baseDir, name);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
-
-// TypeScript with `module: commonjs` rewrites `import(...)` as `require(...)`,
-// which breaks ESM loading. `new Function(...)` forces a genuine dynamic import.
-const nativeImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string,
-) => Promise<{ default?: unknown; [k: string]: unknown }>;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadPkgrc(file: string): Promise<any> {
-  const base = path.basename(file);
-  // `.pkgrc` has no extension and `.pkgrc.json` is JSON only — parse directly.
-  if (base === '.pkgrc' || file.endsWith('.json')) {
-    return JSON.parse(readFileSync(file, 'utf-8'));
-  }
-  // .js / .cjs / .mjs — load via dynamic import so ESM configs (and projects
-  // with `"type": "module"`) work. `.mjs` is the portable way to expose
-  // functions in config (planned for future options like hooks/transforms).
-  const mod = await nativeImport(pathToFileURL(file).href);
-  return mod.default ?? mod;
-}
 
 function buildMarker(
   configJson: Record<string, unknown> | undefined,
@@ -95,123 +55,7 @@ function buildMarker(
 
 // http://www.openwall.com/lists/musl/2012/12/08/4
 
-const {
-  hostArch,
-  hostPlatform,
-  isValidNodeRange,
-  knownArchs,
-  knownPlatforms,
-  toFancyArch,
-  toFancyPlatform,
-} = system;
-
-const hostNodeRange = `node${process.version.match(/^v(\d+)/)![1]}`;
-
-function parseTargets(items: string[]): NodeTarget[] {
-  // [ 'node6-macos-x64', 'node6-linux-x64' ]
-  const targets: NodeTarget[] = [];
-
-  for (const item of items) {
-    const target = {
-      nodeRange: hostNodeRange,
-      platform: hostPlatform,
-      arch: hostArch,
-    };
-
-    if (item !== 'host') {
-      for (const token of item.split('-')) {
-        if (!token) {
-          continue;
-        }
-
-        if (isValidNodeRange(token)) {
-          target.nodeRange = token;
-          continue;
-        }
-
-        const p = toFancyPlatform(token);
-
-        if (knownPlatforms.indexOf(p) >= 0) {
-          target.platform = p;
-          continue;
-        }
-        const a = toFancyArch(token);
-
-        if (knownArchs.indexOf(a) >= 0) {
-          target.arch = a;
-          continue;
-        }
-
-        throw wasReported(`Unknown token '${token}' in '${item}'`);
-      }
-    }
-
-    targets.push(target as NodeTarget);
-  }
-
-  return targets;
-}
-
-function stringifyTarget(target: NodeTarget) {
-  const { nodeRange, platform, arch } = target;
-  return `${nodeRange}-${platform}-${arch}`;
-}
-
-interface DifferentResult {
-  nodeRange?: boolean;
-  platform?: boolean;
-  arch?: boolean;
-}
-
-function differentParts(targets: NodeTarget[]): DifferentResult {
-  const nodeRanges: Record<string, boolean> = {};
-  const platforms: Record<string, boolean> = {};
-  const archs: Record<string, boolean> = {};
-
-  for (const target of targets) {
-    nodeRanges[target.nodeRange] = true;
-    platforms[target.platform] = true;
-    archs[target.arch] = true;
-  }
-
-  const result: DifferentResult = {};
-
-  if (Object.keys(nodeRanges).length > 1) {
-    result.nodeRange = true;
-  }
-
-  if (Object.keys(platforms).length > 1) {
-    result.platform = true;
-  }
-
-  if (Object.keys(archs).length > 1) {
-    result.arch = true;
-  }
-
-  return result;
-}
-
-function stringifyTargetForOutput(
-  output: string,
-  target: NodeTarget,
-  different: DifferentResult,
-) {
-  const a = [output];
-
-  if (different.nodeRange) {
-    a.push(target.nodeRange);
-  }
-
-  if (different.platform) {
-    a.push(target.platform);
-  }
-
-  if (different.arch) {
-    a.push(target.arch);
-  }
-
-  return a.join('-');
-}
+const { hostArch, hostPlatform } = system;
 
 function fabricatorForTarget({ nodeRange, arch }: NodeTarget) {
   let fabPlatform = hostPlatform;
@@ -275,449 +119,94 @@ async function needViaCache(target: NodeTarget) {
   return c;
 }
 
-const FLAG_DEFAULTS = {
-  bytecode: true,
-  'native-build': true,
-  signature: true,
-};
-
-const MINIMIST_OPTS = {
-  boolean: [
-    'b',
-    'build',
-    'bytecode',
-    'native-build',
-    'd',
-    'debug',
-    'fallback-to-source',
-    'h',
-    'help',
-    'public',
-    'v',
-    'version',
-    'signature',
-    'sea',
-  ],
-  string: [
-    '_',
-    'c',
-    'config',
-    'o',
-    'options',
-    'output',
-    'outdir',
-    'out-dir',
-    'out-path',
-    'public-packages',
-    'no-dict',
-    't',
-    'target',
-    'targets',
-    'C',
-    'compress',
-  ],
-  default: FLAG_DEFAULTS,
-};
-
-function joinList(v: string[] | string | undefined): string | undefined {
-  if (v === undefined) return undefined;
-  const joined = Array.isArray(v) ? v.join(',') : v;
-  return joined === '' ? undefined : joined;
-}
-
-function optionsToParsed(options: PkgExecOptions): minimist.ParsedArgs {
-  if (!options || typeof options !== 'object') {
-    throw wasReported('exec() options must be an object');
-  }
-
-  if (!options.input || typeof options.input !== 'string') {
-    throw wasReported('exec() options.input is required and must be a string');
-  }
-
-  const argv: minimist.ParsedArgs = {
-    ...FLAG_DEFAULTS,
-    _: [options.input],
-  };
-
-  const setIfDefined = (key: string, value: unknown) => {
-    if (value !== undefined) argv[key] = value;
-  };
-
-  setIfDefined('targets', joinList(options.targets));
-  setIfDefined('config', options.config);
-  setIfDefined('output', options.output);
-  setIfDefined('out-path', options.outputPath);
-  setIfDefined('compress', options.compress);
-  setIfDefined('sea', options.sea);
-  setIfDefined('options', joinList(options.bakeOptions));
-  setIfDefined('debug', options.debug);
-  setIfDefined('build', options.build);
-  setIfDefined('bytecode', options.bytecode);
-  setIfDefined('native-build', options.nativeBuild);
-  setIfDefined('fallback-to-source', options.fallbackToSource);
-  setIfDefined('public', options.public);
-  setIfDefined('public-packages', joinList(options.publicPackages));
-  setIfDefined('no-dict', joinList(options.noDictionary));
-  setIfDefined('signature', options.signature);
-
-  return argv;
-}
-
 export async function exec(argv: string[]): Promise<void>;
 export async function exec(options: PkgExecOptions): Promise<void>;
 export async function exec(
   argvOrOptions: string[] | PkgExecOptions,
 ): Promise<void> {
-  const argv = Array.isArray(argvOrOptions)
-    ? minimist(argvOrOptions, MINIMIST_OPTS)
-    : optionsToParsed(argvOrOptions);
+  const parsed = parseInput(argvOrOptions);
 
-  if (argv.h || argv.help) {
+  if (parsed.help) {
     help();
     return;
   }
-
-  // version
-
-  if (argv.v || argv.version) {
+  if (parsed.version) {
     console.log(version);
     return;
   }
 
   log.info(`pkg@${version}`);
 
-  // debug
+  // Single "understand what the user asked for" step. Downstream never
+  // touches raw argv / configJson for behavior decisions.
+  const {
+    input,
+    inputFin,
+    inputJson,
+    config,
+    configJson,
+    pkg,
+    flags,
+    forceBuild,
+    targets: resolvedTargets,
+  } = await resolveConfig(parsed);
 
-  log.debugMode = argv.d || argv.debug;
+  // Assign unconditionally: the programmatic API may call `exec()` multiple
+  // times in the same process, and `log.debugMode` is module-global. Leaving
+  // it set from a prior run would leak debug output into a later `debug:false`
+  // invocation.
+  log.debugMode = flags.debug;
 
-  // forceBuild
-
-  const forceBuild = argv.b || argv.build;
-
-  // doCompress
-  const algo = argv.C || argv.compress || 'None';
-
-  let doCompress: CompressType = CompressType.None;
-  switch (algo.toLowerCase()) {
-    case 'brotli':
-    case 'br':
-      doCompress = CompressType.Brotli;
-      break;
-    case 'gzip':
-    case 'gz':
-      doCompress = CompressType.GZip;
-      break;
-    case 'zstd':
-    case 'zs':
-      doCompress = CompressType.Zstd;
-      break;
-    case 'none':
-      break;
-    default:
-      throw wasReported(
-        `Invalid compression algorithm "${algo}" (accepted: None/none, Brotli/br, GZip/gz/gzip, or Zstd/zs/zstd)`,
-      );
-  }
-  if (doCompress !== CompressType.None) {
-    log.info(`compression: ${CompressType[doCompress]}`);
+  if (flags.compress !== CompressType.None) {
+    log.info(`compression: ${CompressType[flags.compress]}`);
   }
 
-  // _
+  // Targets come fully resolved (host defaults applied, output paths
+  // assigned, input-overwrite guards enforced). Widen to the build-time
+  // shape so the fetch loop can attach binaryPath / fabricator.
+  const targets = resolvedTargets as Array<NodeTarget & Partial<Target>>;
 
-  if (!argv._.length) {
-    throw wasReported('Entry file/directory is expected', [
-      'Pass --help to see usage information',
-    ]);
-  }
-
-  if (argv._.length > 1) {
-    throw wasReported('Not more than one entry file/directory is expected');
-  }
-
-  // input
-
-  let input = path.resolve(argv._[0]);
-
-  if (!existsSync(input)) {
-    throw wasReported('Input file does not exist', [input]);
-  }
-
-  if ((await stat(input)).isDirectory()) {
-    input = path.join(input, 'package.json');
-    if (!existsSync(input)) {
-      throw wasReported('Input file does not exist', [input]);
-    }
-  }
-
-  // inputJson
-
-  let inputJson;
-  let inputJsonName;
-
-  if (isConfiguration(input)) {
-    inputJson = JSON.parse(await readFile(input, 'utf-8'));
-    inputJsonName = inputJson.name;
-
-    if (inputJsonName) {
-      inputJsonName = inputJsonName.split('/').pop(); // @org/foo
-    }
-  }
-
-  // inputBin
-
-  let inputBin;
-
-  if (inputJson) {
-    let { bin } = inputJson;
-
-    if (bin) {
-      if (typeof bin === 'object') {
-        if (bin[inputJsonName]) {
-          bin = bin[inputJsonName];
-        } else {
-          bin = bin[Object.keys(bin)[0]]; // TODO multiple inputs to pkg them all?
-        }
-      }
-      inputBin = path.resolve(path.dirname(input), bin);
-      if (!existsSync(inputBin)) {
-        throw wasReported(
-          'Bin file does not exist (taken from package.json ' +
-            "'bin' property)",
-          [inputBin],
-        );
-      }
-    }
-  }
-
-  if (inputJson && !inputBin) {
-    throw wasReported("Property 'bin' does not exist in", [input]);
-  }
-
-  // inputFin
-
-  const inputFin = inputBin || input;
-
-  // config
-
-  const explicitConfig = argv.c || argv.config;
-  let config: string | undefined = explicitConfig;
-
-  if (inputJson && explicitConfig) {
-    throw wasReported("Specify either 'package.json' or config. Not both");
-  }
-
-  // Auto-discover .pkgrc / .pkgrc.json / pkg.config.js / pkg.config.cjs /
-  // pkg.config.mjs in the input's directory when --config wasn't passed. A
-  // pkgrc is complementary to package.json: metadata (name/bin) comes from
-  // package.json, pkg config from the pkgrc.
-  if (!explicitConfig) {
-    const discovered = findPkgrc(path.dirname(input));
-    if (discovered) {
-      config = discovered;
-      log.info(`Using config ${path.relative(process.cwd(), discovered)}`);
-    }
-  }
-
-  // configJson
-
-  let configJson;
-
-  if (config) {
-    config = path.resolve(config);
-    if (!existsSync(config)) {
-      throw wasReported('Config file does not exist', [config]);
-    }
-
-    configJson = await loadPkgrc(config); // json / js / cjs / mjs
-
-    if (
-      !configJson.name &&
-      !configJson.files &&
-      !configJson.dependencies &&
-      !configJson.pkg
-    ) {
-      // bare pkg config → wrap it
-      configJson = { pkg: configJson };
-    }
-  }
-
-  if (!explicitConfig && config && inputJson?.pkg) {
-    log.warn(
-      `Both ${path.basename(config)} and "pkg" field in package.json were found. ` +
-        `The ${path.basename(config)} file takes precedence.`,
-    );
-  }
-
-  // output, outputPath
-
-  let output = argv.o || argv.output;
-  let outputPath = argv['out-path'] || argv.outdir || argv['out-dir'];
-  let autoOutput = false;
-
-  if (output && outputPath) {
-    throw wasReported("Specify either 'output' or 'out-path'. Not both");
-  }
-
-  if (!output) {
-    let name;
-
-    if (inputJson) {
-      name = inputJsonName;
-
-      if (!name) {
-        throw wasReported("Property 'name' does not exist in", [argv._[0]]);
-      }
-    } else if (configJson) {
-      name = configJson.name;
-    }
-
-    if (!name) {
-      name = path.basename(inputFin);
-    }
-
-    if (!outputPath) {
-      if (configJson && configJson.pkg) {
-        outputPath = configJson.pkg.outputPath;
-      } else if (inputJson && inputJson.pkg) {
-        outputPath = inputJson.pkg.outputPath;
-      }
-
-      outputPath = outputPath || '';
-    }
-
-    autoOutput = true;
-    const ext = path.extname(name);
-    output = name.slice(0, -ext.length || undefined);
-    output = path.resolve(outputPath || '', output);
-  } else {
-    output = path.resolve(output);
-  }
-
-  // targets
-
-  const sTargets = argv.t || argv.target || argv.targets || '';
-
-  if (typeof sTargets !== 'string') {
-    throw wasReported(`Something is wrong near ${JSON.stringify(sTargets)}`);
-  }
-
-  let targets = parseTargets(
-    sTargets.split(',').filter((t) => t),
-  ) as unknown as Array<NodeTarget & Partial<Target>>;
-
-  if (!targets.length) {
-    let jsonTargets;
-
-    if (configJson && configJson.pkg) {
-      jsonTargets = configJson.pkg.targets;
-    } else if (inputJson && inputJson.pkg) {
-      jsonTargets = inputJson.pkg.targets;
-    }
-
-    if (jsonTargets) {
-      targets = parseTargets(jsonTargets);
-    }
-  }
-
-  if (!targets.length) {
-    if (!autoOutput) {
-      targets = parseTargets(['host']);
-      assert(targets.length === 1);
-    } else {
-      targets = parseTargets(['linux', 'macos', 'win']);
-    }
-
-    log.info(
-      'Targets not specified. Assuming:',
-      `${targets.map((t) => stringifyTarget(t)).join(', ')}`,
-    );
-  }
-
-  // differentParts
-
-  const different = differentParts(targets);
-
-  // targets[].output
-
-  for (const target of targets) {
-    let file;
-
-    if (targets.length === 1) {
-      file = output;
-    } else {
-      file = stringifyTargetForOutput(output, target, different);
-    }
-
-    if (target.platform === 'win' && path.extname(file) !== '.exe') {
-      file += '.exe';
-    }
-
-    target.output = file;
-  }
-
-  // bakes
-
-  const bakes = ((argv.options || '') as string)
-    .split(',')
-    .filter((bake) => bake)
-    .map((bake) => `--${bake}`);
-
-  // check if input is going
-  // to be overwritten by output
-
-  for (const target of targets) {
-    if (target.output === inputFin) {
-      if (autoOutput) {
-        target.output += `-${target.platform}`;
-      } else {
-        throw wasReported('Refusing to overwrite input file', [inputFin]);
-      }
-    }
-  }
+  const bakes = (flags.bakeOptions ?? []).map((bake) => `--${bake}`);
 
   // marker + options (shared between SEA and traditional pipelines)
-  pkgOptions.set(configJson?.pkg ?? inputJson?.pkg);
+  pkgOptions.set(pkg);
   const marker = buildMarker(configJson, config, inputJson, input);
 
   // public / no-dict flags (shared between SEA and traditional pipelines)
   const params: WalkerParams = {};
 
-  if (argv.public) {
+  if (flags.public) {
     params.publicToplevel = true;
   }
 
-  if (argv['public-packages']) {
-    params.publicPackages = argv['public-packages'].split(',');
-
-    if (params.publicPackages?.indexOf('*') !== -1) {
-      params.publicPackages = ['*'];
-    }
+  if (flags.publicPackages) {
+    params.publicPackages = flags.publicPackages.includes('*')
+      ? ['*']
+      : flags.publicPackages;
   }
 
-  if (argv['no-dict']) {
-    params.noDictionary = argv['no-dict'].split(',');
-
-    if (params.noDictionary?.indexOf('*') !== -1) {
-      params.noDictionary = ['*'];
-    }
+  if (flags.noDictionary) {
+    params.noDictionary = flags.noDictionary.includes('*')
+      ? ['*']
+      : flags.noDictionary;
   }
 
-  if (argv.sea) {
+  if (flags.sea) {
     if (inputJson || configJson) {
       // Enhanced SEA mode — use walker pipeline.
       // seaEnhanced validates the host Node version and minTargetMajor itself.
       await seaEnhanced(inputFin, {
         targets,
-        signature: argv.signature,
+        signature: flags.signature,
         marker,
         params: { ...params, seaMode: true },
         addition: isConfiguration(input) ? input : undefined,
-        doCompress,
+        doCompress: flags.compress,
       });
     } else {
       // Simple SEA mode — plain .js file without package.json.
       // No walker → no per-file archive → nothing to compress here.
-      if (doCompress !== CompressType.None) {
+      if (flags.compress !== CompressType.None) {
         throw wasReported(
           'Simple SEA mode (--sea without a package.json) does not support --compress. ' +
             'Add a package.json with a "pkg" / "bin" entry to use the enhanced SEA pipeline, ' +
@@ -726,7 +215,7 @@ export async function exec(
       }
       await sea(inputFin, {
         targets,
-        signature: argv.signature,
+        signature: flags.signature,
       });
     }
     return;
@@ -734,9 +223,7 @@ export async function exec(
 
   // fetch targets
 
-  const { bytecode } = argv;
-
-  const nativeBuild = argv['native-build'];
+  const { bytecode, nativeBuild } = flags;
 
   for (const target of targets) {
     target.forceBuild = forceBuild;
@@ -829,13 +316,13 @@ export async function exec(
       slash: target.platform === 'win' ? '\\' : '/',
       target: target as Target,
       symLinks,
-      doCompress,
+      doCompress: flags.compress,
       nativeBuild,
-      fallbackToSource: argv['fallback-to-source'],
+      fallbackToSource: flags.fallbackToSource,
     });
 
     if (target.platform !== 'win' && target.output) {
-      await signMacOSIfNeeded(target.output, target, argv.signature);
+      await signMacOSIfNeeded(target.output, target, flags.signature);
       await plusx(target.output);
     }
   }
