@@ -14,7 +14,7 @@ import { NodeTarget, PkgExecOptions, PkgOptions } from './types';
 // File discovery / loading
 // ---------------------------------------------------------------------------
 
-// Auto-discovered config filenames, in precedence order. First match wins.
+/** Auto-discovered config filenames, in precedence order. First match wins. */
 export const PKGRC_FILENAMES = [
   '.pkgrc',
   '.pkgrc.json',
@@ -23,6 +23,7 @@ export const PKGRC_FILENAMES = [
   'pkg.config.mjs',
 ];
 
+/** Return the first `PKGRC_FILENAMES` entry that exists in `baseDir`, or `undefined`. */
 export function findPkgrc(baseDir: string): string | undefined {
   for (const name of PKGRC_FILENAMES) {
     const candidate = path.join(baseDir, name);
@@ -31,12 +32,18 @@ export function findPkgrc(baseDir: string): string | undefined {
   return undefined;
 }
 
-// TypeScript with `module: commonjs` rewrites `import(...)` as `require(...)`,
-// which breaks ESM loading. `new Function(...)` forces a genuine dynamic import.
+/**
+ * Genuine dynamic `import()` that survives the TS `module: commonjs` rewrite.
+ * TS would otherwise turn `import(...)` into `require(...)`, which breaks ESM.
+ */
 const nativeImport = new Function('specifier', 'return import(specifier)') as (
   specifier: string,
 ) => Promise<{ default?: unknown; [k: string]: unknown }>;
 
+/**
+ * Load a pkgrc / pkg.config file. `.pkgrc` and `.json` are read as JSON; `.js`
+ * / `.cjs` / `.mjs` are dynamically imported and their default export returned.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function loadPkgrc(file: string): Promise<any> {
   const base = path.basename(file);
@@ -48,6 +55,7 @@ export async function loadPkgrc(file: string): Promise<any> {
   return mod.default ?? mod;
 }
 
+/** True if `file` is a `package.json` or a `*.config.json` we should treat as one. */
 export function isConfiguration(file: string): boolean {
   return isPackageJson(file) || file.endsWith('.config.json');
 }
@@ -59,18 +67,32 @@ export function isConfiguration(file: string): boolean {
 // name (legacy `options` vs `bakeOptions` skew).
 // ---------------------------------------------------------------------------
 
+/** Value shape of a flag: scalar bool/string, or a comma-joined list. */
 type FlagKind = 'bool' | 'string' | 'list';
 
+/** Metadata that ties a single flag's four representations together. */
 interface FlagSpec {
+  /** CLI long name without `--` (e.g. `'no-dict'`). */
   readonly cli: string;
+  /** Key under `pkg` in the config file (e.g. `'noDictionary'`). */
   readonly cfg: keyof PkgOptions;
+  /** Programmatic `exec()` option name, if it differs from `cfg`. */
   readonly option?: keyof PkgExecOptions;
+  /** Key on the merged `ResolvedFlags` object returned downstream. */
   readonly resolved: keyof ResolvedFlags;
+  /** Value kind used to drive parsing, validation, and merging. */
   readonly kind: FlagKind;
+  /** Fallback used when neither CLI nor config provides a value. */
   readonly default?: boolean | string;
+  /** CLI short alias (e.g. `'C'` for `-C`). */
   readonly short?: string;
 }
 
+/**
+ * Single source of truth for every config-overridable flag. Drives `parseArgs`
+ * options, `--no-*` negations, config validation, programmatic-input mapping,
+ * and the CLI > config > default merge. Add a flag by adding one entry here.
+ */
 const FLAG_SPECS: readonly FlagSpec[] = [
   {
     cli: 'debug',
@@ -145,6 +167,7 @@ const FLAG_SPECS: readonly FlagSpec[] = [
   },
 ];
 
+/** Programmatic option key for a flag (defaults to the config key). */
 const optionKey = (s: FlagSpec): keyof PkgExecOptions =>
   (s.option ?? s.cfg) as keyof PkgExecOptions;
 
@@ -152,11 +175,15 @@ const optionKey = (s: FlagSpec): keyof PkgExecOptions =>
 // CLI parsing (util.parseArgs-based)
 // ---------------------------------------------------------------------------
 
+/** Token stream returned by `parseArgs({ tokens: true })`. */
 type ParseArgsTokens = NonNullable<ReturnType<typeof parseArgs>['tokens']>;
 
-// parseArgs types values as `string | boolean | (string | boolean)[] | undefined`
-// to accommodate `multiple: true`, which pkg does not use. Narrowing at the
-// boundary (see parseCliInput) lets every downstream read stay cast-free.
+/**
+ * Narrowed view of `parseArgs().values` for pkg. `parseArgs` types values as
+ * `string | boolean | (string | boolean)[] | undefined` to accommodate
+ * `multiple: true`, which pkg does not use — narrowing here keeps every
+ * downstream read cast-free.
+ */
 interface CliValues {
   help?: boolean;
   version?: boolean;
@@ -171,6 +198,11 @@ interface CliValues {
   [k: string]: string | boolean | undefined;
 }
 
+/**
+ * Options table handed to `util.parseArgs`. Short-circuits and input/output
+ * plumbing are declared here; flag-shaped entries are appended from
+ * `FLAG_SPECS` below so they stay in sync.
+ */
 const PARSE_ARGS_OPTIONS: ParseArgsConfig['options'] = {
   // short-circuits + CLI-only controls
   help: { type: 'boolean', short: 'h' },
@@ -187,8 +219,11 @@ const PARSE_ARGS_OPTIONS: ParseArgsConfig['options'] = {
   targets: { type: 'string' },
 };
 
-// parseArgs does NOT auto-generate `--no-<flag>` negations, so every negatable
-// bool gets a `no-<flag>` sibling declared explicitly. `build` is CLI-only.
+/**
+ * Names for which a `--no-<name>` sibling is registered with `parseArgs`.
+ * `parseArgs` does not auto-generate negations, and pkg needs them on every
+ * boolean flag plus the CLI-only `--build`.
+ */
 const NEGATABLE_BOOLS: readonly string[] = [
   'build',
   ...FLAG_SPECS.filter((s) => s.kind === 'bool').map((s) => s.cli),
@@ -213,23 +248,36 @@ for (const name of NEGATABLE_BOOLS) {
 // ParsedInput — canonical shape produced by CLI and programmatic entry points.
 // ---------------------------------------------------------------------------
 
+/** Pre-merge flag values keyed by CLI name; lists are still comma-joined strings. */
 export type RawFlags = Record<string, string | boolean | undefined>;
 
+/** Canonical shape produced by both the CLI and programmatic entry points. */
 export interface ParsedInput {
+  /** `--help` short-circuit. */
   help?: boolean;
+  /** `--version` short-circuit. */
   version?: boolean;
+  /** Positional entry file or directory. */
   entry?: string;
+  /** Explicit config path from `--config` / `options.config`. */
   config?: string;
+  /** Output file name from `--output` / `options.output`. */
   output?: string;
-  outputPath?: string; // collapsed from --out-path / --outdir / --out-dir
+  /** Output directory; collapsed from `--out-path` / `--outdir` / `--out-dir`. */
+  outputPath?: string;
+  /** Raw target spec string (comma-separated), pre-parse. */
   targets?: string;
+  /** `--build`: force rebuilding base Node.js binaries from source. */
   build?: boolean;
+  /** Pre-merge flag values keyed by CLI name (see `RawFlags`). */
   flags: RawFlags;
 }
 
-// Collapse `no-<flag>: true` into `<flag>: false|true` so downstream reads a
-// single canonical key. The token walk establishes last-wins order if both
-// forms were passed (`--bytecode --no-bytecode`).
+/**
+ * Collapse every `no-<flag>` value into the canonical `<flag>` key. The token
+ * walk establishes last-wins order when both forms are passed (e.g.
+ * `--bytecode --no-bytecode`).
+ */
 function mergeNegations(values: CliValues, tokens: ParseArgsTokens): void {
   for (const name of NEGATABLE_BOOLS) {
     const neg = `no-${name}`;
@@ -245,12 +293,17 @@ function mergeNegations(values: CliValues, tokens: ParseArgsTokens): void {
   }
 }
 
+/**
+ * Flatten `string | string[]` into a comma-joined string. Empty results (`''`
+ * or `[]`) collapse to `undefined` so callers treat them the same as unset.
+ */
 function joinList(v: string[] | string | undefined): string | undefined {
   if (v === undefined) return undefined;
   const joined = Array.isArray(v) ? v.join(',') : v;
   return joined === '' ? undefined : joined;
 }
 
+/** Parse raw `argv` into a `ParsedInput`. Used by the CLI entry point. */
 function parseCliInput(argv: string[]): ParsedInput {
   let parsed: ReturnType<typeof parseArgs>;
   try {
@@ -298,6 +351,11 @@ function parseCliInput(argv: string[]): ParsedInput {
   };
 }
 
+/**
+ * Parse a programmatic `exec()` options object into a `ParsedInput`. Validates
+ * each flag's type at the boundary — wrong types throw immediately instead of
+ * being silently dropped.
+ */
 function parseOptionsInput(options: PkgExecOptions): ParsedInput {
   if (!options || typeof options !== 'object') {
     throw wasReported('exec() options must be an object');
@@ -345,6 +403,10 @@ function parseOptionsInput(options: PkgExecOptions): ParsedInput {
   };
 }
 
+/**
+ * Parse either an `argv` array (CLI) or an `exec()` options object
+ * (programmatic) into the same canonical `ParsedInput` shape.
+ */
 export function parseInput(
   argvOrOptions: string[] | PkgExecOptions,
 ): ParsedInput {
@@ -357,6 +419,7 @@ export function parseInput(
 // Schema validation (driven by FLAG_SPECS + a small static list)
 // ---------------------------------------------------------------------------
 
+/** Keys accepted under `pkg` that are not driven by `FLAG_SPECS`. */
 const NON_FLAG_PKG_KEYS = [
   'scripts',
   'assets',
@@ -370,11 +433,16 @@ const NON_FLAG_PKG_KEYS = [
   'seaConfig',
 ] as const;
 
+/** Union of flag-driven and static keys — anything outside this set warns. */
 const KNOWN_PKG_KEYS = new Set<string>([
   ...NON_FLAG_PKG_KEYS,
   ...FLAG_SPECS.map((s) => s.cfg),
 ]);
 
+/**
+ * Warn on unknown keys under `pkg` and throw on flag values whose runtime type
+ * doesn't match the declared `FlagKind`. No-op when `cfg` is null/undefined.
+ */
 export function validatePkgConfig(cfg: unknown): void {
   if (!cfg || typeof cfg !== 'object') return;
   const rec = cfg as Record<string, unknown>;
@@ -406,8 +474,10 @@ export function validatePkgConfig(cfg: unknown): void {
 // Flag merge — CLI > pkg config > default. Fully resolved (compress → enum).
 // ---------------------------------------------------------------------------
 
+/** Fully merged build-shaping flags (CLI > config > default). */
 export interface ResolvedFlags {
   debug: boolean;
+  /** `compress` is decoded from its string form into the enum at this layer. */
   compress: CompressType;
   bytecode: boolean;
   nativeBuild: boolean;
@@ -420,10 +490,7 @@ export interface ResolvedFlags {
   bakeOptions: string[] | undefined;
 }
 
-// Merge CLI (comma-joined string) and config (string or string[]) into a
-// cleaned string[]. An empty-string CLI (`--options ""`) counts as "user
-// explicitly cleared the list" — it wins over config but collapses to
-// `undefined` so callers treat it the same as unset.
+/** Narrow an arbitrary value to `string | string[] | undefined` or `undefined`. */
 function toStringList(v: unknown): string | string[] | undefined {
   if (typeof v === 'string') return v;
   if (Array.isArray(v) && v.every((x) => typeof x === 'string')) {
@@ -432,6 +499,11 @@ function toStringList(v: unknown): string | string[] | undefined {
   return undefined;
 }
 
+/**
+ * Merge CLI (comma-joined string) and config (string | string[]) into a
+ * cleaned `string[]`. An empty CLI value (`--options ""`) wins over config but
+ * collapses to `undefined` so callers treat it the same as unset.
+ */
 function resolveList(
   cli: string | undefined,
   cfg: string | string[] | undefined,
@@ -443,6 +515,7 @@ function resolveList(
   return cleaned.length ? cleaned : undefined;
 }
 
+/** Decode a `--compress` string (case-insensitive, with aliases) to `CompressType`. */
 function resolveCompress(raw: string): CompressType {
   switch (raw.toLowerCase()) {
     case 'brotli':
@@ -463,9 +536,11 @@ function resolveCompress(raw: string): CompressType {
   }
 }
 
-// Pure merge — expects `pkg` to have already been validated by the caller
-// (see `resolveConfig`). Keeping validation out of here makes the function
-// safe to compose and makes its contract unambiguous: inputs in, flags out.
+/**
+ * Merge raw flag values and `pkg` config into `ResolvedFlags` using the
+ * precedence CLI > config > default. Pure: assumes `pkg` has already been
+ * validated by the caller (see `resolveConfig`).
+ */
 export function resolveFlags(raw: RawFlags, pkg: PkgOptions): ResolvedFlags {
   const out: Record<string, unknown> = {};
   for (const s of FLAG_SPECS) {
@@ -487,9 +562,11 @@ export function resolveFlags(raw: RawFlags, pkg: PkgOptions): ResolvedFlags {
   return out as unknown as ResolvedFlags;
 }
 
-// Write resolved flag values back into `pkg` so consumers reading the pkg
-// config (`pkgOptions.get()`, dictionary merges, etc.) observe CLI overrides.
-// Using FLAG_SPECS here keeps this in lockstep with the merge direction above.
+/**
+ * Write resolved flag values back onto `pkg` so downstream consumers reading
+ * the pkg config (`pkgOptions.get()`, dictionary merges, ...) observe CLI
+ * overrides. Driven by `FLAG_SPECS` to stay in lockstep with `resolveFlags`.
+ */
 function applyResolvedFlags(pkg: PkgOptions, flags: ResolvedFlags): PkgOptions {
   const out = { ...pkg } as Record<string, unknown>;
   for (const s of FLAG_SPECS) {
@@ -506,14 +583,23 @@ function applyResolvedFlags(pkg: PkgOptions, flags: ResolvedFlags): PkgOptions {
 // Phase helpers
 // ---------------------------------------------------------------------------
 
+/** Output of `resolveInput`: the entry path plus any package.json context. */
 interface ResolvedInput {
+  /** Absolute path of the entry, or of `package.json` if `entry` is a directory. */
   input: string;
+  /** Entrypoint used by the build: resolved `bin` target if `input` is a package.json-like file, otherwise `input`. */
   inputFin: string;
+  /** Parsed `package.json`-like object, or `undefined` for plain JS entries. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   inputJson: any;
+  /** Short name from `inputJson.name` (scope stripped), or `undefined`. */
   inputJsonName: string | undefined;
 }
 
+/**
+ * Resolve an entry path into its filesystem location and, if it's a package,
+ * locate the `bin` target. Throws if the entry or `bin` file doesn't exist.
+ */
 async function resolveInput(entry: string): Promise<ResolvedInput> {
   let input = path.resolve(entry);
   if (!existsSync(input)) {
@@ -563,12 +649,20 @@ async function resolveInput(entry: string): Promise<ResolvedInput> {
   return { input, inputFin: inputBin || input, inputJson, inputJsonName };
 }
 
+/** Output of `resolveConfigFile`: the resolved config path and its parsed JSON. */
 interface ResolvedConfigFile {
+  /** Absolute path of the config file, or `undefined` when none was used. */
   config: string | undefined;
+  /** Parsed config contents (may be wrapped — see `resolveConfigFile`). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   configJson: any;
 }
 
+/**
+ * Resolve the config file: use `explicit` if given, else auto-discover via
+ * `findPkgrc`. Normalizes bare pkg-config shapes into `{ pkg: ... }` and warns
+ * when both a pkgrc and a `package.json` `pkg` field are present.
+ */
 async function resolveConfigFile(
   explicit: string | undefined,
   input: string,
@@ -616,6 +710,11 @@ async function resolveConfigFile(
   return { config, configJson };
 }
 
+/**
+ * Compute the single base output path. Returns `autoOutput: true` when the
+ * path was derived (rather than taken from `--output`), which signals that
+ * target-specific suffixes should be appended by `assignTargetOutputs`.
+ */
 function resolveOutput(
   cliOutput: string | undefined,
   cliOutputPath: string | undefined,
@@ -668,8 +767,14 @@ const {
   toFancyPlatform,
 } = system;
 
+/** `node<major>` for the running Node.js version, used as the default nodeRange. */
 const hostNodeRange = `node${process.version.match(/^v(\d+)/)![1]}`;
 
+/**
+ * Expand target spec strings into `NodeTarget`s. Each item is split on `-`
+ * and tokens are classified as nodeRange / platform / arch; missing parts
+ * fall back to the host. `'host'` short-circuits to the full host triple.
+ */
 function parseTargets(items: string[]): NodeTarget[] {
   const targets: NodeTarget[] = [];
   for (const item of items) {
@@ -703,16 +808,19 @@ function parseTargets(items: string[]): NodeTarget[] {
   return targets;
 }
 
+/** Format a target back into its canonical `node<range>-<platform>-<arch>` spec. */
 export function stringifyTarget(t: NodeTarget): string {
   return `${t.nodeRange}-${t.platform}-${t.arch}`;
 }
 
+/** Which parts of a target vary across a list (used to pick output suffixes). */
 export interface DifferentParts {
   nodeRange?: boolean;
   platform?: boolean;
   arch?: boolean;
 }
 
+/** Return the axes on which `targets` actually differ. */
 function differentParts(targets: NodeTarget[]): DifferentParts {
   const nr = new Set<string>();
   const pl = new Set<string>();
@@ -729,6 +837,10 @@ function differentParts(targets: NodeTarget[]): DifferentParts {
   return r;
 }
 
+/**
+ * Build a per-target output filename by appending only the target axes that
+ * actually differ across the target list, avoiding redundant `-x64`, etc.
+ */
 function stringifyTargetForOutput(
   baseOutput: string,
   t: NodeTarget,
@@ -741,8 +853,14 @@ function stringifyTargetForOutput(
   return a.join('-');
 }
 
+/** `NodeTarget` with its final output path attached. */
 export type ResolvedTarget = NodeTarget & { output: string };
 
+/**
+ * Resolve the list of build targets from CLI/config spec. Falls back to
+ * `['linux','macos','win']` when the output name was auto-derived, else to
+ * `['host']` — preserving historical pkg behavior for bare invocations.
+ */
 function resolveTargetList(
   cliTargets: string | undefined,
   pkg: PkgOptions,
@@ -770,6 +888,12 @@ function resolveTargetList(
   return targets;
 }
 
+/**
+ * Attach a per-target output path. Adds `.exe` on Windows and disambiguates
+ * multi-target builds. Throws if a resolved path would overwrite the input
+ * file unless the name was auto-derived (in which case a platform suffix is
+ * appended to dodge the collision).
+ */
 function assignTargetOutputs(
   targets: NodeTarget[],
   baseOutput: string,
@@ -801,6 +925,12 @@ function assignTargetOutputs(
 // what the user asked for" step that exec() runs before any build work.
 // ---------------------------------------------------------------------------
 
+/**
+ * Fully resolved input to `exec()`: every precedence decision (CLI > config >
+ * default) has been made, targets are expanded, and output paths are assigned.
+ * Downstream code reads from this exclusively — no raw argv or configJson
+ * re-parsing past this point.
+ */
 export interface ResolvedConfig {
   /** Absolute path of the entry file or of an inferred `package.json`. */
   input: string;
@@ -833,6 +963,11 @@ export interface ResolvedConfig {
   targets: ResolvedTarget[];
 }
 
+/**
+ * Orchestrate the full resolution pipeline: entry → config file → pkg validate
+ * → flag merge → output path → targets. This is the single "understand what
+ * the user asked for" step that `exec()` runs before any build work.
+ */
 export async function resolveConfig(
   parsed: ParsedInput,
 ): Promise<ResolvedConfig> {
