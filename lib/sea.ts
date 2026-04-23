@@ -91,7 +91,8 @@ type WriteCallback = (err?: Error | null) => void;
  * whether `fn` resolves or rejects.
  */
 async function withFilteredPostjectStderr<T>(fn: () => Promise<T>): Promise<T> {
-  const original: StderrWrite = process.stderr.write.bind(process.stderr);
+  const original: StderrWrite = process.stderr.write;
+  const bound: StderrWrite = original.bind(process.stderr);
   const filtered = ((
     chunk: string | Uint8Array,
     encodingOrCb?: BufferEncoding | WriteCallback,
@@ -111,8 +112,8 @@ async function withFilteredPostjectStderr<T>(fn: () => Promise<T>): Promise<T> {
     // The write() overloads accept either an encoding or a callback in
     // slot 2; disambiguate here so the correct overload is dispatched.
     return typeof encodingOrCb === 'function'
-      ? original(chunk, encodingOrCb)
-      : original(chunk, encodingOrCb, cb);
+      ? bound(chunk, encodingOrCb)
+      : bound(chunk, encodingOrCb, cb);
   }) as StderrWrite;
   process.stderr.write = filtered;
   try {
