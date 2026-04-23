@@ -83,3 +83,24 @@ assert(
   `expected unknown-key warning, got:\n${unknown.stdout}\n${unknown.stderr}`,
 );
 utils.vacuum.sync(output);
+
+// 5. Passing both `--target` and `--targets` is rejected (the two are
+//    aliases; accepting both would silently favor one).
+const dup = utils.pkg.sync(
+  [
+    '--target',
+    target,
+    '--targets',
+    target,
+    '--output',
+    output,
+    'test-x-index.js',
+  ],
+  { stdio: 'pipe', expect: 2 },
+);
+assert(
+  /Specify either '--target' or '--targets'\. Not both/.test(
+    dup.stdout + dup.stderr,
+  ),
+  `expected target/targets conflict error, got:\n${dup.stdout}\n${dup.stderr}`,
+);

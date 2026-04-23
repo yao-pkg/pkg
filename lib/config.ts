@@ -272,6 +272,14 @@ function parseCliInput(argv: string[]): ParsedInput {
     throw wasReported('Not more than one entry file/directory is expected');
   }
 
+  // `--target` (short `-t`) and `--targets` are accepted as aliases. Reject
+  // both-present up front rather than silently preferring one — parseArgs
+  // stores them independently, and order-based "last wins" would require a
+  // token walk for a case that's almost certainly a user mistake.
+  if (v.target !== undefined && v.targets !== undefined) {
+    throw wasReported("Specify either '--target' or '--targets'. Not both");
+  }
+
   const flags: RawFlags = {};
   for (const s of FLAG_SPECS) {
     if (v[s.cli] !== undefined) flags[s.cli] = v[s.cli];
@@ -284,7 +292,6 @@ function parseCliInput(argv: string[]): ParsedInput {
     config: v.config,
     output: v.output,
     outputPath: v['out-path'] ?? v.outdir ?? v['out-dir'],
-    // `target` (short -t) and `targets` accepted as aliases; collapse.
     targets: v.targets ?? v.target,
     build: v.build,
     flags,
@@ -301,13 +308,29 @@ function parseOptionsInput(options: PkgExecOptions): ParsedInput {
 
   const flags: RawFlags = {};
   for (const s of FLAG_SPECS) {
+    const key = String(optionKey(s));
     const v = options[optionKey(s)];
     if (v === undefined) continue;
-    if (s.kind === 'list') {
-      // list fields are typed as string | string[]; guard boolean defensively.
-      if (typeof v !== 'boolean') flags[s.cli] = joinList(v);
-    } else if (typeof v === 'string' || typeof v === 'boolean') {
+    if (s.kind === 'bool') {
+      if (typeof v !== 'boolean') {
+        throw wasReported(`exec() option "${key}" must be a boolean`);
+      }
       flags[s.cli] = v;
+    } else if (s.kind === 'string') {
+      if (typeof v !== 'string') {
+        throw wasReported(`exec() option "${key}" must be a string`);
+      }
+      flags[s.cli] = v;
+    } else {
+      if (typeof v === 'string') {
+        flags[s.cli] = v;
+      } else if (Array.isArray(v) && v.every((x) => typeof x === 'string')) {
+        flags[s.cli] = joinList(v);
+      } else {
+        throw wasReported(
+          `exec() option "${key}" must be a string or string[]`,
+        );
+      }
     }
   }
 
@@ -416,7 +439,7 @@ function resolveList(
   const raw = cli !== undefined ? cli : cfg;
   if (raw === undefined) return undefined;
   const list = Array.isArray(raw) ? raw : raw.split(',');
-  const cleaned = list.map((s) => String(s).trim()).filter((s) => s.length);
+  const cleaned = list.map((s) => s.trim()).filter((s) => s.length);
   return cleaned.length ? cleaned : undefined;
 }
 
@@ -440,9 +463,10 @@ function resolveCompress(raw: string): CompressType {
   }
 }
 
+// Pure merge — expects `pkg` to have already been validated by the caller
+// (see `resolveConfig`). Keeping validation out of here makes the function
+// safe to compose and makes its contract unambiguous: inputs in, flags out.
 export function resolveFlags(raw: RawFlags, pkg: PkgOptions): ResolvedFlags {
-  validatePkgConfig(pkg);
-
   const out: Record<string, unknown> = {};
   for (const s of FLAG_SPECS) {
     if (s.kind === 'list') {
@@ -461,6 +485,21 @@ export function resolveFlags(raw: RawFlags, pkg: PkgOptions): ResolvedFlags {
   }
   out.compress = resolveCompress(String(out.compress));
   return out as unknown as ResolvedFlags;
+}
+
+// Write resolved flag values back into `pkg` so consumers reading the pkg
+// config (`pkgOptions.get()`, dictionary merges, etc.) observe CLI overrides.
+// Using FLAG_SPECS here keeps this in lockstep with the merge direction above.
+function applyResolvedFlags(pkg: PkgOptions, flags: ResolvedFlags): PkgOptions {
+  const out = { ...pkg } as Record<string, unknown>;
+  for (const s of FLAG_SPECS) {
+    const v = (flags as unknown as Record<string, unknown>)[s.resolved];
+    if (v === undefined) continue;
+    // `compress` is the one flag stored as enum on ResolvedFlags but a string
+    // literal on PkgOptions — convert back at the boundary.
+    out[s.cfg] = s.cli === 'compress' ? CompressType[v as CompressType] : v;
+  }
+  return out as PkgOptions;
 }
 
 // ---------------------------------------------------------------------------
@@ -585,6 +624,7 @@ function resolveOutput(
   inputJsonName: string | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   configJson: any,
+  pkg: PkgOptions,
   inputFin: string,
   entry: string,
 ): { output: string; autoOutput: boolean } {
@@ -607,11 +647,7 @@ function resolveOutput(
   }
   if (!name) name = path.basename(inputFin);
 
-  const outputPath =
-    cliOutputPath ??
-    (configJson?.pkg as PkgOptions | undefined)?.outputPath ??
-    (inputJson?.pkg as PkgOptions | undefined)?.outputPath ??
-    '';
+  const outputPath = cliOutputPath ?? pkg.outputPath ?? '';
 
   const ext = path.extname(name);
   const base = name.slice(0, -ext.length || undefined);
@@ -779,7 +815,11 @@ export interface ResolvedConfig {
   /** Parsed (and normalized) config file contents, if any. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   configJson: any;
-  /** Effective pkg config (configJson.pkg > inputJson.pkg > {}). */
+  /**
+   * Effective pkg config (configJson.pkg > inputJson.pkg > {}) with resolved
+   * flag values written back in, so downstream consumers reading the pkg
+   * (e.g. `pkgOptions.get()`) observe CLI overrides.
+   */
   pkg: PkgOptions;
   /** Merged CLI > config > default build-shaping flags. */
   flags: ResolvedFlags;
@@ -815,8 +855,9 @@ export async function resolveConfig(
   if (typeof rawPkg !== 'object' || rawPkg === null || Array.isArray(rawPkg)) {
     throw wasReported('pkg config: "pkg" must be an object');
   }
-  const pkg = rawPkg as PkgOptions;
-  const flags = resolveFlags(parsed.flags, pkg);
+  validatePkgConfig(rawPkg);
+  const flags = resolveFlags(parsed.flags, rawPkg as PkgOptions);
+  const pkg = applyResolvedFlags(rawPkg as PkgOptions, flags);
 
   const { output, autoOutput } = resolveOutput(
     parsed.output,
@@ -824,6 +865,7 @@ export async function resolveConfig(
     inputJson,
     inputJsonName,
     configJson,
+    pkg,
     inputFin,
     parsed.entry,
   );
