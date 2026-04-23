@@ -80,6 +80,9 @@ const exists = async (path: string) => {
 const BENIGN_POSTJECT_STDERR =
   /^warning: (?:The signature seems corrupted!|Can't find string offset for section name '\.note)/;
 
+type StderrWrite = typeof process.stderr.write;
+type WriteCallback = (err?: Error | null) => void;
+
 /**
  * Run `fn` with `process.stderr.write` wrapped to drop known-benign
  * postject/LIEF messages. Anything that doesn't match the allow-list
@@ -88,28 +91,29 @@ const BENIGN_POSTJECT_STDERR =
  * whether `fn` resolves or rejects.
  */
 async function withFilteredPostjectStderr<T>(fn: () => Promise<T>): Promise<T> {
-  const original = process.stderr.write.bind(process.stderr);
-  const filtered: typeof process.stderr.write = function (
-    this: typeof process.stderr,
-    chunk: unknown,
-    ...rest: unknown[]
-  ): boolean {
+  const original: StderrWrite = process.stderr.write.bind(process.stderr);
+  const filtered = ((
+    chunk: string | Uint8Array,
+    encodingOrCb?: BufferEncoding | WriteCallback,
+    cb?: WriteCallback,
+  ): boolean => {
     const text =
       typeof chunk === 'string'
         ? chunk
         : Buffer.isBuffer(chunk)
           ? chunk.toString('utf8')
-          : '';
+          : Buffer.from(chunk).toString('utf8');
     if (BENIGN_POSTJECT_STDERR.test(text)) {
-      // Honor any completion callback postject / console.warn passed.
-      const cb = rest.find((a) => typeof a === 'function') as
-        | ((err?: Error | null) => void)
-        | undefined;
-      if (cb) process.nextTick(cb);
+      const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+      if (callback) process.nextTick(callback);
       return true;
     }
-    return (original as (...a: unknown[]) => boolean)(chunk, ...rest);
-  } as typeof process.stderr.write;
+    // The write() overloads accept either an encoding or a callback in
+    // slot 2; disambiguate here so the correct overload is dispatched.
+    return typeof encodingOrCb === 'function'
+      ? original(chunk, encodingOrCb)
+      : original(chunk, encodingOrCb, cb);
+  }) as StderrWrite;
   process.stderr.write = filtered;
   try {
     return await fn();

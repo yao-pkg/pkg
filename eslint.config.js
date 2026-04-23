@@ -80,6 +80,7 @@ module.exports = [
       globals: {
         ...require('globals').node,
         NodeJS: 'readonly',
+        BufferEncoding: 'readonly',
       },
     },
     rules: {
