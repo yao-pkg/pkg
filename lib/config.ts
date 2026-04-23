@@ -152,6 +152,8 @@ const optionKey = (s: FlagSpec): keyof PkgExecOptions =>
 // CLI parsing (util.parseArgs-based)
 // ---------------------------------------------------------------------------
 
+type ParseArgsTokens = NonNullable<ReturnType<typeof parseArgs>['tokens']>;
+
 const PARSE_ARGS_OPTIONS: ParseArgsConfig['options'] = {
   // short-circuits + CLI-only controls
   help: { type: 'boolean', short: 'h' },
@@ -213,8 +215,7 @@ export interface ParsedInput {
 // forms were passed (`--bytecode --no-bytecode`).
 function mergeNegations(
   values: Record<string, string | boolean | undefined>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tokens: Array<any>,
+  tokens: ParseArgsTokens,
 ): void {
   for (const name of NEGATABLE_BOOLS) {
     const neg = `no-${name}`;
