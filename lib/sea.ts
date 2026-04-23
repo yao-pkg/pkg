@@ -62,6 +62,67 @@ const exists = async (path: string) => {
   }
 };
 
+/**
+ * Benign LIEF messages printed by postject during SEA blob injection.
+ *
+ * LIEF re-parses the Node binary after postject expands the section
+ * table to make room for `NODE_SEA_BLOB`, and the pre-existing
+ * build-id / `.note.*` section-name offsets no longer resolve cleanly
+ * through `.shstrtab` — so LIEF falls back to synthetic names like
+ * `.note.100` and warns. On Mach-O the analogous "signature seems
+ * corrupted" line is also cosmetic: we re-sign the binary with
+ * `codesign` after injection (see signMachOExecutable).
+ *
+ * The warnings have no bearing on correctness of the produced
+ * executable but users reasonably assume something is wrong, so we
+ * filter them out of stderr just for the duration of the inject call.
+ */
+const BENIGN_POSTJECT_STDERR =
+  /^warning: (?:The signature seems corrupted!|Can't find string offset for section name '\.note)/;
+
+type StderrWrite = typeof process.stderr.write;
+type WriteCallback = (err?: Error | null) => void;
+
+/**
+ * Run `fn` with `process.stderr.write` wrapped to drop known-benign
+ * postject/LIEF messages. Anything that doesn't match the allow-list
+ * pattern passes through unchanged, so real errors are never hidden.
+ * The original `write` is restored in a `finally` block regardless of
+ * whether `fn` resolves or rejects.
+ */
+async function withFilteredPostjectStderr<T>(fn: () => Promise<T>): Promise<T> {
+  const original: StderrWrite = process.stderr.write;
+  const bound: StderrWrite = original.bind(process.stderr);
+  const filtered = ((
+    chunk: string | Uint8Array,
+    encodingOrCb?: BufferEncoding | WriteCallback,
+    cb?: WriteCallback,
+  ): boolean => {
+    const text =
+      typeof chunk === 'string'
+        ? chunk
+        : Buffer.isBuffer(chunk)
+          ? chunk.toString('utf8')
+          : Buffer.from(chunk).toString('utf8');
+    if (BENIGN_POSTJECT_STDERR.test(text)) {
+      const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+      if (callback) process.nextTick(callback);
+      return true;
+    }
+    // The write() overloads accept either an encoding or a callback in
+    // slot 2; disambiguate here so the correct overload is dispatched.
+    return typeof encodingOrCb === 'function'
+      ? bound(chunk, encodingOrCb)
+      : bound(chunk, encodingOrCb, cb);
+  }) as StderrWrite;
+  process.stderr.write = filtered;
+  try {
+    return await fn();
+  } finally {
+    process.stderr.write = original;
+  }
+}
+
 export type GetNodejsExecutableOptions = {
   useLocalNode?: boolean;
   nodePath?: string;
@@ -398,11 +459,13 @@ async function bake(
   // This avoids two CI issues:
   // 1. "Text file busy" race condition from concurrent npx invocations
   // 2. "Argument is not a constructor" from npx downloading incompatible versions
-  await postjectInject(outPath, 'NODE_SEA_BLOB', blobData, {
-    sentinelFuse: SEA_SENTINEL_FUSE,
-    machoSegmentName: target.platform === 'macos' ? 'NODE_SEA' : undefined,
-    overwrite: true,
-  });
+  await withFilteredPostjectStderr(() =>
+    postjectInject(outPath, 'NODE_SEA_BLOB', blobData, {
+      sentinelFuse: SEA_SENTINEL_FUSE,
+      machoSegmentName: target.platform === 'macos' ? 'NODE_SEA' : undefined,
+      overwrite: true,
+    }),
+  );
 }
 
 /**
