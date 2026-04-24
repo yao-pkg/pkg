@@ -1,5 +1,17 @@
 # Changelog
 
+## [6.19.0](https://github.com/yao-pkg/pkg/compare/v6.18.2...v6.19.0) (2026-04-24)
+
+### Features
+
+- **config:** accept CLI-only build flags in pkg config ([#263](https://github.com/yao-pkg/pkg/issues/263)) ([a8e91df](https://github.com/yao-pkg/pkg/commit/a8e91df360e731ae9b84884abc83e4715afcba4b))
+
+### Bug Fixes
+
+- **deps:** update [@roberts](https://github.com/roberts)\_lando/vfs to version 0.3.3 ([#266](https://github.com/yao-pkg/pkg/issues/266)) ([d155e24](https://github.com/yao-pkg/pkg/commit/d155e24a8cff2f068913d1a986440aba5cc805bb))
+- **detector:** stop silent dependency drops in SEA mode (ESM parse, dynamic import, decorators) ([#268](https://github.com/yao-pkg/pkg/issues/268)) ([81c6c88](https://github.com/yao-pkg/pkg/commit/81c6c88ecc87959d7a4d29a70523bf6f0d406a41))
+- **sea:** silence benign LIEF warnings during postject injection ([#265](https://github.com/yao-pkg/pkg/issues/265)) ([974df53](https://github.com/yao-pkg/pkg/commit/974df53420774a51ccf4d66694a7d9ea652a3119))
+
 ## [6.18.2](https://github.com/yao-pkg/pkg/compare/v6.18.1...v6.18.2) (2026-04-22)
 
 ### Bug Fixes
