@@ -40,6 +40,7 @@ async function main() {
     console.log('echo:' + result.echo);
     console.log('hasFilename:' + result.hasFilename);
     console.log('hasDirname:' + result.hasDirname);
+    console.log('hasProcessPkg:' + result.hasProcessPkg);
     console.log('helperResult:' + result.helperResult);
   } catch (e) {
     console.log('worker-error:' + e.message);
