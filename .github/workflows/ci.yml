@@ -57,12 +57,12 @@ jobs:
             prelude/sea-bootstrap.bundle.js
           retention-days: 1
 
-      # Coverage upload — unit-suite only on every PR (~2s). E2E coverage
-      # (~30 min) is uploaded by coverage-nightly.yml with `flags: e2e`;
-      # Codecov merges the two flags via carryforward (see codecov.yml) so PR
-      # reports reflect unit + e2e combined. The `build` matrix runs
-      # `yarn test:unit` on 3 OS × Node 22/24 to verify platform behavior; this
-      # is the single canonical coverage upload.
+      # Coverage upload — unit-suite only on every PR (~2s). E2E coverage is
+      # uploaded from the canonical Ubuntu cells in `.github/workflows/test.yml`
+      # with `flags: e2e`; Codecov merges the two flags via carryforward (see
+      # codecov.yml) so PR reports reflect unit + e2e combined. The `build`
+      # matrix runs `yarn test:unit` on 3 OS × Node 22/24 to verify platform
+      # behavior; this is the single canonical unit-coverage upload.
       - if: needs.changes.outputs.code == 'true'
         run: yarn coverage:unit
       - if: needs.changes.outputs.code == 'true'

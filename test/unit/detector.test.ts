@@ -101,14 +101,28 @@ describe('detect', () => {
   });
 
   it('stops descending when visitor returns falsy', () => {
+    // The walker visits the root `File` node first; refusing descent there
+    // means `Program` is never queued, so the visitor is called exactly once.
     let visited = 0;
     detect('const x = require("foo");', () => {
       visited += 1;
-      return false; // refuse to descend past the Program node
+      return false;
     });
-    // Program + (File header) visited; children are not queued because the
-    // visitor refused descent — exact count is 1, never higher.
     assert.equal(visited, 1);
+  });
+
+  it('descends one level per truthy return', () => {
+    // Descend through `File`, refuse at `Program` — visitor sees both
+    // (count = 2) but no statements inside the Program body.
+    let visited = 0;
+    const seen: string[] = [];
+    detect('const x = require("foo");', (node) => {
+      visited += 1;
+      seen.push(node.type);
+      return node.type !== 'Program';
+    });
+    assert.equal(visited, 2);
+    assert.deepEqual(seen, ['File', 'Program']);
   });
 });
 
