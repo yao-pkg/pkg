@@ -57,6 +57,24 @@ jobs:
             prelude/sea-bootstrap.bundle.js
           retention-days: 1
 
+      # Coverage upload — unit-suite only on every PR (~2s). E2E coverage is
+      # uploaded from the canonical Ubuntu cells in `.github/workflows/test.yml`
+      # with `flags: e2e`; Codecov merges the two flags via carryforward (see
+      # codecov.yml) so PR reports reflect unit + e2e combined. The `build`
+      # matrix runs `yarn test:unit` on 3 OS × Node 22/24 to verify platform
+      # behavior; this is the single canonical unit-coverage upload.
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn coverage:unit
+      - if: needs.changes.outputs.code == 'true'
+        name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: yao-pkg/pkg
+          files: coverage/lcov.info
+          flags: unit
+          fail_ci_if_error: false
+
   # Sanity check: `yarn build` succeeds on every supported OS + Node combo.
   # Runs in parallel with tests (they don't consume this job's output) so
   # failures still mark the PR red without gating the test jobs.
@@ -81,10 +99,17 @@ jobs:
         run: yarn install
       - if: needs.changes.outputs.code == 'true'
         run: yarn build
+      # Unit suite is in-process (node:test + esbuild-register) and takes
+      # ~1s, so it rides the existing per-(os,node) build matrix. This gives
+      # Windows- and Node 24-specific path/runtime coverage for free — both
+      # matter for common.test.ts's win32 branch.
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn test:unit
 
   test_host:
     needs: [changes, build_artifact]
     uses: ./.github/workflows/test.yml
+    secrets: inherit
     with:
       npm_command: test:host
       should_run: ${{ needs.changes.outputs.code }}
@@ -92,6 +117,7 @@ jobs:
   test_22:
     needs: [changes, build_artifact]
     uses: ./.github/workflows/test.yml
+    secrets: inherit
     with:
       npm_command: test:22
       should_run: ${{ needs.changes.outputs.code }}
@@ -99,6 +125,7 @@ jobs:
   test_24:
     needs: [changes, build_artifact]
     uses: ./.github/workflows/test.yml
+    secrets: inherit
     with:
       npm_command: test:24
       should_run: ${{ needs.changes.outputs.code }}

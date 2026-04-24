@@ -1,0 +1,48 @@
+# Codecov config — keep coverage informational, don't gate PRs on it.
+# Every PR uploads BOTH flags: `unit` from build_artifact (fast), and `e2e`
+# from the two canonical Ubuntu e2e cells in test.yml (Node 22 + Node 24).
+# Codecov merges flags per commit, so the total reflects unit + e2e natively.
+coverage:
+  status:
+    project:
+      default:
+        # Report but never fail the PR. Coverage swings naturally with the
+        # unit-vs-e2e split and the 24h lag on e2e refreshes.
+        target: auto
+        threshold: 5%
+        informational: true
+    patch:
+      default:
+        # New lines should be covered by the unit suite when reasonable, but
+        # many changes land in integration-heavy modules (walker, producer,
+        # packer) that stay e2e-tested. Warn, don't fail.
+        informational: true
+
+comment:
+  layout: "reach, diff, files"
+  behavior: default
+  require_changes: true
+
+ignore:
+  - "lib-es5/**"
+  - "test/**"
+  - "prelude/**"
+  - "dictionary/**"
+  - "scripts/**"
+  - "docs-site/**"
+  - "**/*.d.ts"
+
+# carryforward is a safety net: if one of the two flag uploads fails (e.g.
+# Codecov outage mid-run, an e2e cell crashes), Codecov reuses the last known
+# value for that flag on the new commit. With both flags uploaded per PR the
+# normal case doesn't depend on it, but keeping it set avoids a zeroed-out
+# report on transient upload failures.
+flags:
+  unit:
+    paths:
+      - lib/
+    carryforward: true
+  e2e:
+    paths:
+      - lib/
+    carryforward: true

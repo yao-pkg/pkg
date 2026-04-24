@@ -23,7 +23,21 @@ This command starts an interactive process that guides you through the release u
 
 ## Testing
 
-Before running tests, ensure you have built the project by running:
+`pkg` has two test suites:
+
+1. **Unit suite** (`test/unit/*.test.ts`) — in-process assertions using Node's built-in [`node:test`](https://nodejs.org/api/test.html) runner. Imports `lib/*.ts` directly via `esbuild-register`, so no `yarn build` is required. Runs in ~1 second.
+2. **E2E suite** (`test/test-XX-*/`) — each directory spawns the `pkg` CLI and asserts on the produced binaries. Requires a prior `yarn build`.
+
+### Unit suite
+
+```bash
+yarn test:unit          # run once
+yarn test:unit:watch    # re-run on change
+```
+
+### E2E suite
+
+Before running e2e tests, ensure you have built the project by running:
 
 ```bash
 yarn build
@@ -42,11 +56,29 @@ node test/test.js <target> [no-npm | only-npm | all] [<flavor>]
 - `[no-npm | only-npm | all]` to specify which tests to run. `no-npm` will run tests that don't require npm, `only-npm` will run against some specific npm modules, and `all` will run all tests.
 - `<flavor>` to use when you want to run only tests matching a specific pattern. Example: `node test/test.js all test-99-*`. You can also set this by using `FLAVOR` environment variable.
 
-Each test is located inside `test` directory into a dedicated folder named following the pattern `test-XX-*`. The `XX` is a number that represents the order the tests will run.
+Each e2e test is located inside `test` directory into a dedicated folder named following the pattern `test-XX-*`. The `XX` is a number that represents the order the tests will run.
 
 When running `node test/test.js all`, based on the options, each test will be run consecutively by running `main.js` file inside the test folder.
 
-### Example test
+### Coverage
+
+`pkg` uses [c8](https://github.com/bcoe/c8) as a thin reporter over V8's built-in coverage. `NODE_V8_COVERAGE` propagates through child processes, so e2e coverage captures the `pkg` CLI executions spawned by the harness.
+
+```bash
+# Run unit coverage alone — always deterministic; clears coverage/tmp first.
+yarn coverage:unit
+
+# Append e2e coverage on top of whatever is in coverage/tmp (uses `c8 --clean=false`).
+# After a fresh `yarn coverage:unit`, this produces a merged report. Without
+# a prior run it produces an e2e-only report. For a guaranteed e2e-only view,
+# delete `coverage/` first. (Slow — runs the full e2e matrix.)
+yarn coverage:e2e
+
+# Full merged report: cleans, runs unit, then appends e2e, then emits lcov+text.
+yarn coverage
+```
+
+### Example e2e test
 
 Create a directory named `test-XX-<name>` and inside it create a `main.js` file with the following content:
 
