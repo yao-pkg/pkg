@@ -181,6 +181,22 @@ function visitorImport(n: babelTypes.Node) {
   return { v1: n.source.value, v3: reconstructSpecifiers(n.specifiers) };
 }
 
+function visitorDynamicImport(n: babelTypes.Node) {
+  if (!babelTypes.isCallExpression(n)) {
+    return null;
+  }
+
+  if (n.callee.type !== 'Import') {
+    return null;
+  }
+
+  if (!n.arguments || !isLiteral(n.arguments[0])) {
+    return null;
+  }
+
+  return { v1: getLiteralValue(n.arguments[0] as babelTypes.Literal) };
+}
+
 function visitorPathJoin(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -265,6 +281,16 @@ export function visitorSuccessful(node: babelTypes.Node, test = false) {
   if (was) {
     if (test) {
       return forge('import {v3}{c3}{v1}', was);
+    }
+
+    return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
+  }
+
+  was = visitorDynamicImport(node);
+
+  if (was) {
+    if (test) {
+      return forge('import({v1})', was);
     }
 
     return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
@@ -495,18 +521,24 @@ function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
   }
 }
 
-export function parse(body: string) {
+export function parse(body: string, isEsm = false) {
   return babel.parse(body, {
     allowImportExportEverywhere: true,
     allowReturnOutsideFunction: true,
+    sourceType: isEsm ? 'module' : 'script',
   });
 }
 
-export function detect(body: string, visitor: VisitorFunction, file?: string) {
+export function detect(
+  body: string,
+  visitor: VisitorFunction,
+  file?: string,
+  isEsm = false,
+) {
   let json;
 
   try {
-    json = parse(body);
+    json = parse(body, isEsm);
   } catch (error) {
     const fileInfo = file ? ` in ${file}` : '';
     log.warn(`Babel parse has failed: ${(error as Error).message}${fileInfo}`);
