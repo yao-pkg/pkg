@@ -25,6 +25,7 @@ const expected =
   'echo:ping\n' +
   'hasFilename:true\n' +
   'hasDirname:true\n' +
+  'hasProcessPkg:true\n' +
   'helperResult:hello world\n';
 
 utils.assertSeaOutput(testName, expected);
