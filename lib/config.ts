@@ -774,8 +774,10 @@ const hostNodeRange = `node${process.version.match(/^v(\d+)/)![1]}`;
  * Expand target spec strings into `NodeTarget`s. Each item is split on `-`
  * and tokens are classified as nodeRange / platform / arch; missing parts
  * fall back to the host. `'host'` short-circuits to the full host triple.
+ *
+ * Exported for unit tests — production callers go through `resolveTargetList`.
  */
-function parseTargets(items: string[]): NodeTarget[] {
+export function parseTargets(items: string[]): NodeTarget[] {
   const targets: NodeTarget[] = [];
   for (const item of items) {
     const target = {
@@ -820,8 +822,12 @@ export interface DifferentParts {
   arch?: boolean;
 }
 
-/** Return the axes on which `targets` actually differ. */
-function differentParts(targets: NodeTarget[]): DifferentParts {
+/**
+ * Return the axes on which `targets` actually differ.
+ *
+ * Exported for unit tests — production callers go through `resolveConfig`.
+ */
+export function differentParts(targets: NodeTarget[]): DifferentParts {
   const nr = new Set<string>();
   const pl = new Set<string>();
   const ar = new Set<string>();
@@ -840,8 +846,10 @@ function differentParts(targets: NodeTarget[]): DifferentParts {
 /**
  * Build a per-target output filename by appending only the target axes that
  * actually differ across the target list, avoiding redundant `-x64`, etc.
+ *
+ * Exported for unit tests — production callers go through `assignTargetOutputs`.
  */
-function stringifyTargetForOutput(
+export function stringifyTargetForOutput(
   baseOutput: string,
   t: NodeTarget,
   diff: DifferentParts,

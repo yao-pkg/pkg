@@ -90,6 +90,44 @@ describe('transformESMtoCJS', () => {
     assert.match(res.code, /async\s*\(\s*\)\s*=>/);
   });
 
+  it('top-level-await + imports (no exports): extracts imports, wraps rest in IIFE', () => {
+    // This is the branch where we keep imports at the top level (so esbuild
+    // can rewrite them into requires) and wrap only the await-bearing body.
+    // Without this split, esbuild would refuse the mix of TLA and import
+    // statements at the same level.
+    const src = [
+      'import fs from "node:fs";',
+      'const data = await fs.promises.readFile("x");',
+    ].join('\n');
+    const res = transformESMtoCJS(src, 'tla-imports.mjs');
+    assert.equal(res.isTransformed, true);
+    // esbuild rewrote the import to a require.
+    assert.match(res.code, /require\(["']node:fs["']\)/);
+    // IIFE wraps the await'd body (not the top-level require).
+    assert.match(res.code, /async\s*\(\s*\)\s*=>/);
+  });
+
+  it('top-level for-await-of without exports: also wrapped in async IIFE', () => {
+    // The detector treats `for await` identically to plain TLA.
+    const src = 'for await (const x of Promise.resolve([1])) {}\n';
+    const res = transformESMtoCJS(src, 'for-await.mjs');
+    assert.equal(res.isTransformed, true);
+    assert.match(res.code, /async\s*\(\s*\)\s*=>/);
+  });
+
+  it('top-level-await nested inside a function does NOT trigger IIFE wrap', () => {
+    // The isTopLevel climber rejects await inside any Function*. Without this,
+    // ordinary async functions would trip the wrapper.
+    const src = ['async function f() { await 1; }', 'export default f;'].join(
+      '\n',
+    );
+    const res = transformESMtoCJS(src, 'fn-await.mjs');
+    // No TLA detected → regular esbuild transform, no IIFE. Exports are
+    // allowed because we never entered the TLA branch.
+    assert.equal(res.isTransformed, true);
+    assert.doesNotMatch(res.code, /async\s*\(\s*\)\s*=>/);
+  });
+
   it('import.meta: esbuild emits shim, we inject the real implementation', () => {
     const res = transformESMtoCJS(
       'export const here = import.meta.url;\n',

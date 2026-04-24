@@ -217,15 +217,29 @@ describe('visitorNonLiteral', () => {
 });
 
 describe('visitorMalformed', () => {
-  it('flags require() with no args', () => {
+  it('flags require() with no args as null (nothing to reconstruct)', () => {
     const node = firstRelevantNode('require();');
-    assert.equal(visitorMalformed(node!), null); // no arg → nothing to reconstruct
+    assert.equal(visitorMalformed(node!), null);
   });
 
   it('returns alias for require.resolve(expr) with any shape', () => {
     const node = firstRelevantNode('require.resolve(fn());');
     const out = visitorMalformed(node!) as { alias: string };
     assert.ok(out && typeof out.alias === 'string');
+  });
+
+  it('returns alias for require(expr) with a dynamic arg', () => {
+    // Dynamic-arg requires are picked up by this visitor when the more
+    // specific visitorNonLiteral matcher in walker doesn't claim them —
+    // the reconstruct() helper renders the expression back to source.
+    const node = firstRelevantNode('require(pickModule());');
+    const out = visitorMalformed(node!) as { alias: string };
+    assert.match(out.alias, /pickModule\(\)/);
+  });
+
+  it('ignores unrelated calls', () => {
+    const node = firstRelevantNode('lookup("foo");');
+    assert.equal(visitorMalformed(node!), null);
   });
 });
 
@@ -237,8 +251,36 @@ describe('visitorUseSCWD', () => {
     assert.match(out.alias, /"foo"/);
   });
 
-  it('ignores unrelated calls', () => {
+  it('reconstructs all args joined by comma', () => {
+    const node = firstRelevantNode('path.resolve("a", base, "b", fn());');
+    const out = visitorUseSCWD(node!) as { alias: string };
+    // Each arg is rendered back to source and joined; internal spacing may
+    // vary, so match each element independently.
+    assert.match(out.alias, /"a"/);
+    assert.match(out.alias, /base/);
+    assert.match(out.alias, /"b"/);
+    assert.match(out.alias, /fn\(\)/);
+  });
+
+  it('fires with zero args too (returns an empty-string alias)', () => {
+    // Edge case: the visitor doesn't short-circuit on empty args.
+    const node = firstRelevantNode('path.resolve();');
+    const out = visitorUseSCWD(node!) as { alias: string };
+    assert.equal(out.alias, '');
+  });
+
+  it('ignores path.join (similar shape, different semantics)', () => {
     const node = firstRelevantNode('path.join("foo", "bar");');
+    assert.equal(visitorUseSCWD(node!), null);
+  });
+
+  it('ignores resolve() called on an object that is not `path`', () => {
+    const node = firstRelevantNode('url.resolve("a", "b");');
+    assert.equal(visitorUseSCWD(node!), null);
+  });
+
+  it('ignores the bare function call resolve()', () => {
+    const node = firstRelevantNode('resolve("foo");');
     assert.equal(visitorUseSCWD(node!), null);
   });
 });

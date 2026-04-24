@@ -354,3 +354,47 @@ describe('common — isESMPackage / isESMFile', () => {
     assert.equal(common.isESMFile('/a.json'), false);
   });
 });
+
+describe('common — toNormalizedRealPath', () => {
+  let tmp: string;
+
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-realpath-'));
+  });
+
+  after(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('non-existent path passes through normalizePath unchanged', () => {
+    const missing = path.join(tmp, 'no-such-thing');
+    const out = common.toNormalizedRealPath(missing);
+    assert.equal(out, common.normalizePath(missing));
+  });
+
+  it('existing path resolves through fs.realpathSync', () => {
+    const real = fs.mkdtempSync(path.join(tmp, 'real-'));
+    // Compare to realpath of the directory itself (macOS /tmp → /private/tmp
+    // differs from the literal path, so naïve equality would fail).
+    assert.equal(common.toNormalizedRealPath(real), fs.realpathSync(real));
+  });
+
+  it(
+    'symlink is resolved to its target',
+    {
+      // fs.symlinkSync on Windows requires admin or Developer Mode; skip there
+      // rather than fight environment setup.
+      skip: process.platform === 'win32',
+    },
+    () => {
+      const target = fs.mkdtempSync(path.join(tmp, 'target-'));
+      const link = path.join(tmp, 'link-' + Date.now());
+      fs.symlinkSync(target, link);
+
+      const resolved = common.toNormalizedRealPath(link);
+      // The returned path must equal the real target path (macOS /tmp vs
+      // /private/tmp → use fs.realpathSync on both sides of the comparison).
+      assert.equal(resolved, fs.realpathSync(target));
+    },
+  );
+});

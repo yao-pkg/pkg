@@ -4,17 +4,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 
+import { system } from '@yao-pkg/pkg-fetch';
+
 import { CompressType } from '../../lib/compress_type';
 import { log } from '../../lib/log';
 import {
   PKGRC_FILENAMES,
+  differentParts,
   findPkgrc,
   isConfiguration,
   parseInput,
+  parseTargets,
   resolveFlags,
   stringifyTarget,
+  stringifyTargetForOutput,
   validatePkgConfig,
 } from '../../lib/config';
+import type { NodeTarget } from '../../lib/types';
 
 type LogFn = (..._a: unknown[]) => void;
 
@@ -646,5 +652,175 @@ describe('PKGRC_FILENAMES + findPkgrc', () => {
   it('returns undefined when none exist', () => {
     const dir = fs.mkdtempSync(path.join(tmp, 'empty-'));
     assert.equal(findPkgrc(dir), undefined);
+  });
+});
+
+// Target parsing is the hot path on every pkg invocation — every build runs
+// through it. The logic is token-classified (nodeRange / platform / arch)
+// with host fallbacks, so these tests pin the classification table and the
+// host defaults instead of any specific arch/platform.
+describe('parseTargets', () => {
+  const hostNodeRange = `node${process.version.match(/^v(\d+)/)![1]}`;
+
+  it("'host' short-circuits to the full host triple", () => {
+    const [t] = parseTargets(['host']);
+    assert.equal(t.nodeRange, hostNodeRange);
+    assert.equal(t.platform, system.hostPlatform);
+    assert.equal(t.arch, system.hostArch);
+  });
+
+  it('single token — platform — fills the rest from host', () => {
+    const [t] = parseTargets(['linux']);
+    assert.equal(t.platform, 'linux');
+    assert.equal(t.nodeRange, hostNodeRange);
+    assert.equal(t.arch, system.hostArch);
+  });
+
+  it('single token — arch — fills the rest from host', () => {
+    const [t] = parseTargets(['x64']);
+    assert.equal(t.arch, 'x64');
+    assert.equal(t.nodeRange, hostNodeRange);
+    assert.equal(t.platform, system.hostPlatform);
+  });
+
+  it('single token — nodeRange — fills the rest from host', () => {
+    const [t] = parseTargets(['node22']);
+    assert.equal(t.nodeRange, 'node22');
+    assert.equal(t.platform, system.hostPlatform);
+    assert.equal(t.arch, system.hostArch);
+  });
+
+  it('full triple parses in any token order', () => {
+    assert.deepEqual(parseTargets(['node22-linux-x64'])[0], {
+      nodeRange: 'node22',
+      platform: 'linux',
+      arch: 'x64',
+    });
+    // Order is classified by token, not position.
+    assert.deepEqual(parseTargets(['x64-linux-node22'])[0], {
+      nodeRange: 'node22',
+      platform: 'linux',
+      arch: 'x64',
+    });
+  });
+
+  it('empty tokens from repeated "-" are skipped', () => {
+    assert.deepEqual(parseTargets(['node22--linux'])[0].platform, 'linux');
+  });
+
+  it('aliasing via toFancyPlatform/toFancyArch (win ↔ windows etc.)', () => {
+    // pkg-fetch normalizes common aliases (e.g. 'win' → 'win',
+    // 'windows' → 'win', 'x86_64' → 'x64'). Exact alias set is pkg-fetch's
+    // business — we only pin that an obvious variant reaches a known value.
+    const t = parseTargets(['windows'])[0];
+    assert.equal(t.platform, 'win');
+  });
+
+  it('throws on unknown tokens with the offending spec in the message', () => {
+    assert.throws(
+      () => parseTargets(['node22-bogus']),
+      /Unknown token 'bogus' in 'node22-bogus'/,
+    );
+  });
+
+  it('preserves list order for multiple items', () => {
+    const out = parseTargets(['node22-linux', 'node24-macos']);
+    assert.equal(out.length, 2);
+    assert.equal(out[0].nodeRange, 'node22');
+    assert.equal(out[0].platform, 'linux');
+    assert.equal(out[1].nodeRange, 'node24');
+    assert.equal(out[1].platform, 'macos');
+  });
+
+  it('empty input list yields empty output (resolveTargetList supplies defaults)', () => {
+    assert.deepEqual(parseTargets([]), []);
+  });
+});
+
+describe('stringifyTarget ↔ parseTargets round-trip', () => {
+  it('round-trips a fully-specified triple', () => {
+    const spec = 'node24-linux-arm64';
+    const [t] = parseTargets([spec]);
+    assert.equal(stringifyTarget(t), spec);
+  });
+});
+
+describe('differentParts', () => {
+  const mk = (nodeRange: string, platform: string, arch: string): NodeTarget =>
+    ({ nodeRange, platform, arch }) as unknown as NodeTarget;
+
+  it('empty list → no dimensions vary', () => {
+    assert.deepEqual(differentParts([]), {});
+  });
+
+  it('singleton → no dimensions vary', () => {
+    assert.deepEqual(differentParts([mk('node22', 'linux', 'x64')]), {});
+  });
+
+  it('all three axes constant → empty object', () => {
+    assert.deepEqual(
+      differentParts([
+        mk('node22', 'linux', 'x64'),
+        mk('node22', 'linux', 'x64'),
+      ]),
+      {},
+    );
+  });
+
+  it('platform differs only', () => {
+    assert.deepEqual(
+      differentParts([
+        mk('node22', 'linux', 'x64'),
+        mk('node22', 'macos', 'x64'),
+      ]),
+      { platform: true },
+    );
+  });
+
+  it('all three axes differ', () => {
+    assert.deepEqual(
+      differentParts([
+        mk('node22', 'linux', 'x64'),
+        mk('node24', 'macos', 'arm64'),
+      ]),
+      { nodeRange: true, platform: true, arch: true },
+    );
+  });
+});
+
+describe('stringifyTargetForOutput', () => {
+  const t: NodeTarget = {
+    nodeRange: 'node22',
+    platform: 'linux',
+    arch: 'x64',
+  } as unknown as NodeTarget;
+
+  it('no axes vary → returns baseOutput unchanged', () => {
+    assert.equal(stringifyTargetForOutput('app', t, {}), 'app');
+  });
+
+  it('appends only the axes flagged as varying, in order', () => {
+    assert.equal(
+      stringifyTargetForOutput('app', t, { platform: true }),
+      'app-linux',
+    );
+    assert.equal(
+      stringifyTargetForOutput('app', t, { platform: true, arch: true }),
+      'app-linux-x64',
+    );
+    assert.equal(
+      stringifyTargetForOutput('app', t, {
+        nodeRange: true,
+        platform: true,
+        arch: true,
+      }),
+      'app-node22-linux-x64',
+    );
+  });
+
+  it('arch only (skipping middle axes) does not emit placeholders', () => {
+    // Regression guard: the order of appending matters so a
+    // `{arch:true}`-only diff doesn't produce 'app--x64'.
+    assert.equal(stringifyTargetForOutput('app', t, { arch: true }), 'app-x64');
   });
 });
