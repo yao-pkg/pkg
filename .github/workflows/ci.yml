@@ -57,11 +57,12 @@ jobs:
             prelude/sea-bootstrap.bundle.js
           retention-days: 1
 
-      # Coverage upload — unit-suite only. The full `yarn coverage` (unit + e2e)
-      # is 30+ min and not worth paying on every PR; a follow-up can add a
-      # nightly or labeled job for the merged report. The `build` matrix runs
+      # Coverage upload — unit-suite only on every PR (~2s). E2E coverage
+      # (~30 min) is uploaded by coverage-nightly.yml with `flags: e2e`;
+      # Codecov merges the two flags via carryforward (see codecov.yml) so PR
+      # reports reflect unit + e2e combined. The `build` matrix runs
       # `yarn test:unit` on 3 OS × Node 22/24 to verify platform behavior; this
-      # is the single canonical upload for Codecov.
+      # is the single canonical coverage upload.
       - if: needs.changes.outputs.code == 'true'
         run: yarn coverage:unit
       - if: needs.changes.outputs.code == 'true'

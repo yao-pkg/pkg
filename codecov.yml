@@ -1,12 +1,12 @@
 # Codecov config — keep coverage informational, don't gate PRs on it.
-# Upload is unit-suite only today; nightly / labeled merged uploads may land
-# as a follow-up (see #267 Phase 2 acceptance criteria).
+# PR CI uploads `flags: unit` on every build; coverage-nightly.yml uploads
+# `flags: e2e` daily on main. carryforward (below) merges the two per commit.
 coverage:
   status:
     project:
       default:
-        # Report but never fail the PR. Coverage swings with e2e-vs-unit
-        # scope changes, and the e2e suite isn't on Codecov yet.
+        # Report but never fail the PR. Coverage swings naturally with the
+        # unit-vs-e2e split and the 24h lag on e2e refreshes.
         target: auto
         threshold: 5%
         informational: true
