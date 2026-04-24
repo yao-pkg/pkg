@@ -31,8 +31,17 @@ ignore:
   - "docs-site/**"
   - "**/*.d.ts"
 
+# Both flags carry forward: a PR commit only has a `unit` upload (the nightly
+# e2e job runs on main, not on PR branches), and a main push between nightlies
+# only has `unit`. carryforward: true tells Codecov "if this commit didn't
+# upload flag X, reuse the most recent upload tagged with flag X" — so PR
+# reports show merged unit+e2e numbers instead of unit-only (~37%).
 flags:
   unit:
     paths:
       - lib/
-    carryforward: false
+    carryforward: true
+  e2e:
+    paths:
+      - lib/
+    carryforward: true
