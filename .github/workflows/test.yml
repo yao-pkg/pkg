@@ -47,8 +47,48 @@ jobs:
         with:
           name: build-output
 
-      - if: inputs.should_run == 'true'
+      # Two canonical Ubuntu cells (Node 22 host + test:22 target; Node 24
+      # host + test:24 target) wrap their e2e run in c8 to capture coverage.
+      # Every other cell (Windows, macOS, mixed host/target) runs the test
+      # command plainly — the canonical cells already exercise the same
+      # lib/ code paths, so extra uploads from them would just duplicate
+      # data for Codecov to merge and discard.
+      - name: Canonical cell?
+        id: cov
+        shell: bash
+        if: inputs.should_run == 'true'
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" && \
+                ( ( "${{ inputs.npm_command }}" == "test:22" && "${{ matrix.node-version }}" == "22.x" ) || \
+                  ( "${{ inputs.npm_command }}" == "test:24" && "${{ matrix.node-version }}" == "24.x" ) ) ]]; then
+            echo "coverage=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "coverage=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: inputs.should_run == 'true' && steps.cov.outputs.coverage != 'true'
         run: yarn ${{ inputs.npm_command }}
         env:
           CI: true
         timeout-minutes: 30
+
+      - if: inputs.should_run == 'true' && steps.cov.outputs.coverage == 'true' && inputs.npm_command == 'test:22'
+        run: yarn coverage:e2e
+        env:
+          CI: true
+        timeout-minutes: 40
+      - if: inputs.should_run == 'true' && steps.cov.outputs.coverage == 'true' && inputs.npm_command == 'test:24'
+        run: yarn coverage:e2e:24
+        env:
+          CI: true
+        timeout-minutes: 40
+
+      - if: inputs.should_run == 'true' && steps.cov.outputs.coverage == 'true'
+        name: Upload e2e coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: yao-pkg/pkg
+          files: coverage/lcov.info
+          flags: e2e
+          fail_ci_if_error: false

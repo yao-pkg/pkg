@@ -1,6 +1,7 @@
 # Codecov config — keep coverage informational, don't gate PRs on it.
-# PR CI uploads `flags: unit` on every build; coverage-nightly.yml uploads
-# `flags: e2e` daily on main. carryforward (below) merges the two per commit.
+# Every PR uploads BOTH flags: `unit` from build_artifact (fast), and `e2e`
+# from the two canonical Ubuntu e2e cells in test.yml (Node 22 + Node 24).
+# Codecov merges flags per commit, so the total reflects unit + e2e natively.
 coverage:
   status:
     project:
@@ -31,11 +32,11 @@ ignore:
   - "docs-site/**"
   - "**/*.d.ts"
 
-# Both flags carry forward: a PR commit only has a `unit` upload (the nightly
-# e2e job runs on main, not on PR branches), and a main push between nightlies
-# only has `unit`. carryforward: true tells Codecov "if this commit didn't
-# upload flag X, reuse the most recent upload tagged with flag X" — so PR
-# reports show merged unit+e2e numbers instead of unit-only (~37%).
+# carryforward is a safety net: if one of the two flag uploads fails (e.g.
+# Codecov outage mid-run, an e2e cell crashes), Codecov reuses the last known
+# value for that flag on the new commit. With both flags uploaded per PR the
+# normal case doesn't depend on it, but keeping it set avoids a zeroed-out
+# report on transient upload failures.
 flags:
   unit:
     paths:
