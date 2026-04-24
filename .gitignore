@@ -4,6 +4,9 @@
 # dependencies
 /node_modules
 
+# coverage reports (c8)
+/coverage
+
 # pkg uses yarn — a root package-lock.json is always accidental
 /package-lock.json
 

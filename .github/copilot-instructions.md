@@ -104,8 +104,12 @@ This workflow ensures code quality, prevents accidental commits of test artifact
 The test suite is extensive and organized in numbered directories:
 
 ```bash
-# Build first (required)
+# Build first (required for e2e)
 yarn build
+
+# Fast in-process unit suite (node:test + esbuild-register, ~1s, no build)
+yarn test:unit
+yarn test:unit:watch
 
 # Run all tests
 yarn test
@@ -117,13 +121,18 @@ yarn test:host  # Test with host Node.js version
 
 # Run specific test pattern
 node test/test.js node20 no-npm test-50-*
+
+# Coverage (c8; include lib/**, merged unit + e2e into coverage/lcov.info)
+yarn coverage:unit
+yarn coverage:e2e
+yarn coverage
 ```
 
 #### Test Organization
 
-- Tests are in `test/test-XX-*/` directories where XX indicates execution order
-- Each test directory contains a `main.js` file that runs the test
-- Tests use `utils.js` for common testing utilities
+- `test/unit/*.test.ts` — in-process unit suite on Node's built-in `node:test` runner. Imports `lib/*.ts` directly via `esbuild-register` (no build required).
+- `test/test-XX-*/main.js` — e2e suite: each directory spawns the pkg CLI and asserts on produced binaries. XX indicates execution order.
+- Tests use `utils.js` for common testing utilities.
 - Special tests:
   - `test-79-npm/`: Tests integration with popular npm packages (only-npm)
   - `test-42-fetch-all/`: Verifies patches exist for all Node.js versions

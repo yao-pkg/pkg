@@ -81,6 +81,12 @@ jobs:
         run: yarn install
       - if: needs.changes.outputs.code == 'true'
         run: yarn build
+      # Unit suite is in-process (node:test + esbuild-register) and takes
+      # ~1s, so it rides the existing per-(os,node) build matrix. This gives
+      # Windows- and Node 24-specific path/runtime coverage for free — both
+      # matter for common.test.ts's win32 branch.
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn test:unit
 
   test_host:
     needs: [changes, build_artifact]

@@ -75,7 +75,10 @@ module.exports = [
     languageOptions: {
       parser: tsParser,
       parserOptions: {
-        project: './tsconfig.json',
+        // tsconfig.test.json extends tsconfig.json and additionally includes
+        // test/unit/**/*.test.ts so both lib and unit-suite sources resolve
+        // to a configured project for typescript-eslint.
+        project: ['./tsconfig.json', './tsconfig.test.json'],
         ecmaVersion: 'latest',
         sourceType: 'module',
       },

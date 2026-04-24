@@ -1,0 +1,16 @@
+{
+  "include": ["lib/**"],
+  "exclude": [
+    "lib-es5/**",
+    "lib/log.js",
+    "lib/**/*.d.ts",
+    "test/**",
+    "prelude/**",
+    "scripts/**",
+    "dictionary/**"
+  ],
+  "reports-dir": "coverage",
+  "all": true,
+  "temp-directory": "coverage/tmp",
+  "reporter": ["text", "lcov"]
+}
