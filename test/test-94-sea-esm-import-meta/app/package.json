@@ -3,5 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "main": "index.mjs",
-  "bin": "index.mjs"
+  "bin": "index.mjs",
+  "pkg": {
+    "scripts": [
+      "lib/decorated.js"
+    ]
+  }
 }

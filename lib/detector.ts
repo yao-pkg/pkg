@@ -549,12 +549,18 @@ function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
   }
 }
 
-/** `babel.parse` wrapper. `isEsm` selects `sourceType: 'module'` so `import.meta` / top-level await parse cleanly. */
+/**
+ * `babel.parse` wrapper. `isEsm` selects `sourceType: 'module'` so `import.meta`
+ * / top-level await parse cleanly. `decorators-legacy` is enabled so third-party
+ * sources that ship raw `@decorator` syntax (fontkit, older MobX/Nest builds,
+ * etc.) don't trip the parser and silently drop their dependency graph.
+ */
 export function parse(body: string, isEsm = false) {
   return babel.parse(body, {
     allowImportExportEverywhere: true,
     allowReturnOutsideFunction: true,
     sourceType: isEsm ? 'module' : 'script',
+    plugins: ['decorators-legacy'],
   });
 }
 

@@ -35,7 +35,7 @@ function hasImportMeta(code: string): boolean {
   try {
     const ast = babel.parse(code, {
       sourceType: 'module',
-      plugins: [],
+      plugins: ['decorators-legacy'],
     });
 
     if (!ast) {
@@ -85,7 +85,7 @@ function detectESMFeatures(
   try {
     const ast = babel.parse(code, {
       sourceType: 'module',
-      plugins: [],
+      plugins: ['decorators-legacy'],
     });
 
     if (!ast) {
@@ -300,7 +300,7 @@ export function transformESMtoCJS(
       // Parse the code to check for exports and collect imports
       const ast = babel.parse(code, {
         sourceType: 'module',
-        plugins: [],
+        plugins: ['decorators-legacy'],
       });
 
       let hasExports = false;
