@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 
 import { CompressType } from '../../lib/compress_type';
 import { log } from '../../lib/log';
-import { parseInput, resolveFlags, validatePkgConfig } from '../../lib/config';
+import {
+  PKGRC_FILENAMES,
+  findPkgrc,
+  isConfiguration,
+  parseInput,
+  resolveFlags,
+  stringifyTarget,
+  validatePkgConfig,
+} from '../../lib/config';
 
 type LogFn = (..._a: unknown[]) => void;
 
@@ -557,5 +568,83 @@ describe('validatePkgConfig', () => {
 
   it('list with string[] OK', () => {
     validatePkgConfig({ publicPackages: ['a', 'b'] });
+  });
+});
+
+describe('isConfiguration', () => {
+  it('true for package.json regardless of directory', () => {
+    assert.equal(isConfiguration('package.json'), true);
+    assert.equal(isConfiguration(path.join('a', 'b', 'package.json')), true);
+  });
+
+  it('true for *.config.json (suffix match, no basename split)', () => {
+    assert.equal(isConfiguration('pkg.config.json'), true);
+    assert.equal(isConfiguration('webpack.config.json'), true);
+    assert.equal(isConfiguration(path.join('deep', 'pkg.config.json')), true);
+  });
+
+  it('false for other json / non-json files', () => {
+    assert.equal(isConfiguration('tsconfig.json'), false);
+    assert.equal(isConfiguration('pkg.json'), false);
+    assert.equal(isConfiguration('pkg.config.js'), false);
+    assert.equal(isConfiguration('package.js'), false);
+  });
+});
+
+describe('stringifyTarget', () => {
+  it('joins nodeRange-platform-arch', () => {
+    assert.equal(
+      stringifyTarget({ nodeRange: 'node22', platform: 'linux', arch: 'x64' }),
+      'node22-linux-x64',
+    );
+    assert.equal(
+      stringifyTarget({
+        nodeRange: 'node24',
+        platform: 'macos',
+        arch: 'arm64',
+      }),
+      'node24-macos-arm64',
+    );
+  });
+});
+
+describe('PKGRC_FILENAMES + findPkgrc', () => {
+  let tmp: string;
+
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-pkgrc-'));
+  });
+
+  after(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('lists filenames in precedence order (no duplicates)', () => {
+    assert.deepEqual(PKGRC_FILENAMES, [
+      '.pkgrc',
+      '.pkgrc.json',
+      'pkg.config.js',
+      'pkg.config.cjs',
+      'pkg.config.mjs',
+    ]);
+  });
+
+  it('finds the first candidate that exists', () => {
+    const dir = fs.mkdtempSync(path.join(tmp, 'only-'));
+    fs.writeFileSync(path.join(dir, 'pkg.config.cjs'), 'module.exports = {};');
+    assert.equal(findPkgrc(dir), path.join(dir, 'pkg.config.cjs'));
+  });
+
+  it('honours precedence when multiple exist', () => {
+    const dir = fs.mkdtempSync(path.join(tmp, 'many-'));
+    fs.writeFileSync(path.join(dir, '.pkgrc.json'), '{}');
+    fs.writeFileSync(path.join(dir, 'pkg.config.cjs'), 'module.exports = {};');
+    // .pkgrc.json has higher precedence than pkg.config.cjs.
+    assert.equal(findPkgrc(dir), path.join(dir, '.pkgrc.json'));
+  });
+
+  it('returns undefined when none exist', () => {
+    const dir = fs.mkdtempSync(path.join(tmp, 'empty-'));
+    assert.equal(findPkgrc(dir), undefined);
   });
 });
