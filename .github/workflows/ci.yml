@@ -57,6 +57,21 @@ jobs:
             prelude/sea-bootstrap.bundle.js
           retention-days: 1
 
+      # Coverage upload — unit-suite only. The full `yarn coverage` (unit + e2e)
+      # is 30+ min and not worth paying on every PR; a follow-up can add a
+      # nightly or labeled job for the merged report. The `build` matrix runs
+      # `yarn test:unit` on 3 OS × Node 22/24 to verify platform behavior; this
+      # is the single canonical upload for Codecov.
+      - if: needs.changes.outputs.code == 'true'
+        run: yarn coverage:unit
+      - if: needs.changes.outputs.code == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/lcov.info
+          flags: unit
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   # Sanity check: `yarn build` succeeds on every supported OS + Node combo.
   # Runs in parallel with tests (they don't consume this job's output) so
   # failures still mark the PR red without gating the test jobs.

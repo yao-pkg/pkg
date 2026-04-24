@@ -1,0 +1,38 @@
+# Codecov config — keep coverage informational, don't gate PRs on it.
+# Upload is unit-suite only today; nightly / labeled merged uploads may land
+# as a follow-up (see #267 Phase 2 acceptance criteria).
+coverage:
+  status:
+    project:
+      default:
+        # Report but never fail the PR. Coverage swings with e2e-vs-unit
+        # scope changes, and the e2e suite isn't on Codecov yet.
+        target: auto
+        threshold: 5%
+        informational: true
+    patch:
+      default:
+        # New lines should be covered by the unit suite when reasonable, but
+        # many changes land in integration-heavy modules (walker, producer,
+        # packer) that stay e2e-tested. Warn, don't fail.
+        informational: true
+
+comment:
+  layout: "reach, diff, files"
+  behavior: default
+  require_changes: true
+
+ignore:
+  - "lib-es5/**"
+  - "test/**"
+  - "prelude/**"
+  - "dictionary/**"
+  - "scripts/**"
+  - "docs-site/**"
+  - "**/*.d.ts"
+
+flags:
+  unit:
+    paths:
+      - lib/
+    carryforward: false
