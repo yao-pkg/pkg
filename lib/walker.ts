@@ -325,6 +325,7 @@ function stepDetect(
         return true; // can i go inside?
       },
       record.file,
+      isESMFile(record.file),
     );
   } catch (error) {
     log.error((error as Error).message, record.file);

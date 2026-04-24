@@ -84,6 +84,7 @@ const npmTests = [
   'test-90-sea-worker-threads',
   'test-91-sea-esm-entry',
   'test-92-sea-tla',
+  'test-94-sea-esm-import-meta',
 ];
 
 if (testFilter) {

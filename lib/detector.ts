@@ -5,6 +5,7 @@ import { log } from './log';
 
 import { ALIAS_AS_RELATIVE, ALIAS_AS_RESOLVABLE } from './common';
 
+/** Type guard for plain literal nodes; rejects template literals with interpolations. */
 function isLiteral(node: babelTypes.Node): node is babelTypes.Literal {
   if (node == null) {
     return false;
@@ -21,6 +22,7 @@ function isLiteral(node: babelTypes.Node): node is babelTypes.Literal {
   return true;
 }
 
+/** Extracts the runtime value of a literal. Throws on null/regexp — never valid module specifiers. */
 function getLiteralValue(node: babelTypes.Literal) {
   if (node.type === 'TemplateLiteral') {
     return node.quasis[0].value.raw;
@@ -37,6 +39,7 @@ function getLiteralValue(node: babelTypes.Literal) {
   return node.value;
 }
 
+/** Renders an import specifier list back to source (`a, { b, c as d }`) for log output. */
 function reconstructSpecifiers(
   specs: (
     | babelTypes.ImportDefaultSpecifier
@@ -79,6 +82,7 @@ function reconstructSpecifiers(
   return defaults.join(', ');
 }
 
+/** Prints any AST node back to a single-line source string, used when an arg isn't a literal. */
 function reconstruct(node: babelTypes.Node) {
   let v = generate(node, { comments: false }).code.replace(/\n/g, '');
   let v2;
@@ -102,6 +106,7 @@ interface Was {
   v3?: string;
 }
 
+/** Fills a template (e.g. `require({v1}{c2}{v2})`) with captured args to produce the printable form of a match. */
 function forge(pattern: string, was: Was) {
   return pattern
     .replace('{c1}', ', ')
@@ -112,6 +117,7 @@ function forge(pattern: string, was: Was) {
     .replace('{v3}', was.v3 ? was.v3 : '');
 }
 
+/** Guards the 2nd arg of require/require.resolve — only pkg's `must-exclude`/`may-exclude` markers are honored. */
 function valid2(v2?: Was['v2']) {
   return (
     v2 === undefined ||
@@ -121,6 +127,7 @@ function valid2(v2?: Was['v2']) {
   );
 }
 
+/** Matches `require.resolve("lit"[, "lit"])`. Returns captured args or null. */
 function visitorRequireResolve(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -150,6 +157,7 @@ function visitorRequireResolve(n: babelTypes.Node) {
   };
 }
 
+/** Matches `require("lit"[, "lit"])`. Returns captured args or null. */
 function visitorRequire(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -173,6 +181,7 @@ function visitorRequire(n: babelTypes.Node) {
   };
 }
 
+/** Matches a static ESM `import … from "lit"` declaration. */
 function visitorImport(n: babelTypes.Node) {
   if (!babelTypes.isImportDeclaration(n)) {
     return null;
@@ -181,6 +190,32 @@ function visitorImport(n: babelTypes.Node) {
   return { v1: n.source.value, v3: reconstructSpecifiers(n.specifiers) };
 }
 
+/** Matches dynamic `import("lit")` so bundler-emitted chunk splits get walked like static imports. */
+function visitorDynamicImport(n: babelTypes.Node) {
+  if (!babelTypes.isCallExpression(n)) {
+    return null;
+  }
+
+  if (n.callee.type !== 'Import') {
+    return null;
+  }
+
+  if (!n.arguments || !isLiteral(n.arguments[0])) {
+    return null;
+  }
+
+  // Module specifiers are always strings — reject `import(0)` / `import(true)`
+  // so a non-string value can't reach the walker's alias handling.
+  const value = getLiteralValue(n.arguments[0] as babelTypes.Literal);
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  return { v1: value };
+}
+
+/** Matches `path.join(__dirname, "lit")` — treats the joined path as a snapshot asset reference. */
 function visitorPathJoin(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -221,6 +256,11 @@ function visitorPathJoin(n: babelTypes.Node) {
   return { v1: getLiteralValue(n.arguments[1] as babelTypes.StringLiteral) };
 }
 
+/**
+ * Runs each literal-arg matcher in order and returns the first hit as a
+ * `{alias, aliasType, mustExclude?, mayExclude?}` derivative for the walker to
+ * bundle. When `test` is true returns a printable form (used by unit tests).
+ */
 export function visitorSuccessful(node: babelTypes.Node, test = false) {
   let was: Was | null = visitorRequireResolve(node);
 
@@ -270,6 +310,16 @@ export function visitorSuccessful(node: babelTypes.Node, test = false) {
     return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
   }
 
+  was = visitorDynamicImport(node);
+
+  if (was) {
+    if (test) {
+      return forge('import({v1})', was);
+    }
+
+    return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
+  }
+
   was = visitorPathJoin(node);
 
   if (was) {
@@ -283,6 +333,7 @@ export function visitorSuccessful(node: babelTypes.Node, test = false) {
   return null;
 }
 
+/** Matches `require.resolve(<non-literal>[, "lit"])` — feeds the "Cannot resolve" warning path. */
 function nonLiteralRequireResolve(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -322,6 +373,7 @@ function nonLiteralRequireResolve(n: babelTypes.Node) {
   };
 }
 
+/** Matches `require(<non-literal>[, "lit"])` — feeds the "Cannot resolve" warning path. */
 function nonLiteralRequire(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -355,6 +407,7 @@ function nonLiteralRequire(n: babelTypes.Node) {
   };
 }
 
+/** Entry visitor for dynamic requires whose target isn't known at build time — returns the alias to warn about. */
 export function visitorNonLiteral(n: babelTypes.Node) {
   const was = nonLiteralRequireResolve(n) || nonLiteralRequire(n);
 
@@ -373,6 +426,7 @@ export function visitorNonLiteral(n: babelTypes.Node) {
   return null;
 }
 
+/** Loose `require(...)` match (no literal gate) — used only to surface malformed-require diagnostics. */
 function isRequire(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -395,6 +449,7 @@ function isRequire(n: babelTypes.Node) {
   return { v1: reconstruct(n.arguments[0]) };
 }
 
+/** Loose `require.resolve(...)` match (no literal gate) — used only for malformed-require diagnostics. */
 function isRequireResolve(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -423,6 +478,7 @@ function isRequireResolve(n: babelTypes.Node) {
   return { v1: reconstruct(n.arguments[0]) };
 }
 
+/** Fires on require/require.resolve shapes the literal matchers rejected (wrong arg count, etc.). */
 export function visitorMalformed(n: babelTypes.Node) {
   const was = isRequireResolve(n) || isRequire(n);
 
@@ -433,6 +489,7 @@ export function visitorMalformed(n: babelTypes.Node) {
   return null;
 }
 
+/** Flags `path.resolve(...)` so the walker can warn that it resolves against `process.cwd()` at runtime, not `__dirname`. */
 export function visitorUseSCWD(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -463,6 +520,11 @@ export function visitorUseSCWD(n: babelTypes.Node) {
 
 type VisitorFunction = (node: babelTypes.Node, trying?: boolean) => boolean;
 
+/**
+ * Iterative DFS over the AST. `visitor` returns true to descend into children;
+ * `trying` is propagated inside try/catch bodies so the walker can downgrade
+ * downstream warnings to debug.
+ */
 function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
   // modified esprima-walk to support
   // visitor return value and "trying" flag
@@ -495,18 +557,37 @@ function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
   }
 }
 
-export function parse(body: string) {
+/**
+ * `babel.parse` wrapper. `isEsm` selects `sourceType: 'module'` so `import.meta`
+ * / top-level await parse cleanly. `decorators-legacy` is enabled so third-party
+ * sources that ship raw `@decorator` syntax (fontkit, older MobX/Nest builds,
+ * etc.) don't trip the parser and silently drop their dependency graph.
+ */
+export function parse(body: string, isEsm = false) {
   return babel.parse(body, {
     allowImportExportEverywhere: true,
     allowReturnOutsideFunction: true,
+    sourceType: isEsm ? 'module' : 'script',
+    plugins: ['decorators-legacy'],
   });
 }
 
-export function detect(body: string, visitor: VisitorFunction, file?: string) {
+/**
+ * Parses `body` and walks the AST with `visitor`. Parse failures are logged
+ * (not thrown) so one unparseable file doesn't abort the whole build — but the
+ * file's dependencies are then skipped, which is why callers must pass the
+ * correct `isEsm` flag.
+ */
+export function detect(
+  body: string,
+  visitor: VisitorFunction,
+  file?: string,
+  isEsm = false,
+) {
   let json;
 
   try {
-    json = parse(body);
+    json = parse(body, isEsm);
   } catch (error) {
     const fileInfo = file ? ` in ${file}` : '';
     log.warn(`Babel parse has failed: ${(error as Error).message}${fileInfo}`);
