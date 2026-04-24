@@ -65,12 +65,14 @@ jobs:
       - if: needs.changes.outputs.code == 'true'
         run: yarn coverage:unit
       - if: needs.changes.outputs.code == 'true'
+        name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: yao-pkg/pkg
           files: coverage/lcov.info
           flags: unit
           fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
 
   # Sanity check: `yarn build` succeeds on every supported OS + Node combo.
   # Runs in parallel with tests (they don't consume this job's output) so
