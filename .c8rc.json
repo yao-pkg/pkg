@@ -1,7 +1,6 @@
 {
   "include": ["lib/**"],
   "exclude": [
-    "lib-es5/**",
     "lib/log.js",
     "lib/**/*.d.ts",
     "test/**",
@@ -9,6 +8,7 @@
     "scripts/**",
     "dictionary/**"
   ],
+  "exclude-after-remap": true,
   "reports-dir": "coverage",
   "all": true,
   "temp-directory": "coverage/tmp",
