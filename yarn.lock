@@ -626,10 +626,10 @@
     conventional-recommended-bump "^11.2.0"
     semver "^7.7.3"
 
-"@roberts_lando/vfs@^0.3.2":
-  version "0.3.2"
-  resolved "https://registry.yarnpkg.com/@roberts_lando/vfs/-/vfs-0.3.2.tgz#a552390c4a64bd42dfcb54f0e897b240acdce074"
-  integrity sha512-whXj9v78S4n3t0RvoTGj8vui27VVtK/oy8YfBL+gDWdlfRFkKpPjry+U8p+3XM++5rAIpXEtXcTUgUAEHZVoFA==
+"@roberts_lando/vfs@^0.3.3":
+  version "0.3.3"
+  resolved "https://registry.yarnpkg.com/@roberts_lando/vfs/-/vfs-0.3.3.tgz#6359feed30e3773041279cb11be82ca60f4ff1f1"
+  integrity sha512-YjkxVSLw5WMZQoARaryRAjcxA+GbBzWMJdwYZX5oLUt9cC/gew9as4Dn7tcLzPp7BPoR221VpTZ+78TRPawnjg==
 
 "@rtsao/scc@^1.1.0":
   version "1.1.0"
