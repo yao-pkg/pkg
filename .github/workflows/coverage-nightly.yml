@@ -1,0 +1,57 @@
+name: Coverage (nightly)
+
+# Nightly e2e-coverage upload to Codecov. Runs the full e2e suite (no-npm
+# flavor, Node 22) under c8 and uploads the lcov with `flags: e2e`.
+#
+# PR runs already upload unit coverage with `flags: unit`; Codecov merges the
+# two flags per commit, so main-branch reports reflect unit + e2e combined
+# while PRs keep the fast (~2s) unit-only signal.
+#
+# This job is slow (~30 min), which is why it runs once per day on a schedule
+# and is only otherwise triggerable via workflow_dispatch.
+
+on:
+  schedule:
+    # 03:00 UTC — off-peak, runs on whatever main HEAD is at that time.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  e2e-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'yarn'
+
+      # pkg-fetch caches pre-built Node.js binaries in ~/.pkg-cache/. The
+      # e2e suite downloads multiple targets; caching keeps the job from
+      # refetching ~200 MB every night.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.pkg-cache/
+          key: pkg-cache-ubuntu-latest-22.x
+          restore-keys: |
+            pkg-cache-ubuntu-latest-
+
+      - run: yarn install
+      - run: yarn build
+
+      # coverage:e2e uses `c8 --clean=false`, but coverage/tmp doesn't exist
+      # on a fresh checkout so the resulting lcov.info is pure e2e data.
+      - name: Run e2e suite with coverage
+        run: yarn coverage:e2e
+        env:
+          CI: true
+
+      - name: Upload e2e coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: yao-pkg/pkg
+          files: coverage/lcov.info
+          flags: e2e
+          fail_ci_if_error: false

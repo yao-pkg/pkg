@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/yao-pkg/pkg/actions/workflows/ci.yml"><img src="https://github.com/yao-pkg/pkg/actions/workflows/ci.yml/badge.svg" alt="Build Status" /></a>
-  <a href="https://codecov.io/gh/yao-pkg/pkg"><img src="https://codecov.io/gh/yao-pkg/pkg/branch/main/graph/badge.svg" alt="Coverage (unit)" /></a>
+  <a href="https://codecov.io/gh/yao-pkg/pkg"><img src="https://codecov.io/gh/yao-pkg/pkg/branch/main/graph/badge.svg" alt="Coverage" /></a>
   <a href="https://www.npmjs.com/package/@yao-pkg/pkg"><img src="https://img.shields.io/npm/v/@yao-pkg/pkg" alt="npm version" /></a>
   <a href="https://www.npmjs.com/package/@yao-pkg/pkg"><img src="https://img.shields.io/npm/dm/@yao-pkg/pkg" alt="npm downloads" /></a>
   <a href="https://github.com/yao-pkg/pkg/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@yao-pkg/pkg" alt="license" /></a>
