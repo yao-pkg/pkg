@@ -204,7 +204,15 @@ function visitorDynamicImport(n: babelTypes.Node) {
     return null;
   }
 
-  return { v1: getLiteralValue(n.arguments[0] as babelTypes.Literal) };
+  // Module specifiers are always strings — reject `import(0)` / `import(true)`
+  // so a non-string value can't reach the walker's alias handling.
+  const value = getLiteralValue(n.arguments[0] as babelTypes.Literal);
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  return { v1: value };
 }
 
 /** Matches `path.join(__dirname, "lit")` — treats the joined path as a snapshot asset reference. */
