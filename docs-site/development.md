@@ -65,9 +65,17 @@ When running `node test/test.js all`, based on the options, each test will be ru
 `pkg` uses [c8](https://github.com/bcoe/c8) as a thin reporter over V8's built-in coverage. `NODE_V8_COVERAGE` propagates through child processes, so e2e coverage captures the `pkg` CLI executions spawned by the harness.
 
 ```bash
-yarn coverage:unit    # unit-only coverage → coverage/lcov.info
-yarn coverage:e2e     # e2e-only coverage (slow — full build matrix)
-yarn coverage         # unit + e2e merged into a single report
+# Run unit coverage alone — always deterministic; clears coverage/tmp first.
+yarn coverage:unit
+
+# Append e2e coverage on top of whatever is in coverage/tmp (uses `c8 --clean=false`).
+# After a fresh `yarn coverage:unit`, this produces a merged report. Without
+# a prior run it produces an e2e-only report. For a guaranteed e2e-only view,
+# delete `coverage/` first. (Slow — runs the full e2e matrix.)
+yarn coverage:e2e
+
+# Full merged report: cleans, runs unit, then appends e2e, then emits lcov+text.
+yarn coverage
 ```
 
 ### Example e2e test

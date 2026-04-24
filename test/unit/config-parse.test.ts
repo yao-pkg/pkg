@@ -27,13 +27,13 @@ type LogFn = (..._a: unknown[]) => void;
 // validatePkgConfig calls log.warn; wasReported() (used elsewhere) calls
 // log.error before returning an Error. Capture the former for assertions,
 // silence the latter so assertion-triggered throws don't pollute output.
+// log.info is silenced too — some tests fire resolveTargetList/parseTargets
+// fallback paths that would otherwise print to stderr.
 let warned: string[];
-let infoed: string[];
 let originals: { warn: LogFn; info: LogFn; error: LogFn };
 
 beforeEach(() => {
   warned = [];
-  infoed = [];
   originals = {
     warn: log.warn as LogFn,
     info: log.info as LogFn,
@@ -42,9 +42,7 @@ beforeEach(() => {
   log.warn = ((...a: unknown[]) => {
     warned.push(a.join(' '));
   }) as typeof log.warn;
-  log.info = ((...a: unknown[]) => {
-    infoed.push(a.join(' '));
-  }) as typeof log.info;
+  log.info = (() => {}) as typeof log.info;
   log.error = (() => {}) as typeof log.error;
 });
 
