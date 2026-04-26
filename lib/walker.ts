@@ -937,6 +937,97 @@ class Walker {
       store: STORE_BLOB,
       reason: record.file,
     });
+
+    // Also include files from other export conditions (e.g., module-sync, import)
+    // that Node.js may resolve to at runtime instead of the default/require entry.
+    // Without this, .mjs files referenced by module-sync would be missing from the snapshot.
+    const effectiveMarker = newPackageForNewRecords
+      ? newPackageForNewRecords.marker
+      : marker;
+    if (effectiveMarker?.configPath) {
+      await this.includeAlternateExportEntries(
+        effectiveMarker,
+        newFile,
+        record.file,
+      );
+    }
+  }
+
+  /**
+   * Include alternate export entry points (module-sync, import) from a package's
+   * exports field. These files may be loaded by Node.js at runtime instead of the
+   * default/require entry, so they must be in the snapshot.
+   */
+  private async includeAlternateExportEntries(
+    marker: Marker | undefined,
+    resolvedFile: string,
+    reason: string,
+  ) {
+    if (!marker?.configPath || !marker.config) return;
+
+    const pkgExports = (marker.config as Record<string, unknown>).exports;
+    if (!pkgExports) return;
+
+    const pkgDir = path.dirname(marker.configPath);
+    const alternateFiles = this.collectAlternateExportFiles(pkgExports);
+
+    for (const relFile of alternateFiles) {
+      const absFile = normalizePath(path.resolve(pkgDir, relFile));
+      // Skip the file we already resolved
+      if (absFile === resolvedFile) continue;
+
+      try {
+        const stat = await fs.stat(absFile);
+        if (stat.isFile()) {
+          await this.appendBlobOrContent({
+            file: absFile,
+            marker,
+            store: STORE_CONTENT,
+            reason,
+          });
+        }
+      } catch {
+        // File doesn't exist, skip
+      }
+    }
+  }
+
+  /**
+   * Collect file paths from export conditions that Node.js may use at runtime.
+   * Specifically targets module-sync and import conditions.
+   */
+  private collectAlternateExportFiles(
+    exports: unknown,
+    files: Set<string> = new Set(),
+  ): Set<string> {
+    if (typeof exports === 'string') {
+      if (exports.endsWith('.mjs')) files.add(exports);
+      return files;
+    }
+
+    if (Array.isArray(exports)) {
+      for (const item of exports) {
+        this.collectAlternateExportFiles(item, files);
+      }
+      return files;
+    }
+
+    if (exports && typeof exports === 'object') {
+      for (const [key, value] of Object.entries(exports)) {
+        // Include files from conditions that Node.js may use at runtime
+        if (key === 'module-sync' || key === 'import') {
+          if (typeof value === 'string') {
+            files.add(value);
+          }
+        }
+        // Recurse into nested conditions and subpath patterns
+        if (typeof value === 'object' || typeof value === 'string') {
+          this.collectAlternateExportFiles(value, files);
+        }
+      }
+    }
+
+    return files;
   }
 
   async stepDerivatives(
@@ -1006,10 +1097,18 @@ class Walker {
 
     const needsSeaRead = this.needsSeaRead(record);
 
+    // Also read .mjs STORE_CONTENT files so they can be transformed to CJS
+    const needsMjsTransform =
+      store === STORE_CONTENT &&
+      !this.params.seaMode &&
+      record.file.endsWith('.mjs') &&
+      isESMFile(record.file);
+
     if (
       store === STORE_BLOB ||
       needsSeaRead ||
       (store === STORE_CONTENT && isPackageJson(record.file)) ||
+      needsMjsTransform ||
       this.hasPatch(record)
     ) {
       if (!record.body) {
@@ -1102,8 +1201,10 @@ class Walker {
 
       // Transform ESM to CJS before bytecode compilation
       // Check all JS-like files (.js, .mjs, .cjs) but only transform ESM ones
+      // Also transform .mjs files stored as STORE_CONTENT (e.g., from dependencies)
+      // to prevent Node.js from loading them as ESM at runtime
       if (
-        store === STORE_BLOB &&
+        (store === STORE_BLOB || needsMjsTransform) &&
         !this.params.seaMode &&
         record.body &&
         (isDotJS(record.file) || record.file.endsWith('.mjs'))
@@ -1145,6 +1246,14 @@ class Walker {
             'utf8',
           );
         }
+      }
+
+      // Also rewrite .mjs require paths for STORE_CONTENT files that were transformed
+      if (needsMjsTransform && record.wasTransformed && record.body) {
+        record.body = Buffer.from(
+          rewriteMjsRequirePaths(record.body.toString('utf8')),
+          'utf8',
+        );
       }
     }
 
