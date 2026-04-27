@@ -1,3 +1,4 @@
+import path from 'path';
 import * as babelTypes from '@babel/types';
 import * as babel from '@babel/parser';
 import generate from '@babel/generator';
@@ -127,8 +128,35 @@ function valid2(v2?: Was['v2']) {
   );
 }
 
+/**
+ * True if `n` is a `createRequire(...)` call. Used both to detect the direct
+ * `createRequire(import.meta.url)('./foo')` invocation pattern and to seed the
+ * alias set with names bound to its result.
+ */
+function isCreateRequireCall(n: babelTypes.Node | null | undefined) {
+  return (
+    !!n &&
+    babelTypes.isCallExpression(n) &&
+    babelTypes.isIdentifier(n.callee) &&
+    n.callee.name === 'createRequire'
+  );
+}
+
+/**
+ * True if `name` resolves to a `require`-equivalent in the current file —
+ * either the literal `require` or a local bound to `createRequire(...)` (e.g.
+ * `const r = createRequire(import.meta.url)`). The name set is collected by
+ * `collectRequireAliases` before traversal, so visitor lookups are O(1).
+ */
+function isRequireName(name: string, requireAliases?: Set<string>) {
+  return name === 'require' || !!requireAliases?.has(name);
+}
+
 /** Matches `require.resolve("lit"[, "lit"])`. Returns captured args or null. */
-function visitorRequireResolve(n: babelTypes.Node) {
+function visitorRequireResolve(
+  n: babelTypes.Node,
+  requireAliases?: Set<string>,
+) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
   }
@@ -139,7 +167,7 @@ function visitorRequireResolve(n: babelTypes.Node) {
 
   const ci =
     n.callee.object.type === 'Identifier' &&
-    n.callee.object.name === 'require' &&
+    isRequireName(n.callee.object.name, requireAliases) &&
     n.callee.property.type === 'Identifier' &&
     n.callee.property.name === 'resolve';
 
@@ -157,17 +185,25 @@ function visitorRequireResolve(n: babelTypes.Node) {
   };
 }
 
-/** Matches `require("lit"[, "lit"])`. Returns captured args or null. */
-function visitorRequire(n: babelTypes.Node) {
+/**
+ * Matches `require("lit"[, "lit"])`, plus two ESM idioms that resolve to the
+ * same thing: `createRequire(import.meta.url)("lit")` (direct invocation) and
+ * `r("lit")` where `r` was bound from `createRequire(…)`.
+ */
+function visitorRequire(n: babelTypes.Node, requireAliases?: Set<string>) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
   }
 
-  if (!babelTypes.isIdentifier(n.callee)) {
-    return null;
+  let isRequireCall = false;
+
+  if (babelTypes.isIdentifier(n.callee)) {
+    isRequireCall = isRequireName(n.callee.name, requireAliases);
+  } else if (isCreateRequireCall(n.callee)) {
+    isRequireCall = true;
   }
 
-  if (n.callee.name !== 'require') {
+  if (!isRequireCall) {
     return null;
   }
 
@@ -188,6 +224,104 @@ function visitorImport(n: babelTypes.Node) {
   }
 
   return { v1: n.source.value, v3: reconstructSpecifiers(n.specifiers) };
+}
+
+/**
+ * Matches ESM re-exports — `export * from "lit"`, `export * as ns from "lit"`,
+ * `export { x } from "lit"`. The walker's CJS pass handles these via the
+ * ESM→CJS transformer (`lib/esm-transformer.ts`), but in SEA mode that
+ * transform is skipped, so without this matcher every barrel file silently
+ * drops its re-exports.
+ */
+function visitorReExport(n: babelTypes.Node) {
+  if (
+    !babelTypes.isExportAllDeclaration(n) &&
+    !babelTypes.isExportNamedDeclaration(n)
+  ) {
+    return null;
+  }
+
+  if (!n.source || typeof n.source.value !== 'string') {
+    return null;
+  }
+
+  return { v1: n.source.value };
+}
+
+/**
+ * Matches `new URL("./rel", import.meta.url)` — the canonical ESM idiom for
+ * sibling assets (the equivalent of `path.join(__dirname, …)` in CJS). The
+ * literal first arg is treated as a snapshot-relative asset.
+ */
+function visitorNewURL(n: babelTypes.Node) {
+  if (!babelTypes.isNewExpression(n)) {
+    return null;
+  }
+
+  if (!babelTypes.isIdentifier(n.callee) || n.callee.name !== 'URL') {
+    return null;
+  }
+
+  if (!n.arguments || !isLiteral(n.arguments[0])) {
+    return null;
+  }
+
+  const second = n.arguments[1];
+
+  // Only match the import.meta.url base — other bases (absolute URLs,
+  // arbitrary strings) don't resolve to a snapshot-relative path.
+  if (
+    !second ||
+    !babelTypes.isMemberExpression(second) ||
+    second.object.type !== 'MetaProperty' ||
+    !babelTypes.isIdentifier(second.property) ||
+    second.property.name !== 'url'
+  ) {
+    return null;
+  }
+
+  const value = getLiteralValue(n.arguments[0] as babelTypes.Literal);
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  return { v1: value };
+}
+
+/**
+ * Matches `import.meta.resolve("lit")` — the modern ESM resolver API,
+ * gradually replacing `require.resolve` in ESM code. The literal first arg is
+ * resolved through the same `follow` path as `require.resolve`.
+ */
+function visitorImportMetaResolve(n: babelTypes.Node) {
+  if (!babelTypes.isCallExpression(n)) {
+    return null;
+  }
+
+  if (!babelTypes.isMemberExpression(n.callee)) {
+    return null;
+  }
+
+  if (
+    n.callee.object.type !== 'MetaProperty' ||
+    !babelTypes.isIdentifier(n.callee.property) ||
+    n.callee.property.name !== 'resolve'
+  ) {
+    return null;
+  }
+
+  if (!n.arguments || !isLiteral(n.arguments[0])) {
+    return null;
+  }
+
+  const value = getLiteralValue(n.arguments[0] as babelTypes.Literal);
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  return { v1: value };
 }
 
 /** Matches dynamic `import("lit")` so bundler-emitted chunk splits get walked like static imports. */
@@ -215,7 +349,14 @@ function visitorDynamicImport(n: babelTypes.Node) {
   return { v1: value };
 }
 
-/** Matches `path.join(__dirname, "lit")` — treats the joined path as a snapshot asset reference. */
+/**
+ * Matches `path.join(__dirname, "a"[, "b", …])` and `path.resolve(__dirname,
+ * "a"[, "b", …])` — treats the joined path as a snapshot-relative asset
+ * reference. Multi-segment joins concatenate to a single posix-style alias so
+ * the walker's `path.join(dirname, alias)` later normalizes correctly on every
+ * platform. Bails on any non-literal segment to avoid synthesizing wrong
+ * paths from `__dirname` + a runtime value.
+ */
 function visitorPathJoin(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -231,7 +372,7 @@ function visitorPathJoin(n: babelTypes.Node) {
     n.callee.object.name === 'path' &&
     n.callee.property &&
     n.callee.property.type === 'Identifier' &&
-    n.callee.property.name === 'join';
+    (n.callee.property.name === 'join' || n.callee.property.name === 'resolve');
 
   if (!ci) {
     return null;
@@ -246,23 +387,45 @@ function visitorPathJoin(n: babelTypes.Node) {
     return null;
   }
 
-  const f =
-    n.arguments && isLiteral(n.arguments[1]) && n.arguments.length === 2; // TODO concat them
-
-  if (!f) {
+  if (n.arguments.length < 2) {
     return null;
   }
 
-  return { v1: getLiteralValue(n.arguments[1] as babelTypes.StringLiteral) };
+  const segments: string[] = [];
+
+  for (let i = 1; i < n.arguments.length; i += 1) {
+    const arg = n.arguments[i];
+
+    if (!isLiteral(arg)) {
+      return null;
+    }
+
+    const value = getLiteralValue(arg as babelTypes.Literal);
+
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    segments.push(value);
+  }
+
+  return { v1: path.posix.join(...segments) };
 }
 
 /**
  * Runs each literal-arg matcher in order and returns the first hit as a
  * `{alias, aliasType, mustExclude?, mayExclude?}` derivative for the walker to
  * bundle. When `test` is true returns a printable form (used by unit tests).
+ * `requireAliases` is the per-file set of identifiers bound to
+ * `createRequire(…)` (computed by `detect`); pass it through so the walker
+ * picks up `r("./foo")` calls where `r` was assigned from `createRequire`.
  */
-export function visitorSuccessful(node: babelTypes.Node, test = false) {
-  let was: Was | null = visitorRequireResolve(node);
+export function visitorSuccessful(
+  node: babelTypes.Node,
+  test = false,
+  requireAliases?: Set<string>,
+) {
+  let was: Was | null = visitorRequireResolve(node, requireAliases);
 
   if (was) {
     if (test) {
@@ -281,7 +444,7 @@ export function visitorSuccessful(node: babelTypes.Node, test = false) {
     };
   }
 
-  was = visitorRequire(node);
+  was = visitorRequire(node, requireAliases);
 
   if (was) {
     if (test) {
@@ -310,6 +473,16 @@ export function visitorSuccessful(node: babelTypes.Node, test = false) {
     return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
   }
 
+  was = visitorReExport(node);
+
+  if (was) {
+    if (test) {
+      return forge('export ... from {v1}', was);
+    }
+
+    return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
+  }
+
   was = visitorDynamicImport(node);
 
   if (was) {
@@ -318,6 +491,26 @@ export function visitorSuccessful(node: babelTypes.Node, test = false) {
     }
 
     return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
+  }
+
+  was = visitorImportMetaResolve(node);
+
+  if (was) {
+    if (test) {
+      return forge('import.meta.resolve({v1})', was);
+    }
+
+    return { alias: was.v1, aliasType: ALIAS_AS_RESOLVABLE };
+  }
+
+  was = visitorNewURL(node);
+
+  if (was) {
+    if (test) {
+      return forge('new URL({v1}, import.meta.url)', was);
+    }
+
+    return { alias: was.v1, aliasType: ALIAS_AS_RELATIVE, mayExclude: false };
   }
 
   was = visitorPathJoin(node);
@@ -489,7 +682,13 @@ export function visitorMalformed(n: babelTypes.Node) {
   return null;
 }
 
-/** Flags `path.resolve(...)` so the walker can warn that it resolves against `process.cwd()` at runtime, not `__dirname`. */
+/**
+ * Flags `path.resolve(...)` so the walker can warn that it resolves against
+ * `process.cwd()` at runtime, not `__dirname`. Skips the `path.resolve(__dirname, …)`
+ * shape — that case is matched by `visitorPathJoin` and bundled, so warning
+ * here would be both spurious and contradictory (we'd warn about the same
+ * call we just decided to include in the snapshot).
+ */
 export function visitorUseSCWD(n: babelTypes.Node) {
   if (!babelTypes.isCallExpression(n)) {
     return null;
@@ -509,6 +708,16 @@ export function visitorUseSCWD(n: babelTypes.Node) {
     return null;
   }
 
+  const firstArg = n.arguments[0];
+
+  if (
+    firstArg &&
+    babelTypes.isIdentifier(firstArg) &&
+    firstArg.name === '__dirname'
+  ) {
+    return null;
+  }
+
   const was = { v1: n.arguments.map(reconstruct).join(', ') };
 
   if (was) {
@@ -518,7 +727,11 @@ export function visitorUseSCWD(n: babelTypes.Node) {
   return null;
 }
 
-type VisitorFunction = (node: babelTypes.Node, trying?: boolean) => boolean;
+type VisitorFunction = (
+  node: babelTypes.Node,
+  trying?: boolean,
+  requireAliases?: Set<string>,
+) => boolean;
 
 /**
  * Iterative DFS over the AST. `visitor` returns true to descend into children;
@@ -573,10 +786,42 @@ export function parse(body: string, isEsm = false) {
 }
 
 /**
+ * Pre-scan pass: collects identifiers bound to `createRequire(…)` so the main
+ * traversal can recognize `r("./foo")` (where `r` was assigned from
+ * `createRequire`) as a require-equivalent. A single AST scan keeps this O(n);
+ * the names set is then captured by the visitor closure.
+ */
+function collectRequireAliases(ast: babelTypes.File) {
+  const names = new Set<string>();
+
+  traverse(ast, (node) => {
+    if (
+      babelTypes.isVariableDeclarator(node) &&
+      babelTypes.isIdentifier(node.id) &&
+      isCreateRequireCall(node.init)
+    ) {
+      names.add(node.id.name);
+    } else if (
+      babelTypes.isAssignmentExpression(node) &&
+      babelTypes.isIdentifier(node.left) &&
+      isCreateRequireCall(node.right)
+    ) {
+      names.add(node.left.name);
+    }
+
+    return true;
+  });
+
+  return names;
+}
+
+/**
  * Parses `body` and walks the AST with `visitor`. Parse failures are logged
  * (not thrown) so one unparseable file doesn't abort the whole build — but the
  * file's dependencies are then skipped, which is why callers must pass the
- * correct `isEsm` flag.
+ * correct `isEsm` flag. Before the main walk we collect identifiers bound to
+ * `createRequire(…)` and forward the set to the visitor (3rd arg) so it can
+ * treat aliased requires as first-class.
  */
 export function detect(
   body: string,
@@ -597,5 +842,7 @@ export function detect(
     return;
   }
 
-  traverse(json, visitor);
+  const requireAliases = collectRequireAliases(json);
+
+  traverse(json, (node, trying) => visitor(node, trying, requireAliases));
 }
