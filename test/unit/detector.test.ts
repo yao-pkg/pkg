@@ -23,8 +23,11 @@ function firstRelevantNode(
 ): babelTypes.Node | undefined {
   const kinds = new Set([
     'CallExpression',
+    'NewExpression',
     'ImportDeclaration',
     'ImportExpression',
+    'ExportAllDeclaration',
+    'ExportNamedDeclaration',
   ]);
   let hit: babelTypes.Node | undefined;
   detect(
@@ -39,6 +42,34 @@ function firstRelevantNode(
     isEsm,
   );
   return hit;
+}
+
+// Test-only helper: collect every successful-derivative the walker would emit
+// for `src`. Mirrors stepDetect's exact threading of `requireAliases` through
+// the visitor (3rd arg of detect's callback), so per-file alias state is
+// applied — `r("./foo")` after `const r = createRequire(...)` resolves
+// the same way it would in production.
+function collectDerivatives(src: string, isEsm = false) {
+  const out: Array<{ alias: string; aliasType: number }> = [];
+  detect(
+    src,
+    (node, _trying, requireAliases) => {
+      const d = visitorSuccessful(node, false, requireAliases) as {
+        alias?: string;
+        aliasType?: number;
+      } | null;
+
+      if (d && typeof d.alias === 'string') {
+        out.push({ alias: d.alias, aliasType: d.aliasType ?? -1 });
+        return false;
+      }
+
+      return true;
+    },
+    undefined,
+    isEsm,
+  );
+  return out;
 }
 
 describe('parse', () => {
@@ -190,6 +221,184 @@ describe('visitorSuccessful', () => {
     });
   });
 
+  it('joins multi-arg path.join(__dirname, "a", "b", "c") into one alias (regression: #269)', () => {
+    // Pre-fix: `n.arguments.length === 2` gate dropped 3+ segment joins
+    // silently, so `path.join(__dirname, "data", "files", "x.json")` never
+    // reached the walker. Post-fix: segments concat to a single posix alias.
+    const node = firstRelevantNode(
+      'path.join(__dirname, "data", "files", "x.json");',
+    );
+    assert.deepEqual(visitorSuccessful(node!), {
+      alias: 'data/files/x.json',
+      aliasType: 0,
+      mayExclude: false,
+    });
+  });
+
+  it('picks up path.resolve(__dirname, "lit") as ALIAS_AS_RELATIVE (regression: #269)', () => {
+    // Pre-fix: visitorPathJoin only matched `path.join`, so the equally common
+    // `path.resolve(__dirname, …)` form was silently dropped.
+    const node = firstRelevantNode('path.resolve(__dirname, "asset.txt");');
+    assert.deepEqual(visitorSuccessful(node!), {
+      alias: 'asset.txt',
+      aliasType: 0,
+      mayExclude: false,
+    });
+  });
+
+  it('joins multi-arg path.resolve(__dirname, "a", "b") into one alias', () => {
+    const node = firstRelevantNode('path.resolve(__dirname, "a", "b.txt");');
+    assert.deepEqual(visitorSuccessful(node!), {
+      alias: 'a/b.txt',
+      aliasType: 0,
+      mayExclude: false,
+    });
+  });
+
+  it('bails out when any path.join segment is non-literal (would synthesize wrong path)', () => {
+    // `path.join(__dirname, "a", x)` — `x` could be anything at runtime, so
+    // we can't pre-bundle a known asset. Treat as no-match rather than
+    // guessing.
+    const node = firstRelevantNode('path.join(__dirname, "a", x);');
+    assert.equal(visitorSuccessful(node!), null);
+  });
+
+  it('picks up new URL("./rel", import.meta.url) as ALIAS_AS_RELATIVE (regression: #269)', () => {
+    const node = firstRelevantNode(
+      'const u = new URL("./asset.txt", import.meta.url);',
+      true,
+    );
+    assert.deepEqual(visitorSuccessful(node!), {
+      alias: './asset.txt',
+      aliasType: 0,
+      mayExclude: false,
+    });
+  });
+
+  it('ignores new URL with a non-import.meta.url base', () => {
+    // Bare-URL or string-base forms don't resolve to a snapshot path; only
+    // import.meta.url is a portable sibling-asset idiom.
+    const node = firstRelevantNode(
+      'const u = new URL("./asset.txt", "https://example.com/");',
+      true,
+    );
+    assert.equal(visitorSuccessful(node!), null);
+  });
+
+  it('ignores plain new URL(specifier) (no base, runtime-resolved)', () => {
+    const node = firstRelevantNode(
+      'const u = new URL("https://example.com/foo");',
+      true,
+    );
+    assert.equal(visitorSuccessful(node!), null);
+  });
+
+  it('picks up import.meta.resolve("lit") as ALIAS_AS_RESOLVABLE (regression: #269)', () => {
+    const node = firstRelevantNode('import.meta.resolve("lit");', true);
+    assert.deepEqual(visitorSuccessful(node!), {
+      alias: 'lit',
+      aliasType: 1, // ALIAS_AS_RESOLVABLE
+    });
+  });
+
+  it('picks up `export * from "lit"` (regression: #269)', () => {
+    // ESM re-exports were silently dropped: `visitorImport` only matched
+    // `ImportDeclaration`, not `ExportAllDeclaration` / `ExportNamedDeclaration`
+    // with `.source`. SEA mode skips the ESM→CJS transform that handled them
+    // separately, so barrel files lost their re-exports entirely.
+    const derivs = collectDerivatives('export * from "lit";', true);
+    assert.deepEqual(derivs, [{ alias: 'lit', aliasType: 1 }]);
+  });
+
+  it('picks up `export { x } from "lit"` (named re-export)', () => {
+    const derivs = collectDerivatives('export { x } from "lit";', true);
+    assert.deepEqual(derivs, [{ alias: 'lit', aliasType: 1 }]);
+  });
+
+  it('picks up `export * as ns from "lit"` (namespace re-export)', () => {
+    const derivs = collectDerivatives('export * as ns from "lit";', true);
+    assert.deepEqual(derivs, [{ alias: 'lit', aliasType: 1 }]);
+  });
+
+  it('ignores `export const x = 1` (no source — not a re-export)', () => {
+    const derivs = collectDerivatives('export const x = 1;', true);
+    assert.deepEqual(derivs, []);
+  });
+
+  it('picks up createRequire(import.meta.url)("./foo") direct invocation (regression: #269)', () => {
+    // Outer CallExpression's callee is itself a CallExpression — visitorRequire
+    // pre-fix only matched Identifier callees, so the direct form silently
+    // dropped its target.
+    const derivs = collectDerivatives(
+      'import { createRequire } from "module";\n' +
+        'createRequire(import.meta.url)("./foo");',
+      true,
+    );
+    assert.ok(
+      derivs.some((d) => d.alias === './foo' && d.aliasType === 1),
+      `expected ./foo alias from createRequire(...) call, got ${JSON.stringify(derivs)}`,
+    );
+  });
+
+  it('picks up `r("./foo")` after const r = createRequire(import.meta.url) (regression: #269)', () => {
+    // The aliased form requires per-file scope tracking — collectRequireAliases
+    // pre-scans the AST and threads the bound names into the visitor.
+    const src =
+      'import { createRequire } from "module";\n' +
+      'const r = createRequire(import.meta.url);\n' +
+      'r("./foo");';
+    const derivs = collectDerivatives(src, true);
+    assert.ok(
+      derivs.some((d) => d.alias === './foo' && d.aliasType === 1),
+      `expected ./foo alias via r(...), got ${JSON.stringify(derivs)}`,
+    );
+  });
+
+  it('picks up `r.resolve("foo")` after const r = createRequire(...) (alias propagates to require.resolve too)', () => {
+    const src =
+      'import { createRequire } from "module";\n' +
+      'const r = createRequire(import.meta.url);\n' +
+      'r.resolve("foo");';
+    const derivs = collectDerivatives(src, true);
+    assert.ok(
+      derivs.some((d) => d.alias === 'foo' && d.aliasType === 1),
+      `expected foo alias via r.resolve, got ${JSON.stringify(derivs)}`,
+    );
+  });
+
+  it('does not treat unrelated identifiers as require aliases', () => {
+    // Sanity check: `r` here is bound to something other than createRequire,
+    // so r("./foo") must NOT be picked up.
+    const src = 'const r = somethingElse(); r("./foo");';
+    const derivs = collectDerivatives(src);
+    assert.equal(
+      derivs.length,
+      0,
+      `expected nothing, got ${JSON.stringify(derivs)}`,
+    );
+  });
+
+  it('does not collect createRequire aliases bound inside inner scopes (avoids false positives)', () => {
+    // collectRequireAliases is intentionally top-level-only — picking up
+    // `r` inside `function inner()` would cause unrelated `r(...)` calls in
+    // other functions to be falsely treated as requires.
+    const src =
+      'function inner() { const r = createRequire(import.meta.url); }\n' +
+      'r("./foo");';
+    const derivs = collectDerivatives(src, true);
+    assert.deepEqual(
+      derivs,
+      [],
+      `expected nothing — inner-scope alias must not leak, got ${JSON.stringify(derivs)}`,
+    );
+  });
+
+  it('does not collect non-const createRequire bindings (let/var skipped to keep the rule conservative)', () => {
+    const src = 'let r = createRequire(import.meta.url);\n' + 'r("./foo");';
+    const derivs = collectDerivatives(src, true);
+    assert.deepEqual(derivs, []);
+  });
+
   it('test=true renders a printable form', () => {
     const node = firstRelevantNode('require("foo");');
     assert.equal(visitorSuccessful(node!, true), 'require("foo")');
@@ -296,5 +505,80 @@ describe('visitorUseSCWD', () => {
   it('ignores the bare function call resolve()', () => {
     const node = firstRelevantNode('resolve("foo");');
     assert.equal(visitorUseSCWD(node!), null);
+  });
+
+  it('skips literal-only path.resolve(__dirname, "lit"…) — that case is already bundled (regression: #269)', () => {
+    // visitorPathJoin claims this shape and returns ALIAS_AS_RELATIVE, so
+    // visitorUseSCWD must NOT also fire — otherwise we'd warn that the call
+    // is "ambiguous" while simultaneously bundling its target. Pre-fix the
+    // walker emitted exactly that contradictory pair.
+    const node = firstRelevantNode('path.resolve(__dirname, "asset.txt");');
+    assert.equal(visitorUseSCWD(node!), null);
+  });
+
+  it('still warns on dynamic path.resolve(__dirname, x) — visitorPathJoin bails, so the diagnostic is the only signal', () => {
+    // Tightening the skip to only literal-only segments keeps the user-visible
+    // warning for cases the walker can't pre-bundle.
+    const node = firstRelevantNode('path.resolve(__dirname, x);');
+    const out = visitorUseSCWD(node!) as { alias: string };
+    assert.ok(out, 'expected a warning derivative for the dynamic shape');
+    assert.match(out.alias, /__dirname/);
+  });
+});
+
+describe('warning visitors honor createRequire aliases', () => {
+  it('visitorNonLiteral fires on r(x) where r = createRequire(...) — same warning as require(x) (regression: #269)', () => {
+    // Pre-parity, an aliased dynamic require was silently dropped: the
+    // diagnostic was gated on `callee.name === "require"`. Now the warning
+    // surface mirrors the bundling surface.
+    const src =
+      'import { createRequire } from "module";\n' +
+      'const r = createRequire(import.meta.url);\n' +
+      'r(x);';
+    let saw: { alias: string } | null = null;
+    detect(
+      src,
+      (node, _trying, requireAliases) => {
+        const d = visitorNonLiteral(node, requireAliases) as {
+          alias?: string;
+        } | null;
+        if (!saw && d && typeof d.alias === 'string') {
+          saw = d as { alias: string };
+        }
+        return true;
+      },
+      undefined,
+      true,
+    );
+    assert.ok(
+      saw,
+      'expected visitorNonLiteral to emit a warning for r(x) via alias',
+    );
+  });
+
+  it('visitorMalformed fires on r() (no args) where r = createRequire(...)', () => {
+    const src =
+      'import { createRequire } from "module";\n' +
+      'const r = createRequire(import.meta.url);\n' +
+      'r();';
+    let saw: { alias: string } | null = null;
+    detect(
+      src,
+      (node, _trying, requireAliases) => {
+        const d = visitorMalformed(node, requireAliases) as {
+          alias?: string;
+        } | null;
+        if (!saw && d && typeof d.alias === 'string') {
+          saw = d as { alias: string };
+        }
+        return true;
+      },
+      undefined,
+      true,
+    );
+    // Note: r() has no first arg → isRequire returns null (no `f` to
+    // reconstruct). visitorMalformed correctly stays silent here, same as
+    // bare `require()`. This test pins that parity instead.
+    assert.equal(saw, null);
   });
 });
