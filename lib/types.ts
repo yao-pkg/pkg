@@ -39,6 +39,45 @@ export type ConfigDictionary = Record<
 // named variants (`'None' | 'Brotli' | ...`) are accepted.
 export type PkgCompressType = Exclude<keyof typeof CompressType, number>;
 
+/**
+ * Build hook called once before the walker collects files. Use for setup
+ * work like pre-bundling with esbuild/webpack, codegen, or fetching assets.
+ *
+ * Function form takes no arguments; throw or return a rejected promise to
+ * abort the build.
+ */
+export type PreBuildHook = () => void | Promise<void>;
+
+/**
+ * Build hook called once per produced binary, after it has been written
+ * (and codesigned/chmodded on macOS/Linux). Use for smoke tests, signing,
+ * notarization, upload, etc.
+ *
+ * Function form receives the absolute output path. Shell form receives it
+ * via the `PKG_OUTPUT` env var. Throw / non-zero exit to fail the build.
+ */
+export type PostBuildHook = (output: string) => void | Promise<void>;
+
+/**
+ * Per-file transform applied after the walker collects files and after
+ * refinement, but before bytecode compilation and compression. Use for
+ * minification, obfuscation, or any other content rewrite.
+ *
+ * Receives the absolute on-disk file path and the current contents (a
+ * Buffer when loaded from disk, a string when an earlier step rewrote it).
+ * Return the replacement bytes/string to apply, or `undefined`/`void` to
+ * leave the file unchanged.
+ */
+export type TransformHook = (
+  filePath: string,
+  contents: Buffer | string,
+) =>
+  | string
+  | Buffer
+  | void
+  | undefined
+  | Promise<string | Buffer | void | undefined>;
+
 export interface PkgOptions {
   scripts?: string[];
   log?: (logger: typeof log, context: Record<string, string>) => void;
@@ -66,6 +105,23 @@ export interface PkgOptions {
   debug?: boolean;
   signature?: boolean;
   sea?: boolean;
+  /**
+   * Shell command (string) or JS function run once before the walker.
+   * Function form is only reachable via the Node.js API or a `pkg.config.js`
+   * file — JSON config files can only carry the shell form.
+   */
+  preBuild?: string | PreBuildHook;
+  /**
+   * Shell command (string) or JS function run once per produced binary.
+   * Shell form receives the output path via `PKG_OUTPUT`.
+   */
+  postBuild?: string | PostBuildHook;
+  /**
+   * Per-file content transform. Function form only — shell-string transforms
+   * are not supported because piping every file through a child process
+   * would be prohibitively slow.
+   */
+  transform?: TransformHook;
 }
 
 export interface PackageJson {
@@ -200,4 +256,21 @@ export interface PkgExecOptions {
   noDictionary?: string[];
   /** Sign macOS binaries when applicable. Default `true`. */
   signature?: boolean;
+  /**
+   * Shell command (string) or JS function run once before the walker
+   * collects files. Throw or reject to abort the build.
+   */
+  preBuild?: string | PreBuildHook;
+  /**
+   * Shell command (string) or JS function run once per produced binary,
+   * after it has been written. Function form receives the output path;
+   * shell form receives it via `PKG_OUTPUT`.
+   */
+  postBuild?: string | PostBuildHook;
+  /**
+   * Per-file content transform applied after walking and refinement, before
+   * bytecode and compression. Use for minify/obfuscate; receives
+   * `(filePath, contents)` and returns the replacement (or void to keep).
+   */
+  transform?: TransformHook;
 }

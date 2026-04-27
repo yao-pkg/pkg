@@ -6,6 +6,7 @@ import path from 'path';
 
 import { log, wasReported } from './log';
 import help from './help';
+import { runPostBuild, runPreBuild, runTransform } from './hooks';
 import packer from './packer';
 import { plusx } from './chmod';
 import producer from './producer';
@@ -170,6 +171,12 @@ export async function exec(
 
   // marker + options (shared between SEA and traditional pipelines)
   pkgOptions.set(pkg);
+
+  // preBuild runs once, before any walking / Node binary fetch / SEA work.
+  // Placed here (not inside each pipeline) so a single hook covers
+  // traditional, simple SEA, and enhanced SEA without duplication.
+  await runPreBuild(pkg);
+
   const marker = buildMarker(configJson, config, inputJson, input);
 
   // public / no-dict flags (shared between SEA and traditional pipelines)
@@ -293,6 +300,11 @@ export async function exec(
   records = refineResult.records;
   symLinks = refineResult.symLinks;
 
+  // Transform runs after refinement so hooks see the final paths and the
+  // final set of records, but before packer hands STORE_BLOB sources to
+  // the bytecode fabricator and before STORE_CONTENT bodies are compressed.
+  await runTransform(pkg, records);
+
   const backpack = packer({ records, entrypoint, bytecode, symLinks });
 
   log.debug('Targets:', JSON.stringify(targets, null, 2));
@@ -324,6 +336,10 @@ export async function exec(
     if (target.platform !== 'win' && target.output) {
       await signMacOSIfNeeded(target.output, target, flags.signature);
       await plusx(target.output);
+    }
+
+    if (target.output) {
+      await runPostBuild(pkg, target.output);
     }
   }
 
