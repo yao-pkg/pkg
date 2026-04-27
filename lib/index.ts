@@ -17,6 +17,7 @@ import {
   Target,
   NodeTarget,
   SymLinks,
+  PkgBaseOptions,
   PkgExecOptions,
   PkgCompressType,
 } from './types';
@@ -31,7 +32,7 @@ import {
   stringifyTarget,
 } from './config';
 
-export type { PkgExecOptions, PkgCompressType };
+export type { PkgBaseOptions, PkgExecOptions, PkgCompressType };
 
 const { version } = JSON.parse(
   readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),

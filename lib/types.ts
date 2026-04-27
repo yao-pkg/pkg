@@ -78,7 +78,62 @@ export type TransformHook = (
   | undefined
   | Promise<string | Buffer | void | undefined>;
 
-export interface PkgOptions {
+/**
+ * Build-shaping fields shared verbatim between the config-file shape
+ * (`PkgOptions`) and the programmatic API shape (`PkgExecOptions`): the
+ * boolean toggles, `compress`, `outputPath`, and the build hooks.
+ *
+ * Listy fields with deliberate typing differences (`targets`,
+ * `publicPackages`, `noDictionary` are lenient `string | string[]` in the
+ * config and strict `string[]` in the API) and per-shape-only fields
+ * (e.g. `options` vs `bakeOptions`) stay on the leaf interfaces — pulling
+ * them up here would require generic gymnastics for no net win.
+ */
+export interface PkgBaseOptions {
+  /** Directory to save the output executable(s). */
+  outputPath?: string;
+  /** VFS compression algorithm. Default `'None'`. */
+  compress?: PkgCompressType;
+  /** Use Node.js Single Executable Application mode. */
+  sea?: boolean;
+  /** Verbose packaging logs. */
+  debug?: boolean;
+  /** Compile bytecode. Default `true`. Set to `false` to ship plain JS. */
+  bytecode?: boolean;
+  /** Build native addons. Default `true`. */
+  nativeBuild?: boolean;
+  /** If bytecode compilation fails for a file, ship it as plain source. */
+  fallbackToSource?: boolean;
+  /** Treat the top-level project as public (faster, discloses sources). */
+  public?: boolean;
+  /** Sign macOS binaries when applicable. Default `true`. */
+  signature?: boolean;
+  /**
+   * Shell command (string) or JS function run once before the walker
+   * collects files. Throw or reject to abort the build.
+   *
+   * Function form is reachable from the Node.js API and from
+   * `pkg.config.{js,cjs,mjs}`; JSON config files can only carry the shell
+   * form.
+   */
+  preBuild?: string | PreBuildHook;
+  /**
+   * Shell command (string) or JS function run once per produced binary,
+   * after it has been written. Function form receives the output path;
+   * shell form receives it via `PKG_OUTPUT`.
+   */
+  postBuild?: string | PostBuildHook;
+  /**
+   * Per-file content transform applied after walking and refinement, before
+   * bytecode and compression. Function-only — shell-string transforms are
+   * not supported because piping every file through a child process would
+   * be prohibitively slow. Receives `(filePath, contents)` and returns the
+   * replacement (or void to keep).
+   */
+  transform?: TransformHook;
+}
+
+export interface PkgOptions extends PkgBaseOptions {
   scripts?: string[];
   log?: (logger: typeof log, context: Record<string, string>) => void;
   assets?: string[];
@@ -93,35 +148,9 @@ export interface PkgOptions {
   patches?: Patches;
   dictionary?: ConfigDictionary;
   targets?: string | string[];
-  outputPath?: string;
-  compress?: PkgCompressType;
-  fallbackToSource?: boolean;
-  public?: boolean;
   publicPackages?: string | string[];
   options?: string | string[];
-  bytecode?: boolean;
-  nativeBuild?: boolean;
   noDictionary?: string | string[];
-  debug?: boolean;
-  signature?: boolean;
-  sea?: boolean;
-  /**
-   * Shell command (string) or JS function run once before the walker.
-   * Function form is only reachable via the Node.js API or a `pkg.config.js`
-   * file — JSON config files can only carry the shell form.
-   */
-  preBuild?: string | PreBuildHook;
-  /**
-   * Shell command (string) or JS function run once per produced binary.
-   * Shell form receives the output path via `PKG_OUTPUT`.
-   */
-  postBuild?: string | PostBuildHook;
-  /**
-   * Per-file content transform. Function form only — shell-string transforms
-   * are not supported because piping every file through a child process
-   * would be prohibitively slow.
-   */
-  transform?: TransformHook;
 }
 
 export interface PackageJson {
@@ -221,7 +250,7 @@ export interface SeaEnhancedOptions {
 
 export type SymLinks = Record<string, string>;
 
-export interface PkgExecOptions {
+export interface PkgExecOptions extends PkgBaseOptions {
   /** Entry file or directory (required). */
   input: string;
   /** Target specs, e.g. `['node22-linux-x64']` or `['host']`. */
@@ -230,47 +259,12 @@ export interface PkgExecOptions {
   config?: string;
   /** Output file name or template for multiple targets. */
   output?: string;
-  /** Directory to save the output executable(s). Mutually exclusive with `output`. */
-  outputPath?: string;
-  /** VFS compression algorithm. Default `'None'`. */
-  compress?: PkgCompressType;
-  /** Use Node.js Single Executable Application mode. */
-  sea?: boolean;
   /** Bake Node/V8 CLI options into the executable (e.g. `['expose-gc']`). */
   bakeOptions?: string | string[];
-  /** Enable verbose packaging logs. */
-  debug?: boolean;
   /** Build base binaries from source instead of downloading prebuilt ones. */
   build?: boolean;
-  /** Compile bytecode. Default `true`. Set to `false` to ship plain JS. */
-  bytecode?: boolean;
-  /** Build native addons. Default `true`. */
-  nativeBuild?: boolean;
-  /** If bytecode compilation fails for a file, ship it as plain source. */
-  fallbackToSource?: boolean;
-  /** Treat the top-level project as public (faster, discloses sources). */
-  public?: boolean;
   /** Package names to treat as public. `['*']` for all packages. */
   publicPackages?: string[];
   /** Package names to ignore dictionaries for. `['*']` to disable all. */
   noDictionary?: string[];
-  /** Sign macOS binaries when applicable. Default `true`. */
-  signature?: boolean;
-  /**
-   * Shell command (string) or JS function run once before the walker
-   * collects files. Throw or reject to abort the build.
-   */
-  preBuild?: string | PreBuildHook;
-  /**
-   * Shell command (string) or JS function run once per produced binary,
-   * after it has been written. Function form receives the output path;
-   * shell form receives it via `PKG_OUTPUT`.
-   */
-  postBuild?: string | PostBuildHook;
-  /**
-   * Per-file content transform applied after walking and refinement, before
-   * bytecode and compression. Use for minify/obfuscate; receives
-   * `(filePath, contents)` and returns the replacement (or void to keep).
-   */
-  transform?: TransformHook;
 }
