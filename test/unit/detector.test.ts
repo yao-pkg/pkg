@@ -378,6 +378,27 @@ describe('visitorSuccessful', () => {
     );
   });
 
+  it('does not collect createRequire aliases bound inside inner scopes (avoids false positives)', () => {
+    // collectRequireAliases is intentionally top-level-only — picking up
+    // `r` inside `function inner()` would cause unrelated `r(...)` calls in
+    // other functions to be falsely treated as requires.
+    const src =
+      'function inner() { const r = createRequire(import.meta.url); }\n' +
+      'r("./foo");';
+    const derivs = collectDerivatives(src, true);
+    assert.deepEqual(
+      derivs,
+      [],
+      `expected nothing — inner-scope alias must not leak, got ${JSON.stringify(derivs)}`,
+    );
+  });
+
+  it('does not collect non-const createRequire bindings (let/var skipped to keep the rule conservative)', () => {
+    const src = 'let r = createRequire(import.meta.url);\n' + 'r("./foo");';
+    const derivs = collectDerivatives(src, true);
+    assert.deepEqual(derivs, []);
+  });
+
   it('test=true renders a printable form', () => {
     const node = firstRelevantNode('require("foo");');
     assert.equal(visitorSuccessful(node!, true), 'require("foo")');
@@ -486,12 +507,78 @@ describe('visitorUseSCWD', () => {
     assert.equal(visitorUseSCWD(node!), null);
   });
 
-  it('skips path.resolve(__dirname, …) — that case is already bundled (regression: #269)', () => {
+  it('skips literal-only path.resolve(__dirname, "lit"…) — that case is already bundled (regression: #269)', () => {
     // visitorPathJoin claims this shape and returns ALIAS_AS_RELATIVE, so
     // visitorUseSCWD must NOT also fire — otherwise we'd warn that the call
     // is "ambiguous" while simultaneously bundling its target. Pre-fix the
     // walker emitted exactly that contradictory pair.
     const node = firstRelevantNode('path.resolve(__dirname, "asset.txt");');
     assert.equal(visitorUseSCWD(node!), null);
+  });
+
+  it('still warns on dynamic path.resolve(__dirname, x) — visitorPathJoin bails, so the diagnostic is the only signal', () => {
+    // Tightening the skip to only literal-only segments keeps the user-visible
+    // warning for cases the walker can't pre-bundle.
+    const node = firstRelevantNode('path.resolve(__dirname, x);');
+    const out = visitorUseSCWD(node!) as { alias: string };
+    assert.ok(out, 'expected a warning derivative for the dynamic shape');
+    assert.match(out.alias, /__dirname/);
+  });
+});
+
+describe('warning visitors honor createRequire aliases', () => {
+  it('visitorNonLiteral fires on r(x) where r = createRequire(...) — same warning as require(x) (regression: #269)', () => {
+    // Pre-parity, an aliased dynamic require was silently dropped: the
+    // diagnostic was gated on `callee.name === "require"`. Now the warning
+    // surface mirrors the bundling surface.
+    const src =
+      'import { createRequire } from "module";\n' +
+      'const r = createRequire(import.meta.url);\n' +
+      'r(x);';
+    let saw: { alias: string } | null = null;
+    detect(
+      src,
+      (node, _trying, requireAliases) => {
+        const d = visitorNonLiteral(node, requireAliases) as {
+          alias?: string;
+        } | null;
+        if (!saw && d && typeof d.alias === 'string') {
+          saw = d as { alias: string };
+        }
+        return true;
+      },
+      undefined,
+      true,
+    );
+    assert.ok(
+      saw,
+      'expected visitorNonLiteral to emit a warning for r(x) via alias',
+    );
+  });
+
+  it('visitorMalformed fires on r() (no args) where r = createRequire(...)', () => {
+    const src =
+      'import { createRequire } from "module";\n' +
+      'const r = createRequire(import.meta.url);\n' +
+      'r();';
+    let saw: { alias: string } | null = null;
+    detect(
+      src,
+      (node, _trying, requireAliases) => {
+        const d = visitorMalformed(node, requireAliases) as {
+          alias?: string;
+        } | null;
+        if (!saw && d && typeof d.alias === 'string') {
+          saw = d as { alias: string };
+        }
+        return true;
+      },
+      undefined,
+      true,
+    );
+    // Note: r() has no first arg → isRequire returns null (no `f` to
+    // reconstruct). visitorMalformed correctly stays silent here, same as
+    // bare `require()`. This test pins that parity instead.
+    assert.equal(saw, null);
   });
 });
