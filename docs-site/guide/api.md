@@ -58,25 +58,28 @@ The strings are exactly what you'd pass on the command line — see [Getting sta
 
 ### `PkgExecOptions` fields
 
-| Field              | Type                                     | CLI equivalent         | Notes                                                       |
-| ------------------ | ---------------------------------------- | ---------------------- | ----------------------------------------------------------- |
-| `input`            | `string`                                 | positional `<input>`   | **Required.** Entry file or directory.                      |
-| `targets`          | `string[]`                               | `--targets`            | e.g. `['host']` or `['node22-linux-x64', ...]`.             |
-| `config`           | `string`                                 | `--config`             | Path to `package.json` or standalone config JSON.           |
-| `output`           | `string`                                 | `--output`             | Output file name or template.                               |
-| `outputPath`       | `string`                                 | `--out-path`           | Output directory (mutually exclusive with `output`).        |
-| `compress`         | `'None' \| 'Brotli' \| 'GZip' \| 'Zstd'` | `--compress`           | Default `'None'`.                                           |
-| `sea`              | `boolean`                                | `--sea`                | Use Single Executable Application mode.                     |
-| `bakeOptions`      | `string \| string[]`                     | `--options`            | Node/V8 flags baked into the binary (e.g. `['expose-gc']`). |
-| `debug`            | `boolean`                                | `--debug`              | Verbose packaging logs.                                     |
-| `build`            | `boolean`                                | `--build`              | Build base binaries from source.                            |
-| `bytecode`         | `boolean`                                | `--no-bytecode`        | Default `true`. Set `false` to ship plain JS.               |
-| `nativeBuild`      | `boolean`                                | `--no-native-build`    | Default `true`.                                             |
-| `fallbackToSource` | `boolean`                                | `--fallback-to-source` | Ship source when bytecode compile fails.                    |
-| `public`           | `boolean`                                | `--public`             | Top-level project is public.                                |
-| `publicPackages`   | `string[]`                               | `--public-packages`    | Use `['*']` for all.                                        |
-| `noDictionary`     | `string[]`                               | `--no-dict`            | Use `['*']` to disable all dictionaries.                    |
-| `signature`        | `boolean`                                | `--no-signature`       | Default `true` (macOS signing when applicable).             |
+| Field              | Type                                                                                                          | CLI equivalent         | Notes                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| `input`            | `string`                                                                                                      | positional `<input>`   | **Required.** Entry file or directory.                                            |
+| `targets`          | `string[]`                                                                                                    | `--targets`            | e.g. `['host']` or `['node22-linux-x64', ...]`.                                   |
+| `config`           | `string`                                                                                                      | `--config`             | Path to `package.json` or standalone config JSON.                                 |
+| `output`           | `string`                                                                                                      | `--output`             | Output file name or template.                                                     |
+| `outputPath`       | `string`                                                                                                      | `--out-path`           | Output directory (mutually exclusive with `output`).                              |
+| `compress`         | `'None' \| 'Brotli' \| 'GZip' \| 'Zstd'`                                                                      | `--compress`           | Default `'None'`.                                                                 |
+| `sea`              | `boolean`                                                                                                     | `--sea`                | Use Single Executable Application mode.                                           |
+| `bakeOptions`      | `string \| string[]`                                                                                          | `--options`            | Node/V8 flags baked into the binary (e.g. `['expose-gc']`).                       |
+| `debug`            | `boolean`                                                                                                     | `--debug`              | Verbose packaging logs.                                                           |
+| `build`            | `boolean`                                                                                                     | `--build`              | Build base binaries from source.                                                  |
+| `bytecode`         | `boolean`                                                                                                     | `--no-bytecode`        | Default `true`. Set `false` to ship plain JS.                                     |
+| `nativeBuild`      | `boolean`                                                                                                     | `--no-native-build`    | Default `true`.                                                                   |
+| `fallbackToSource` | `boolean`                                                                                                     | `--fallback-to-source` | Ship source when bytecode compile fails.                                          |
+| `public`           | `boolean`                                                                                                     | `--public`             | Top-level project is public.                                                      |
+| `publicPackages`   | `string[]`                                                                                                    | `--public-packages`    | Use `['*']` for all.                                                              |
+| `noDictionary`     | `string[]`                                                                                                    | `--no-dict`            | Use `['*']` to disable all dictionaries.                                          |
+| `signature`        | `boolean`                                                                                                     | `--no-signature`       | Default `true` (macOS signing when applicable).                                   |
+| `preBuild`         | `string \| (() => void \| Promise<void>)`                                                                     | _(none — API/config)_  | Shell command or function run before the walker. See [Build hooks](#build-hooks). |
+| `postBuild`        | `string \| ((output: string) => void \| Promise<void>)`                                                       | _(none — API/config)_  | Run once per produced binary. Shell form receives `PKG_OUTPUT` env.               |
+| `transform`        | `(file: string, contents: Buffer \| string) => Buffer \| string \| void \| Promise<Buffer \| string \| void>` | _(none — API only)_    | Per-file content transform (minify, obfuscate, etc.). Async returns are awaited.  |
 
 ## Build a full release pipeline
 
@@ -125,6 +128,97 @@ try {
   process.exitCode = 1;
 }
 ```
+
+## Build hooks
+
+`pkg` exposes three hooks that run at well-defined points in the build pipeline. They turn shell scripts that previously had to wrap `pkg` (pre-bundle, smoke-test, minify, etc.) into first-class config.
+
+### Lifecycle order
+
+```
+preBuild → walk → transform (per file) → bytecode/compression → write → postBuild (per binary)
+```
+
+### `preBuild`
+
+Runs once before the walker collects files. Use it for setup work — pre-bundling with esbuild/webpack, codegen, fetching assets. Throw or exit non-zero to abort the build.
+
+::: code-group
+
+```js [Function]
+await exec({
+  input: 'src/index.js',
+  preBuild: async () => {
+    await build({ entryPoints: ['src/index.js'], outfile: 'dist/bundle.js' });
+  },
+});
+```
+
+```json [package.json#pkg]
+{
+  "pkg": {
+    "preBuild": "esbuild src/index.js --bundle --outfile=dist/bundle.js"
+  }
+}
+```
+
+:::
+
+### `postBuild`
+
+Runs once per produced binary, after the file has been written and (where applicable) codesigned. Use it for smoke tests, signing, notarization, upload. The shell form receives the absolute output path via the `PKG_OUTPUT` environment variable; the function form receives it as the first argument.
+
+::: code-group
+
+```js [Function]
+await exec({
+  input: 'src/index.js',
+  postBuild: async (output) => {
+    await execFileAsync(output, ['--version']);
+  },
+});
+```
+
+```json [package.json#pkg]
+{
+  "pkg": {
+    "postBuild": "\"$PKG_OUTPUT\" --version"
+  }
+}
+```
+
+:::
+
+### `transform`
+
+JS-function-only — applied to each file the walker collected, after refinement and before bytecode/compression. Receives the absolute on-disk path and current contents, returns the replacement (a `Buffer` or `string`) or `undefined`/`void` to leave the file unchanged.
+
+`transform` is the hook for **minification and obfuscation** — `pkg` deliberately ships no minifier of its own so the runtime dependency footprint stays small. Drop in your tool of choice:
+
+```js
+import { exec } from '@yao-pkg/pkg';
+import { minify } from 'terser';
+
+await exec({
+  input: 'src/index.js',
+  output: 'dist/app',
+  transform: async (file, contents) => {
+    if (!file.endsWith('.js')) return; // leave non-JS untouched
+    const { code } = await minify(contents.toString());
+    return code;
+  },
+});
+```
+
+The transform sees the **exact** set of files `pkg` is embedding (walker output, post-refine), never the user's source tree on disk — so the original repo is left intact.
+
+### Notes
+
+- Shell hooks are spawned with `shell: true` and inherit stdio, so the user sees their tool's live output. Non-zero exit fails the build.
+- Function-form hooks are reachable from the Node.js API and from `pkg.config.{js,cjs,mjs}` (which can export a function value); JSON-format config (`package.json#pkg`, `.pkgrc`, `.pkgrc.json`) can only carry the shell-string form.
+- `transform` receives **every** embedded file — JS, JSON, assets, native `.node` addons, anything the walker collected. Filter by `path.extname(file)` (or your matcher of choice) before rewriting; returning a string for binary content will corrupt it.
+- In simple SEA mode (`--sea` without a `package.json`), `transform` is a no-op — there's no walker output to apply per-file rewrites to. `preBuild` and `postBuild` still run.
+- In enhanced SEA mode, all targets are baked in parallel and `postBuild` only fires once **all** binaries are baked (then runs sequentially per target). The traditional pipeline produces targets serially, so `postBuild` for each target fires before the next one starts. Both modes call `postBuild` exactly once per produced binary; only the relative timing differs.
 
 ## See also
 

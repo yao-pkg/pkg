@@ -33,6 +33,8 @@ import { patchMachOExecutable, signMachOExecutable } from './mach-o';
 import walk from './walker';
 import refine from './refiner';
 import { generateSeaAssets } from './sea-assets';
+import { runPostBuildForTargets, runTransform } from './hooks';
+import pkgOptions from './options';
 import { inject as postjectInject } from 'postject';
 import { system } from '@yao-pkg/pkg-fetch';
 
@@ -797,6 +799,14 @@ export async function seaEnhanced(
     symLinks,
   } = refine(walkResult.records, walkResult.entrypoint, walkResult.symLinks);
 
+  // Resolved pkg config — captured once and reused for both transform
+  // (before asset generation) and postBuild (after baking, below).
+  const pkg = pkgOptions.get();
+
+  // Apply user transform hook before assets are generated, so any
+  // minification/obfuscation flows into the SEA archive bytes.
+  await runTransform(pkg, records);
+
   // Resolve target outputs to absolute paths before chdir to tmpDir
   for (const target of opts.targets) {
     if (target.output) {
@@ -877,6 +887,15 @@ export async function seaEnhanced(
       }),
     );
   });
+
+  // postBuild runs once per produced binary, after baking + signing have
+  // completed. Note: SEA bakes targets in parallel (Promise.all above),
+  // so postBuild for the first target only fires once *all* binaries are
+  // baked — this differs from the traditional pipeline, where targets
+  // are produced sequentially and postBuild fires before the next target
+  // even starts. The user-visible contract ("postBuild runs per produced
+  // binary") holds in both modes.
+  await runPostBuildForTargets(pkg, opts.targets);
 }
 
 /** Create NodeJS executable using sea */
@@ -925,4 +944,9 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
       }),
     );
   });
+
+  // Simple SEA mode supports postBuild but not transform — there's no
+  // walker output to apply per-file rewrites to. preBuild already ran in
+  // index.ts before this function was called.
+  await runPostBuildForTargets(pkgOptions.get(), opts.targets);
 }

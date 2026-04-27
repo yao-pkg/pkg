@@ -355,6 +355,60 @@ describe('parseInput — PkgExecOptions', () => {
     assert.equal(p.flags.bytecode, undefined);
     assert.equal(p.flags.compress, undefined);
   });
+
+  describe('hooks via PkgExecOptions', () => {
+    it('preBuild string lands in apiPkg', () => {
+      const p = parseInput({ input: 'a.js', preBuild: 'esbuild ...' });
+      assert.equal(p.apiPkg?.preBuild, 'esbuild ...');
+    });
+    it('preBuild function lands in apiPkg', () => {
+      const fn = () => undefined;
+      const p = parseInput({ input: 'a.js', preBuild: fn });
+      assert.equal(p.apiPkg?.preBuild, fn);
+    });
+    it('postBuild + transform together', () => {
+      const post = (out: string) => {
+        void out;
+      };
+      const xform = () => undefined;
+      const p = parseInput({
+        input: 'a.js',
+        postBuild: post,
+        transform: xform,
+      });
+      assert.equal(p.apiPkg?.postBuild, post);
+      assert.equal(p.apiPkg?.transform, xform);
+    });
+    it('apiPkg absent when no hook fields set', () => {
+      assert.equal(parseInput({ input: 'a.js' }).apiPkg, undefined);
+    });
+    it('preBuild as number throws', () => {
+      assert.throws(
+        () =>
+          parseInput({
+            input: 'a.js',
+            preBuild: 42,
+          } as unknown as Parameters<typeof parseInput>[0]),
+        /preBuild.*must be a shell command \(string\) or a function/,
+      );
+    });
+    it('preBuild empty string throws', () => {
+      assert.throws(
+        () => parseInput({ input: 'a.js', preBuild: '' }),
+        /preBuild.*must not be an empty string/,
+      );
+    });
+    it('transform as string throws', () => {
+      assert.throws(
+        () =>
+          parseInput({
+            input: 'a.js',
+            transform: 'minify',
+          } as unknown as Parameters<typeof parseInput>[0]),
+        /transform.*must be a function/,
+      );
+    });
+  });
 });
 
 describe('resolveFlags — CLI > config > default', () => {
@@ -510,6 +564,9 @@ describe('validatePkgConfig', () => {
       targets: [],
       outputPath: '',
       seaConfig: {},
+      preBuild: 'echo pre',
+      postBuild: 'echo post',
+      transform: () => undefined,
     });
     assert.equal(warned.length, 0, `unexpected warns: ${warned.join('|')}`);
   });
@@ -572,6 +629,50 @@ describe('validatePkgConfig', () => {
 
   it('list with string[] OK', () => {
     validatePkgConfig({ publicPackages: ['a', 'b'] });
+  });
+
+  describe('hooks', () => {
+    it('preBuild as string OK', () => {
+      validatePkgConfig({ preBuild: 'echo hi' });
+    });
+    it('preBuild as function OK', () => {
+      validatePkgConfig({ preBuild: () => undefined });
+    });
+    it('preBuild as number throws', () => {
+      assert.throws(
+        () => validatePkgConfig({ preBuild: 42 }),
+        /"preBuild" must be a shell command \(string\) or a function/,
+      );
+    });
+    it('preBuild empty string throws', () => {
+      assert.throws(
+        () => validatePkgConfig({ preBuild: '   ' }),
+        /"preBuild" must not be an empty string/,
+      );
+    });
+
+    it('postBuild as string OK', () => {
+      validatePkgConfig({ postBuild: './smoke.sh' });
+    });
+    it('postBuild as function OK', () => {
+      validatePkgConfig({ postBuild: () => undefined });
+    });
+    it('postBuild as object throws', () => {
+      assert.throws(
+        () => validatePkgConfig({ postBuild: { cmd: 'x' } }),
+        /"postBuild" must be a shell command \(string\) or a function/,
+      );
+    });
+
+    it('transform as function OK', () => {
+      validatePkgConfig({ transform: () => undefined });
+    });
+    it('transform as string throws', () => {
+      assert.throws(
+        () => validatePkgConfig({ transform: 'minify' }),
+        /"transform" must be a function/,
+      );
+    });
   });
 });
 

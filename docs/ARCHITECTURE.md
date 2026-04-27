@@ -104,6 +104,8 @@ CLI (lib/index.ts)
   ├─ Parse targets (node22-linux-x64, etc.)
   ├─ Fetch pre-compiled Node.js binaries (via @yao-pkg/pkg-fetch)
   │
+  ├─ runPreBuild() — lib/hooks.ts (shell or fn, see "Build Hooks")
+  │
   ├─ Walker (lib/walker.ts)
   │   ├─ Parse entry file with Babel → find require/import calls
   │   ├─ Recursively resolve dependencies (lib/follow.ts, lib/resolver.ts)
@@ -115,6 +117,8 @@ CLI (lib/index.ts)
   │   ├─ Purge empty top-level directories
   │   └─ Denominate paths (strip common prefix)
   │
+  ├─ runTransform() — lib/hooks.ts (per-file content rewrite)
+  │
   ├─ Packer (lib/packer.ts)
   │   ├─ Serialize file records into "stripes" (snap path + store + data)
   │   ├─ Wrap bootstrap.js with injected parameters:
@@ -122,14 +126,16 @@ CLI (lib/index.ts)
   │   │     DEFAULT_ENTRYPOINT, SYMLINKS, DICT, DOCOMPRESS
   │   └─ Return { prelude, entrypoint, stripes }
   │
-  └─ Producer (lib/producer.ts)
-      ├─ Open Node.js binary
-      ├─ Find placeholders (PAYLOAD_POSITION, PAYLOAD_SIZE, BAKERY, etc.)
-      ├─ Stream stripes into payload section
-      ├─ Apply compression (Brotli/GZip) per stripe
-      ├─ Build VFS dictionary for path compression
-      ├─ Inject byte offsets into placeholders
-      └─ Write final executable
+  ├─ Producer (lib/producer.ts)
+  │   ├─ Open Node.js binary
+  │   ├─ Find placeholders (PAYLOAD_POSITION, PAYLOAD_SIZE, BAKERY, etc.)
+  │   ├─ Stream stripes into payload section
+  │   ├─ Apply compression (Brotli/GZip) per stripe
+  │   ├─ Build VFS dictionary for path compression
+  │   ├─ Inject byte offsets into placeholders
+  │   └─ Write final executable
+  │
+  └─ runPostBuild() — lib/hooks.ts (per-binary, sets PKG_OUTPUT)
 ```
 
 ### Binary Format
@@ -227,6 +233,8 @@ CLI (lib/index.ts)
   │
   ├─ Detect: has package.json + target Node >= 22 → enhanced mode
   │
+  ├─ runPreBuild() — lib/hooks.ts (shared with traditional mode)
+  │
   ├─ Walker (lib/walker.ts, seaMode: true)
   │   ├─ Parse entry file with Babel → find require/import calls
   │   ├─ Recursively resolve dependencies
@@ -236,6 +244,8 @@ CLI (lib/index.ts)
   │
   ├─ Refiner (lib/refiner.ts)
   │   └─ Same as traditional (path compression, empty dir pruning)
+  │
+  ├─ runTransform() — lib/hooks.ts (per-file content rewrite)
   │
   ├─ SEA Asset Generator (lib/sea-assets.ts)
   │   ├─ Concatenate all STORE_CONTENT files into a single __pkg_archive__ blob
@@ -265,7 +275,8 @@ CLI (lib/index.ts)
       │     1. Download Node.js binary (getNodejsExecutable)
       │     2. Inject blob via postject (bake)
       │     3. Sign macOS if needed (signMacOSIfNeeded)
-      └─ Cleanup tmpDir
+      ├─ Cleanup tmpDir
+      └─ runPostBuild() — lib/hooks.ts (per-binary, sets PKG_OUTPUT)
 ```
 
 ### SEA Binary Format
@@ -625,3 +636,4 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `lib/esm-transformer.ts`         | ~434  | ESM to CJS transformation (traditional mode only)                                            |
 | `lib/refiner.ts`                 | ~110  | Path compression, empty directory pruning                                                    |
 | `lib/common.ts`                  | ~375  | Path normalization, snapshot helpers, store constants                                        |
+| `lib/hooks.ts`                   | ~150  | Build hooks: preBuild, postBuild, transform (shell + function forms)                         |

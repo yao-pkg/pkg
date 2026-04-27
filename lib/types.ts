@@ -39,7 +39,101 @@ export type ConfigDictionary = Record<
 // named variants (`'None' | 'Brotli' | ...`) are accepted.
 export type PkgCompressType = Exclude<keyof typeof CompressType, number>;
 
-export interface PkgOptions {
+/**
+ * Build hook called once before the walker collects files. Use for setup
+ * work like pre-bundling with esbuild/webpack, codegen, or fetching assets.
+ *
+ * Function form takes no arguments; throw or return a rejected promise to
+ * abort the build.
+ */
+export type PreBuildHook = () => void | Promise<void>;
+
+/**
+ * Build hook called once per produced binary, after it has been written
+ * (and codesigned/chmodded on macOS/Linux). Use for smoke tests, signing,
+ * notarization, upload, etc.
+ *
+ * Function form receives the absolute output path. Shell form receives it
+ * via the `PKG_OUTPUT` env var. Throw / non-zero exit to fail the build.
+ */
+export type PostBuildHook = (output: string) => void | Promise<void>;
+
+/**
+ * Per-file transform applied after the walker collects files and after
+ * refinement, but before bytecode compilation and compression. Use for
+ * minification, obfuscation, or any other content rewrite.
+ *
+ * Receives the absolute on-disk file path and the current contents (a
+ * Buffer when loaded from disk, a string when an earlier step rewrote it).
+ * Return the replacement bytes/string to apply, or `undefined`/`void` to
+ * leave the file unchanged.
+ */
+export type TransformHook = (
+  filePath: string,
+  contents: Buffer | string,
+) =>
+  | string
+  | Buffer
+  | void
+  | undefined
+  | Promise<string | Buffer | void | undefined>;
+
+/**
+ * Build-shaping fields shared verbatim between the config-file shape
+ * (`PkgOptions`) and the programmatic API shape (`PkgExecOptions`): the
+ * boolean toggles, `compress`, `outputPath`, and the build hooks.
+ *
+ * Listy fields with deliberate typing differences (`targets`,
+ * `publicPackages`, `noDictionary` are lenient `string | string[]` in the
+ * config and strict `string[]` in the API) and per-shape-only fields
+ * (e.g. `options` vs `bakeOptions`) stay on the leaf interfaces — pulling
+ * them up here would require generic gymnastics for no net win.
+ */
+export interface PkgBaseOptions {
+  /** Directory to save the output executable(s). */
+  outputPath?: string;
+  /** VFS compression algorithm. Default `'None'`. */
+  compress?: PkgCompressType;
+  /** Use Node.js Single Executable Application mode. */
+  sea?: boolean;
+  /** Verbose packaging logs. */
+  debug?: boolean;
+  /** Compile bytecode. Default `true`. Set to `false` to ship plain JS. */
+  bytecode?: boolean;
+  /** Build native addons. Default `true`. */
+  nativeBuild?: boolean;
+  /** If bytecode compilation fails for a file, ship it as plain source. */
+  fallbackToSource?: boolean;
+  /** Treat the top-level project as public (faster, discloses sources). */
+  public?: boolean;
+  /** Sign macOS binaries when applicable. Default `true`. */
+  signature?: boolean;
+  /**
+   * Shell command (string) or JS function run once before the walker
+   * collects files. Throw or reject to abort the build.
+   *
+   * Function form is reachable from the Node.js API and from
+   * `pkg.config.{js,cjs,mjs}`; JSON config files can only carry the shell
+   * form.
+   */
+  preBuild?: string | PreBuildHook;
+  /**
+   * Shell command (string) or JS function run once per produced binary,
+   * after it has been written. Function form receives the output path;
+   * shell form receives it via `PKG_OUTPUT`.
+   */
+  postBuild?: string | PostBuildHook;
+  /**
+   * Per-file content transform applied after walking and refinement, before
+   * bytecode and compression. Function-only — shell-string transforms are
+   * not supported because piping every file through a child process would
+   * be prohibitively slow. Receives `(filePath, contents)` and returns the
+   * replacement (or void to keep).
+   */
+  transform?: TransformHook;
+}
+
+export interface PkgOptions extends PkgBaseOptions {
   scripts?: string[];
   log?: (logger: typeof log, context: Record<string, string>) => void;
   assets?: string[];
@@ -54,18 +148,9 @@ export interface PkgOptions {
   patches?: Patches;
   dictionary?: ConfigDictionary;
   targets?: string | string[];
-  outputPath?: string;
-  compress?: PkgCompressType;
-  fallbackToSource?: boolean;
-  public?: boolean;
   publicPackages?: string | string[];
   options?: string | string[];
-  bytecode?: boolean;
-  nativeBuild?: boolean;
   noDictionary?: string | string[];
-  debug?: boolean;
-  signature?: boolean;
-  sea?: boolean;
 }
 
 export interface PackageJson {
@@ -165,7 +250,7 @@ export interface SeaEnhancedOptions {
 
 export type SymLinks = Record<string, string>;
 
-export interface PkgExecOptions {
+export interface PkgExecOptions extends PkgBaseOptions {
   /** Entry file or directory (required). */
   input: string;
   /** Target specs, e.g. `['node22-linux-x64']` or `['host']`. */
@@ -174,30 +259,12 @@ export interface PkgExecOptions {
   config?: string;
   /** Output file name or template for multiple targets. */
   output?: string;
-  /** Directory to save the output executable(s). Mutually exclusive with `output`. */
-  outputPath?: string;
-  /** VFS compression algorithm. Default `'None'`. */
-  compress?: PkgCompressType;
-  /** Use Node.js Single Executable Application mode. */
-  sea?: boolean;
   /** Bake Node/V8 CLI options into the executable (e.g. `['expose-gc']`). */
   bakeOptions?: string | string[];
-  /** Enable verbose packaging logs. */
-  debug?: boolean;
   /** Build base binaries from source instead of downloading prebuilt ones. */
   build?: boolean;
-  /** Compile bytecode. Default `true`. Set to `false` to ship plain JS. */
-  bytecode?: boolean;
-  /** Build native addons. Default `true`. */
-  nativeBuild?: boolean;
-  /** If bytecode compilation fails for a file, ship it as plain source. */
-  fallbackToSource?: boolean;
-  /** Treat the top-level project as public (faster, discloses sources). */
-  public?: boolean;
   /** Package names to treat as public. `['*']` for all packages. */
   publicPackages?: string[];
   /** Package names to ignore dictionaries for. `['*']` to disable all. */
   noDictionary?: string[];
-  /** Sign macOS binaries when applicable. Default `true`. */
-  signature?: boolean;
 }
