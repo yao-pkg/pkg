@@ -1057,15 +1057,20 @@ export async function resolveConfig(
     inputJson,
   );
 
-  const rawPkg = configJson?.pkg ?? inputJson?.pkg ?? {};
-  if (typeof rawPkg !== 'object' || rawPkg === null || Array.isArray(rawPkg)) {
+  const sourcePkg = configJson?.pkg ?? inputJson?.pkg ?? {};
+  if (
+    typeof sourcePkg !== 'object' ||
+    sourcePkg === null ||
+    Array.isArray(sourcePkg)
+  ) {
     throw wasReported('pkg config: "pkg" must be an object');
   }
-  // Programmatic-API hook fields layered on top of any config-file hooks.
-  // Defined last so they win — the API call site is the most explicit.
-  if (parsed.apiPkg) {
-    Object.assign(rawPkg, parsed.apiPkg);
-  }
+  // Spread (not Object.assign) so configJson/inputJson stay untouched —
+  // they're returned to the caller and other readers shouldn't observe
+  // API-injected hooks bleeding back into the source `pkg` field.
+  // Programmatic-API hook fields are layered on top of any config-file
+  // hooks: the API call site is the most explicit.
+  const rawPkg = { ...sourcePkg, ...(parsed.apiPkg ?? {}) };
   validatePkgConfig(rawPkg);
   const flags = resolveFlags(parsed.flags, rawPkg as PkgOptions);
   const pkg = applyResolvedFlags(rawPkg as PkgOptions, flags);

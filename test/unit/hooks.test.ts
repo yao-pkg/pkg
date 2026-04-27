@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { log } from '../../lib/log';
-import { runPostBuild, runPreBuild, runTransform } from '../../lib/hooks';
+import {
+  runPostBuild,
+  runPostBuildForTargets,
+  runPreBuild,
+  runTransform,
+} from '../../lib/hooks';
 import { STORE_BLOB, STORE_CONTENT, STORE_LINKS } from '../../lib/common';
 import type { FileRecords, PkgOptions } from '../../lib/types';
 
@@ -60,12 +65,16 @@ describe('runPreBuild', () => {
   });
 
   it('shell form: success exits 0', async () => {
-    await runPreBuild({ preBuild: 'true' } as PkgOptions);
+    // `node -e ""` is portable across cmd.exe and POSIX shells; `true` is
+    // a Unix shell builtin and isn't recognized by Windows cmd.exe.
+    await runPreBuild({ preBuild: 'node -e ""' } as PkgOptions);
   });
 
   it('shell form: non-zero exit throws with hook name', async () => {
     await assert.rejects(
-      runPreBuild({ preBuild: 'exit 7' } as PkgOptions),
+      runPreBuild({
+        preBuild: 'node -e "process.exit(7)"',
+      } as PkgOptions),
       /preBuild hook failed.*exit code 7/,
     );
   });
@@ -101,6 +110,50 @@ describe('runPostBuild', () => {
       } as PkgOptions,
       '/tmp/seen',
     );
+  });
+});
+
+describe('runPostBuildForTargets', () => {
+  it('no-op when postBuild not set (does not iterate targets)', async () => {
+    const targets = [{ output: '/tmp/a' }, { output: '/tmp/b' }];
+    // Throws if the helper iterates anyway: postBuild is undefined, so the
+    // function-form path inside runPostBuild would crash. Reaching the end
+    // proves the early-return short-circuit fires.
+    await runPostBuildForTargets({} as PkgOptions, targets);
+  });
+
+  it('runs sequentially in target order (no overlap)', async () => {
+    const events: string[] = [];
+    const targets = [{ output: '/tmp/a' }, { output: '/tmp/b' }];
+    await runPostBuildForTargets(
+      {
+        postBuild: async (out: string) => {
+          events.push(`start:${out}`);
+          await new Promise((r) => setTimeout(r, 5));
+          events.push(`end:${out}`);
+        },
+      } as PkgOptions,
+      targets,
+    );
+    assert.deepEqual(events, [
+      'start:/tmp/a',
+      'end:/tmp/a',
+      'start:/tmp/b',
+      'end:/tmp/b',
+    ]);
+  });
+
+  it('skips targets without an output path', async () => {
+    const seen: (string | undefined)[] = [];
+    await runPostBuildForTargets(
+      {
+        postBuild: (out: string) => {
+          seen.push(out);
+        },
+      } as PkgOptions,
+      [{ output: '/tmp/a' }, {}, { output: '/tmp/b' }],
+    );
+    assert.deepEqual(seen, ['/tmp/a', '/tmp/b']);
   });
 });
 

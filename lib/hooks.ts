@@ -3,13 +3,7 @@ import { readFile } from 'fs/promises';
 
 import { log, wasReported } from './log';
 import { STORE_BLOB, STORE_CONTENT } from './common';
-import type {
-  FileRecords,
-  PkgOptions,
-  PostBuildHook,
-  PreBuildHook,
-  TransformHook,
-} from './types';
+import type { FileRecords, PkgOptions } from './types';
 
 /**
  * Run a shell command synchronously to-completion. stdio is inherited so the
@@ -57,7 +51,7 @@ export async function runPreBuild(pkg: PkgOptions): Promise<void> {
     await runShell(hook, {}, 'preBuild');
     return;
   }
-  await (hook as PreBuildHook)();
+  await hook();
 }
 
 /**
@@ -78,7 +72,26 @@ export async function runPostBuild(
     await runShell(hook, { PKG_OUTPUT: output }, 'postBuild');
     return;
   }
-  await (hook as PostBuildHook)(output);
+  await hook(output);
+}
+
+/**
+ * Run `postBuild` once per produced binary, sequentially. Sequential
+ * ordering keeps stdout/stderr from overlapping targets cleanly separated
+ * on the user's terminal. Used by both SEA paths after baking; the
+ * traditional pipeline calls `runPostBuild` directly inside its own
+ * per-target loop because each binary is produced sequentially anyway.
+ */
+export async function runPostBuildForTargets(
+  pkg: PkgOptions,
+  targets: ReadonlyArray<{ output?: string }>,
+): Promise<void> {
+  if (pkg.postBuild === undefined) return;
+  for (const target of targets) {
+    if (target.output) {
+      await runPostBuild(pkg, target.output);
+    }
+  }
 }
 
 /**
@@ -119,9 +132,9 @@ export async function runTransform(
       }
     }
 
-    let result: string | Buffer | void | undefined;
+    let result: string | Buffer | void;
     try {
-      result = await (fn as TransformHook)(record.file, body);
+      result = await fn(record.file, body);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       throw wasReported(`transform hook threw for "${record.file}": ${reason}`);

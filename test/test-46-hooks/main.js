@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const utils = require('../utils.js');
 
+assert(!module.parent);
 assert(__dirname === process.cwd());
 
 // Hooks are most thoroughly exercised through the programmatic Node.js API
