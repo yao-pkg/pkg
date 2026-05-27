@@ -861,10 +861,10 @@
     "@typescript-eslint/types" "8.55.0"
     eslint-visitor-keys "^4.2.1"
 
-"@yao-pkg/pkg-fetch@3.5.33":
-  version "3.5.33"
-  resolved "https://registry.npmjs.org/@yao-pkg/pkg-fetch/-/pkg-fetch-3.5.33.tgz"
-  integrity sha512-j2UoH+eP4VobfovQg1gkWwDoB4O/tv8rlLnEjUEEHuWXJ5eBLNUIrobMSEp773/2pgUJUfqqPUFIhS1pN8OZuQ==
+"@yao-pkg/pkg-fetch@3.6.3":
+  version "3.6.3"
+  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.6.3.tgz#d491d37508f9f9be6a212d46cb1b648792a0a758"
+  integrity sha512-EAOgiH5viuZP//ZJ2vQMgkAId2GERx1A7ccjXtlpEbXlqAtXAmnvh6IQ1I7HeJSNBQ+dKq32lqDgz5N2oAsjkA==
   dependencies:
     https-proxy-agent "^5.0.0"
     node-fetch "^2.6.6"
