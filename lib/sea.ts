@@ -721,12 +721,13 @@ async function pickBlobGeneratorBinary(
 }
 
 /**
- * Generate the SEA prep blob from a sea-config.json file.
+ * Generate the SEA prep blob from a sea-config.json file (the postject
+ * fallback path, used when the generator Node is older than 25.5).
  *
- * Uses --experimental-sea-config (not --build-sea): --build-sea produces
- * a finished executable and bypasses the prep-blob + postject flow that
- * pkg relies on for multi-target support and for injecting custom
- * bootstraps into downloaded node binaries.
+ * Uses --experimental-sea-config, which only produces the prep blob; the
+ * separate postject inject step then bakes it into each target. Newer Node
+ * (>= 25.5) skips this and uses the in-core `--build-sea` instead -- see
+ * {@link injectAllTargets}.
  */
 async function generateSeaBlob(
   seaConfigFilePath: string,
@@ -737,6 +738,99 @@ async function generateSeaBlob(
     '--experimental-sea-config',
     seaConfigFilePath,
   ]);
+}
+
+/**
+ * Whether a Node version string (`vX.Y.Z` or `X.Y.Z`) supports the in-core
+ * `node --build-sea` flag, which landed in Node v25.5.0. `--build-sea` performs
+ * the blob generation AND the binary injection in one step using Node's bundled
+ * (current) LIEF -- so it bypasses the external `postject`, whose older vendored
+ * LIEF corrupts the dynamic symbol table of PIE (ET_DYN) binaries and breaks
+ * native-addon symbol resolution in the resulting SEA.
+ */
+export function supportsBuildSea(version: string): boolean {
+  const m = /v?(\d+)\.(\d+)\./.exec(version);
+  if (!m) return false;
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  return major > 25 || (major === 25 && minor >= 5);
+}
+
+/**
+ * Inject the SEA payload into every target binary.
+ *
+ * When the host-runnable generator Node supports `--build-sea` (>= 25.5) we use
+ * it: Node reads the base binary from the config's `executable` field, generates
+ * the blob, injects it with its bundled LIEF, and writes the finished executable
+ * to `output` -- no prep-blob + postject round-trip. `assertSingleTargetMajor`
+ * guarantees all targets share the generator's major, so the generated blob is
+ * compatible with every target.
+ *
+ * Otherwise we fall back to the classic path: generate one prep blob and inject
+ * it into each target copy with postject.
+ */
+async function injectAllTargets(args: {
+  targets: (NodeTarget & Partial<Target>)[];
+  nodePaths: string[];
+  generatorBinary: string;
+  signature?: boolean;
+  seaConfig: Record<string, unknown>;
+  seaConfigFilePath: string;
+  blobPath: string;
+  tmpDir: string;
+}): Promise<void> {
+  const {
+    targets,
+    nodePaths,
+    generatorBinary,
+    signature,
+    seaConfig,
+    seaConfigFilePath,
+    blobPath,
+    tmpDir,
+  } = args;
+
+  const generatorVersion = (
+    await execFileAsync(generatorBinary, ['--version'])
+  ).stdout.trim();
+
+  if (supportsBuildSea(generatorVersion)) {
+    log.info(
+      `Injecting the blob with "node ${generatorVersion} --build-sea" (in-core LIEF; postject not used)...`,
+    );
+    await Promise.all(
+      nodePaths.map(async (nodePath, i) => {
+        const target = targets[i];
+        const outPath = resolve(process.cwd(), target.output!);
+        await mkdir(dirname(outPath), { recursive: true });
+        // Per-target config: same payload, but point `executable` at this
+        // target's base binary and `output` at the finished executable.
+        const cfgPath = join(tmpDir, `sea-config-build-${i}.json`);
+        await writeFile(
+          cfgPath,
+          JSON.stringify({
+            ...seaConfig,
+            executable: nodePath,
+            output: outPath,
+          }),
+        );
+        await execFileAsync(generatorBinary, ['--build-sea', cfgPath]);
+        await signMacOSIfNeeded(target.output!, target, signature, true);
+      }),
+    );
+    return;
+  }
+
+  await generateSeaBlob(seaConfigFilePath, generatorBinary);
+  // Read the blob once and share the buffer across all targets.
+  const blobData = await readFile(blobPath);
+  await Promise.all(
+    nodePaths.map(async (nodePath, i) => {
+      const target = targets[i];
+      await bake(nodePath, target, blobData);
+      await signMacOSIfNeeded(target.output!, target, signature, true);
+    }),
+  );
 }
 
 /** Create NodeJS executable using the enhanced SEA pipeline (walker + refiner + assets) */
@@ -859,23 +953,21 @@ export async function seaEnhanced(
     log.info('Creating sea-config.json file...');
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
-    await generateSeaBlob(
+    const generatorBinary = await pickBlobGeneratorBinary(
+      opts.targets,
+      nodePaths,
+      opts,
+    );
+    await injectAllTargets({
+      targets: opts.targets,
+      nodePaths,
+      generatorBinary,
+      signature: opts.signature,
+      seaConfig,
       seaConfigFilePath,
-      await pickBlobGeneratorBinary(opts.targets, nodePaths, opts),
-    );
-
-    // Read the blob once and share the buffer across all targets — avoids
-    // N redundant disk reads and N peak buffer copies on multi-target builds.
-    const blobData = await readFile(blobPath);
-
-    // Bake blob into each target executable
-    await Promise.all(
-      nodePaths.map(async (nodePath, i) => {
-        const target = opts.targets[i];
-        await bake(nodePath, target, blobData);
-        await signMacOSIfNeeded(target.output!, target, opts.signature, true);
-      }),
-    );
+      blobPath,
+      tmpDir,
+    });
   });
 }
 
@@ -910,19 +1002,20 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     log.info('Creating sea-config.json file...');
     await writeFile(seaConfigFilePath, JSON.stringify(seaConfig));
 
-    await generateSeaBlob(
+    const generatorBinary = await pickBlobGeneratorBinary(
+      opts.targets,
+      nodePaths,
+      opts,
+    );
+    await injectAllTargets({
+      targets: opts.targets,
+      nodePaths,
+      generatorBinary,
+      signature: opts.signature,
+      seaConfig,
       seaConfigFilePath,
-      await pickBlobGeneratorBinary(opts.targets, nodePaths, opts),
-    );
-
-    const blobData = await readFile(blobPath);
-
-    await Promise.all(
-      nodePaths.map(async (nodePath, i) => {
-        const target = opts.targets[i];
-        await bake(nodePath, target, blobData);
-        await signMacOSIfNeeded(target.output!, target, opts.signature, true);
-      }),
-    );
+      blobPath,
+      tmpDir,
+    });
   });
 }
