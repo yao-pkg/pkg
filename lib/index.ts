@@ -192,18 +192,11 @@ export async function exec(
   }
 
   if (flags.sea) {
-    // Base-node override (both forms are mutually exclusive). nodePath embeds a
-    // specific binary; useLocalNode embeds the Node running pkg. Either lets you
-    // ship a SEA built on a custom runtime (e.g. one linked against older glibc).
-    if (flags.seaNodePath && flags.seaUseLocalNode) {
-      throw wasReported(
-        "Specify either '--sea-node-path' or '--sea-use-local-node', not both",
-      );
-    }
-    const seaBase = {
-      nodePath: flags.seaNodePath,
-      useLocalNode: flags.seaUseLocalNode,
-    };
+    // Base-node override: embed a custom Node binary instead of downloading one.
+    // From --sea-node-path / the seaNodePath config key, falling back to the
+    // PKG_NODE_PATH env var (resolved in lib/sea.ts). Lets you ship a SEA built
+    // on a custom runtime (e.g. one linked against an older glibc).
+    const seaBase = { nodePath: flags.seaNodePath };
     if (inputJson || configJson) {
       // Enhanced SEA mode — use walker pipeline.
       // seaEnhanced validates the host Node version and minTargetMajor itself.

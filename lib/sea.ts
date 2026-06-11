@@ -330,6 +330,67 @@ async function getNodeVersion(
 }
 
 /**
+ * The custom base Node binary to embed for SEA, or `undefined` to download one.
+ *
+ * Precedence matches standard mode: an explicit `opts.nodePath` (from the
+ * `--sea-node-path` CLI flag or the `seaNodePath` pkg-config key) wins over the
+ * `PKG_NODE_PATH` environment variable. `PKG_NODE_PATH` is the same env var
+ * pkg-fetch honours for the traditional build path (`localPlace()`); folding it
+ * in here makes it work for SEA too, instead of a separate SEA-only mechanism.
+ */
+function resolveCustomBaseNode(
+  opts: GetNodejsExecutableOptions,
+): string | undefined {
+  if (opts.nodePath) return opts.nodePath;
+  if (process.env.PKG_NODE_PATH) return resolve(process.env.PKG_NODE_PATH);
+  return undefined;
+}
+
+/**
+ * Guard a custom base Node binary against multi-target / version-skew footguns.
+ *
+ * A supplied binary (via `--sea-node-path` / `seaNodePath` / `PKG_NODE_PATH`, or
+ * `useLocalNode`) is returned by {@link getNodejsExecutable} for *every* target,
+ * so a multi-target run would bake that one binary into outputs for other
+ * platforms/arches — silently producing broken artifacts. Require a single
+ * target, and verify the binary's major matches the requested `nodeRange`
+ * (`assertSingleTargetMajor` only compares the targets to each other, never to
+ * the supplied binary). The binary still has to match that target's platform and
+ * arch — pkg can't introspect an arbitrary binary's triple, so that's on the user.
+ */
+async function assertCustomBaseNodeTarget(
+  targets: (NodeTarget & Partial<Target>)[],
+  opts: GetNodejsExecutableOptions,
+): Promise<void> {
+  const customNode = resolveCustomBaseNode(opts);
+  if (!customNode && !opts.useLocalNode) return;
+
+  if (targets.length !== 1) {
+    throw wasReported(
+      `A custom base Node binary (--sea-node-path / seaNodePath / PKG_NODE_PATH) ` +
+        `applies to a single target, but ${targets.length} targets were requested. ` +
+        `It would be baked into every output regardless of platform/arch. Run pkg ` +
+        `once per target with the matching binary.`,
+    );
+  }
+
+  const target = targets[0];
+  const targetMajor = parseInt(target.nodeRange.replace('node', ''), 10);
+  if (Number.isNaN(targetMajor)) return; // 'latest' / unparseable: nothing to compare
+  const version = opts.useLocalNode
+    ? process.version
+    : (await execFileAsync(customNode!, ['--version'])).stdout.trim();
+  const binMajor = parseInt(version.replace(/^v/, ''), 10);
+  if (binMajor !== targetMajor) {
+    throw wasReported(
+      `Custom base Node binary is ${version} (major ${binMajor}), but target ` +
+        `"${target.nodeRange}" requests Node ${targetMajor}. The binary's major ` +
+        `version must match the target.`,
+    );
+  }
+}
+
+/**
  * Resolve the concrete Node.js version (e.g. `v22.22.2`) pkg will use
  * for `target` — mirrors the version selection done inside
  * {@link getNodejsExecutable} without performing the download, so
@@ -341,10 +402,11 @@ async function resolveTargetNodeVersion(
   opts: GetNodejsExecutableOptions,
 ): Promise<NodeVersion> {
   if (opts.useLocalNode) return process.version as NodeVersion;
-  if (opts.nodePath) {
+  const customNode = resolveCustomBaseNode(opts);
+  if (customNode) {
     // A user-supplied binary can be any version — don't assume it
     // matches the host. Ask it directly.
-    const { stdout } = await execFileAsync(opts.nodePath, ['--version']);
+    const { stdout } = await execFileAsync(customNode, ['--version']);
     return stdout.trim() as NodeVersion;
   }
   const os = getNodeOs(target.platform);
@@ -357,15 +419,16 @@ async function getNodejsExecutable(
   target: NodeTarget,
   opts: GetNodejsExecutableOptions,
 ): Promise<string> {
-  if (opts.nodePath) {
-    // check if the nodePath exists
-    if (!(await exists(opts.nodePath))) {
+  const customNode = resolveCustomBaseNode(opts);
+  if (customNode) {
+    // check if the custom base binary exists
+    if (!(await exists(customNode))) {
       throw new Error(
-        `Priovided node executable path "${opts.nodePath}" does not exist`,
+        `Provided node executable path "${customNode}" does not exist`,
       );
     }
 
-    return opts.nodePath;
+    return customNode;
   }
 
   if (opts.useLocalNode) {
@@ -765,6 +828,7 @@ export async function seaEnhanced(
   }
 
   assertSingleTargetMajor(opts.targets);
+  await assertCustomBaseNodeTarget(opts.targets, opts);
 
   const minTargetMajor = resolveMinTargetMajor(opts.targets);
   if (minTargetMajor < 22) {
@@ -883,6 +947,7 @@ export async function seaEnhanced(
 export default async function sea(entryPoint: string, opts: SeaOptions) {
   assertHostSeaNodeVersion();
   assertSingleTargetMajor(opts.targets);
+  await assertCustomBaseNodeTarget(opts.targets, opts);
 
   entryPoint = resolve(process.cwd(), entryPoint);
 

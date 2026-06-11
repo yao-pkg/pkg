@@ -1,5 +1,5 @@
 {
-  "name": "test-95-sea-local-node",
+  "name": "test-95-sea-custom-node",
   "version": "1.0.0",
   "main": "index.js",
   "bin": "index.js"

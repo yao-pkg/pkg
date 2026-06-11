@@ -25,8 +25,8 @@ PKG_NODE_PATH=/path/to/node pkg app.js
 ## Caveats
 
 - The binary must be a **compatible** Node.js version — `pkg` still injects its bootstrap prelude and payload, and depends on specific symbol offsets. Use a version supported by `pkg-fetch` unless you know what you're doing.
-- `PKG_NODE_PATH` affects a **single target**. Multi-target builds still fetch the other platforms from `pkg-fetch` unless you set it per-run.
-- SEA mode uses stock Node.js by its own mechanism and does **not** honour `PKG_NODE_PATH` in the same way. For SEA, use `process.execPath` of the Node.js you want directly.
+- `PKG_NODE_PATH` affects a **single target**. In standard mode, multi-target builds still fetch the other platforms from `pkg-fetch` unless you set it per-run.
+- SEA mode honours `PKG_NODE_PATH` too. Because SEA injects the payload into the supplied binary directly (there is no per-platform fetch fallback), a custom base binary there is restricted to a **single target** whose major version matches the binary — pkg errors out otherwise, rather than baking the wrong binary into the other targets. You can also point at the binary with the `--sea-node-path` CLI flag or the `seaNodePath` pkg-config key (both override `PKG_NODE_PATH`). To embed the Node.js you're currently running, pass `PKG_NODE_PATH="$(command -v node)"` (or `--sea-node-path "$(command -v node)"`).
 
 ## See also
 

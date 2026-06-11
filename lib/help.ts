@@ -26,13 +26,11 @@ export default function help() {
     --signature          enable macOS binary signing (default; use to override signature:false in config)
     --no-signature       skip macOS binary signing [default: sign]
     --sea                (Experimental) compile given file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
-    --sea-node-path      SEA mode: path to a base Node binary to embed instead of downloading one (must match the target's major version)
-    --sea-use-local-node SEA mode: embed the Node binary running pkg (process.execPath) as the base
+    --sea-node-path      SEA mode: path to a base Node binary to embed instead of downloading one (overrides PKG_NODE_PATH; must match the target's major; single target only)
 
   All build-shaping flags above (compress, fallback-to-source, public, public-packages,
-  options, bytecode, native-build, no-dict, debug, signature, sea, sea-node-path,
-  sea-use-local-node) can also be set in the pkg config file (camelCase keys). CLI flags
-  override config values.
+  options, bytecode, native-build, no-dict, debug, signature, sea, sea-node-path) can also
+  be set in the pkg config file (camelCase keys). CLI flags override config values.
 
   ${pc.dim('Examples:')}
 
