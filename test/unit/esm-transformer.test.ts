@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  normalizeExportsForCJS,
   rewriteMjsRequirePaths,
   transformESMtoCJS,
 } from '../../lib/esm-transformer';
@@ -145,5 +146,71 @@ describe('transformESMtoCJS', () => {
     assert.equal(res.isTransformed, false);
     // Original source is returned unchanged on failure.
     assert.equal(res.code, 'let x = ;');
+  });
+});
+
+describe('normalizeExportsForCJS', () => {
+  it('rewrites a string target .mjs to .js', () => {
+    assert.equal(normalizeExportsForCJS('./index.mjs'), './index.js');
+  });
+
+  it('adds a require condition for an import-only exports map (#281 case A)', () => {
+    // esm-only: { exports: { ".": { import: "./index.mjs" } } }
+    // Without a CJS-resolvable condition, require() throws
+    // ERR_PACKAGE_PATH_NOT_EXPORTED in the packaged binary.
+    assert.deepEqual(
+      normalizeExportsForCJS({ '.': { import: './index.mjs' } }),
+      {
+        '.': { require: './index.js', import: './index.js' },
+      },
+    );
+  });
+
+  it('rewrites .mjs require targets that no longer exist (#281 case B)', () => {
+    // req-mjs: { exports: { ".": { require: "./index.mjs", import: "./index.mjs" } } }
+    // The .mjs file is renamed to .js in the snapshot, so the target must follow.
+    assert.deepEqual(
+      normalizeExportsForCJS({
+        '.': { require: './index.mjs', import: './index.mjs' },
+      }),
+      { '.': { require: './index.js', import: './index.js' } },
+    );
+  });
+
+  it('falls back to the default condition when there is no import', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({ '.': { default: './index.mjs' } }),
+      {
+        '.': { default: './index.js' },
+      },
+    );
+  });
+
+  it('does not add require when a CJS-resolvable condition already exists', () => {
+    // `default` is resolvable by require(), so the map is left as-is (extensions aside).
+    assert.deepEqual(
+      normalizeExportsForCJS({ import: './e.mjs', default: './d.mjs' }),
+      { import: './e.js', default: './d.js' },
+    );
+  });
+
+  it('recurses through subpath maps and nested conditions', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({
+        '.': { import: './i.mjs' },
+        './sub': { node: { import: './sub.mjs' } },
+      }),
+      {
+        '.': { require: './i.js', import: './i.js' },
+        './sub': { node: { require: './sub.js', import: './sub.js' } },
+      },
+    );
+  });
+
+  it('handles array targets', () => {
+    assert.deepEqual(normalizeExportsForCJS(['./a.mjs', './b.mjs']), [
+      './a.js',
+      './b.js',
+    ]);
   });
 });
