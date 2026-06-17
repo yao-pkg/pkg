@@ -61,11 +61,12 @@ const hostPlatform =
       ? 'win'
       : 'linux';
 const hostArch = process.arch; // 'x64' | 'arm64'
-// macos / linux / win map to three DISTINCT binary formats (Mach-O / ELF / PE),
-// so any cross-OS target gives the host binary a format it can't match. Pick a
-// platform that isn't the host's — covers macOS, Linux, and Windows hosts.
-// (Deliberately not alpine/linuxstatic: those share ELF with linux, so they
-// wouldn't be a *format* mismatch for a Linux host.)
+// The guard runs the supplied node and compares its reported process.platform
+// to the target. We feed the host's own node (process.execPath, which the guard
+// reads without exec'ing it — see probeNode), so any non-host OS target
+// mismatches. Pick a platform that isn't the host's — covers macOS, Linux, and
+// Windows hosts. (Deliberately not alpine/linuxstatic: those report
+// process.platform 'linux' like a Linux host, so they wouldn't be a mismatch.)
 const otherPlatform = hostPlatform === 'macos' ? 'linux' : 'macos';
 const otherMajor = M === 22 ? 20 : 22;
 const out = path.join(os.tmpdir(), 'pkg-sea-guard-out');
@@ -104,11 +105,11 @@ expectGuardError(
   'multi linux flavor',
 );
 
-// c) Single target, wrong platform: the host binary's format can't match a
-//    different-OS target (e.g. a Mach-O binary for a linux target).
+// c) Single target, wrong platform: the binary reports a process.platform that
+//    can't match a different-OS target (e.g. a darwin node for a linux target).
 expectGuardError(
   `node${M}-${otherPlatform}-${hostArch}`,
-  /needs (ELF|Mach-O|PE)/i,
+  /is for "\w+", but target|needs "\w+"/i,
   'platform mismatch',
 );
 

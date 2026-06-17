@@ -9,7 +9,6 @@ import {
   mkdtemp,
   stat,
   readFile,
-  open,
 } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
@@ -347,100 +346,32 @@ function resolveCustomBaseNode(
   return undefined;
 }
 
-/** Executable container format sniffed from a binary's magic bytes. */
-type BinaryFormat = 'elf' | 'macho' | 'pe';
-
-const ELF_MACHINE: Record<number, NodeArch> = {
-  0x3e: 'x64', // EM_X86_64
-  0xb7: 'arm64', // EM_AARCH64
-};
-const MACHO_CPU: Record<number, NodeArch> = {
-  0x01000007: 'x64', // CPU_TYPE_X86_64
-  0x0100000c: 'arm64', // CPU_TYPE_ARM64
-};
-const PE_MACHINE: Record<number, NodeArch> = {
-  0x8664: 'x64', // IMAGE_FILE_MACHINE_AMD64
-  0xaa64: 'arm64', // IMAGE_FILE_MACHINE_ARM64
+/** Target-suffix -> the value Node reports as `process.platform`. */
+const PROCESS_PLATFORM: Record<string, string> = {
+  macos: 'darwin',
+  win: 'win32',
+  // linux / alpine / linuxstatic / freebsd report their own name verbatim, so
+  // they need no mapping. (ELF can't reveal the glibc/musl/static flavor
+  // either, so that sub-distinction stays the user's responsibility.)
 };
 
-/**
- * Expected container format for a pkg target platform (the raw suffix string).
- * ELF covers the whole Linux/Alpine family (linux / alpine / linuxstatic /
- * freebsd) — the glibc/musl/static flavor isn't in the header.
- */
-const formatForPlatform = (platform: string): BinaryFormat =>
-  platform === 'macos' || platform === 'darwin'
-    ? 'macho'
-    : platform === 'win'
-      ? 'pe'
-      : 'elf';
-const FORMAT_LABEL: Record<BinaryFormat, string> = {
-  elf: 'ELF (Linux/Alpine)',
-  macho: 'Mach-O (macOS)',
-  pe: 'PE (Windows)',
-};
-
-/**
- * Sniff a binary's container format and CPU arch from its magic bytes, so we can
- * tell whether a supplied base Node binary actually matches the requested
- * target. Reads only the header. Returns `{}` for an unrecognised file (caller
- * skips the format/arch checks rather than guessing). Note: ELF can't reveal the
- * glibc/musl/static *flavor*, so `elf` maps to the whole Linux/Alpine family.
- */
-export async function sniffBinaryTarget(
-  file: string,
-): Promise<{ format?: BinaryFormat; arch?: NodeArch }> {
-  let fh;
-  try {
-    fh = await open(file, 'r');
-  } catch {
-    return {};
+/** What a Node binary reports about itself when run. */
+async function probeNode(
+  binPath: string,
+): Promise<{ version: string; platform: string; arch: string }> {
+  if (binPath === process.execPath) {
+    return {
+      version: process.version,
+      platform: process.platform,
+      arch: process.arch,
+    };
   }
-  try {
-    const buf = Buffer.alloc(4096);
-    const { bytesRead } = await fh.read(buf, 0, 4096, 0);
-    const b = buf.subarray(0, bytesRead);
-    if (b.length < 20) return {};
-
-    // ELF: 0x7f 'E' 'L' 'F'; EI_DATA at [5] (1=LE,2=BE); e_machine at [18..20].
-    if (b[0] === 0x7f && b[1] === 0x45 && b[2] === 0x4c && b[3] === 0x46) {
-      const machine = b[5] === 2 ? b.readUInt16BE(18) : b.readUInt16LE(18);
-      return { format: 'elf', arch: ELF_MACHINE[machine] };
-    }
-
-    // Mach-O (thin): magic FEEDFACE/FEEDFACF; byte-swapped CEFAEDFE/CFFAEDFE are
-    // the little-endian on-disk forms. cputype is the next 4 bytes.
-    const be = b.readUInt32BE(0);
-    if (
-      be === 0xfeedface ||
-      be === 0xfeedfacf ||
-      be === 0xcefaedfe ||
-      be === 0xcffaedfe
-    ) {
-      const le = be === 0xcefaedfe || be === 0xcffaedfe;
-      const cpu = le ? b.readUInt32LE(4) : b.readUInt32BE(4);
-      return { format: 'macho', arch: MACHO_CPU[cpu] };
-    }
-
-    // PE: 'MZ', e_lfanew (uint32 @0x3C) -> 'PE\0\0', COFF machine 2 bytes after.
-    if (b[0] === 0x4d && b[1] === 0x5a && b.length >= 0x40) {
-      const lfanew = b.readUInt32LE(0x3c);
-      if (
-        lfanew + 6 <= b.length &&
-        b[lfanew] === 0x50 &&
-        b[lfanew + 1] === 0x45 &&
-        b[lfanew + 2] === 0 &&
-        b[lfanew + 3] === 0
-      ) {
-        return { format: 'pe', arch: PE_MACHINE[b.readUInt16LE(lfanew + 4)] };
-      }
-      return { format: 'pe' };
-    }
-
-    return {};
-  } finally {
-    await fh.close();
-  }
+  const { stdout } = await execFileAsync(binPath, [
+    '-p',
+    "process.version + ' ' + process.platform + ' ' + process.arch",
+  ]);
+  const [version, platform, arch] = stdout.trim().split(' ');
+  return { version, platform, arch };
 }
 
 /**
@@ -456,10 +387,14 @@ export async function sniffBinaryTarget(
  *     `platform`+`arch` — one binary can't be several mutually-exclusive things
  *     at once (incl. linux vs alpine vs linuxstatic, which we can't tell apart
  *     from the binary but the user clearly can't have meant simultaneously).
- *  2. Sniff the binary and reject a format/arch mismatch against that single
- *     target (e.g. a macOS binary for a `linux` target, or x64 for `arm64`).
- *     The glibc/musl/static flavor isn't in the header, so that sub-distinction
- *     stays the user's responsibility.
+ *  2. Run the binary and reject if what it reports (`process.platform` /
+ *     `process.arch`) disagrees with that single target (e.g. a macOS binary
+ *     for a `linux` target, or x64 for `arm64`). We exec it for its version
+ *     regardless (here and in {@link resolveTargetNodeVersion}), so asking it
+ *     everything at once is simpler and stricter than sniffing its header — at
+ *     the cost of requiring the base to be runnable on the build host, which is
+ *     already true in practice. The glibc/musl/static flavor isn't reported, so
+ *     that sub-distinction stays the user's responsibility.
  *  3. Verify the binary's major matches the requested `nodeRange`
  *     (`assertSingleTargetMajor` only compares the targets to each other).
  */
@@ -490,37 +425,33 @@ async function assertCustomBaseNodeTarget(
   }
   const { platform, arch } = [...combos.values()][0];
 
-  // 2. Format / arch match against that single target.
-  const sniff = await sniffBinaryTarget(binPath);
-  if (sniff.format) {
-    const expected = formatForPlatform(platform);
-    if (sniff.format !== expected) {
-      throw wasReported(
-        `Custom base Node binary is ${FORMAT_LABEL[sniff.format]}, but target ` +
-          `"${platform}" needs ${FORMAT_LABEL[expected]}.`,
-      );
-    }
-    if (sniff.arch && sniff.arch !== arch) {
-      throw wasReported(
-        `Custom base Node binary is ${sniff.arch}, but target arch is "${arch}". ` +
-          `The binary must match the target's architecture.`,
-      );
-    }
+  // 2. Ask the binary what it actually is and reject any disagreement.
+  const node = await probeNode(binPath);
+
+  const expectedPlatform = PROCESS_PLATFORM[platform] ?? platform;
+  if (node.platform !== expectedPlatform) {
+    throw wasReported(
+      `Custom base Node binary is for "${node.platform}", but target ` +
+        `"${platform}" needs "${expectedPlatform}".`,
+    );
+  }
+  if (node.arch !== arch) {
+    throw wasReported(
+      `Custom base Node binary is ${node.arch}, but target arch is "${arch}". ` +
+        `The binary must match the target's architecture.`,
+    );
   }
 
-  // 3. Major version match.
+  // 3. Major version match (assertSingleTargetMajor only compares the targets
+  // to each other, never to the supplied binary).
   const targetMajor = parseInt(targets[0].nodeRange.replace('node', ''), 10);
   if (Number.isNaN(targetMajor)) return; // 'latest' / unparseable: nothing to compare
-  const version =
-    binPath === process.execPath
-      ? process.version
-      : (await execFileAsync(binPath, ['--version'])).stdout.trim();
-  const binMajor = parseInt(version.replace(/^v/, ''), 10);
+  const binMajor = parseInt(node.version.replace(/^v/, ''), 10);
   if (binMajor !== targetMajor) {
     throw wasReported(
-      `Custom base Node binary is ${version} (major ${binMajor}), but target ` +
-        `"${targets[0].nodeRange}" requests Node ${targetMajor}. The binary's ` +
-        `major version must match the target.`,
+      `Custom base Node binary is ${node.version} (major ${binMajor}), but ` +
+        `target "${targets[0].nodeRange}" requests Node ${targetMajor}. The ` +
+        `binary's major version must match the target.`,
     );
   }
 }
@@ -541,8 +472,7 @@ async function resolveTargetNodeVersion(
   if (customNode) {
     // A user-supplied binary can be any version — don't assume it
     // matches the host. Ask it directly.
-    const { stdout } = await execFileAsync(customNode, ['--version']);
-    return stdout.trim() as NodeVersion;
+    return (await probeNode(customNode)).version as NodeVersion;
   }
   const os = getNodeOs(target.platform);
   const arch = getNodeArch(target.arch);
