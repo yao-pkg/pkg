@@ -109,7 +109,7 @@ expectGuardError(
 //    can't match a different-OS target (e.g. a darwin node for a linux target).
 expectGuardError(
   `node${M}-${otherPlatform}-${hostArch}`,
-  /is for "\w+", but target|needs "\w+"/i,
+  /reports platform "\w+", but target/i,
   'platform mismatch',
 );
 

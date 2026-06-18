@@ -341,21 +341,86 @@ async function getNodeVersion(
 function resolveCustomBaseNode(
   opts: GetNodejsExecutableOptions,
 ): string | undefined {
-  if (opts.nodePath) return opts.nodePath;
+  if (opts.nodePath) return resolve(opts.nodePath);
   if (process.env.PKG_NODE_PATH) return resolve(process.env.PKG_NODE_PATH);
   return undefined;
 }
 
-/** Target-suffix -> the value Node reports as `process.platform`. */
-const PROCESS_PLATFORM: Record<string, string> = {
+/**
+ * pkg target platform/arch identifiers -> the values Node reports as
+ * `process.platform` / `process.arch`.
+ *
+ * A custom base binary is validated by *running* it (see {@link probeNode}) and
+ * comparing what it reports against the target, so pkg-fetch's identifiers must
+ * be translated into Node's: pkg's `macos`/`win` are Node's `darwin`/`win32`;
+ * `alpine`/`linuxstatic` are pkg-fetch *flavors* of Linux that Node still
+ * reports as `linux` (the musl/static distinction isn't in `process.platform`);
+ * pkg's `armv7`/`armv7l`/`x86` are Node's `arm`/`ia32`.
+ *
+ * Keyed over the full `knownPlatforms`/`knownArchs` sets (asserted complete by
+ * `sea-target-identity.test.ts`) so a newly-added target can't silently fall
+ * through to a wrong identity default — which would falsely reject a legitimate
+ * single target such as a musl-on-musl (`alpine`) or 32-bit-ARM (`armv7l`)
+ * custom runtime, the very case this feature exists for.
+ */
+const TARGET_PLATFORM_TO_PROCESS: Record<string, string> = {
+  alpine: 'linux',
+  freebsd: 'freebsd',
+  linux: 'linux',
+  linuxstatic: 'linux',
   macos: 'darwin',
   win: 'win32',
-  // linux / alpine / linuxstatic / freebsd report their own name verbatim, so
-  // they need no mapping. (ELF can't reveal the glibc/musl/static flavor
-  // either, so that sub-distinction stays the user's responsibility.)
 };
 
-/** What a Node binary reports about itself when run. */
+const TARGET_ARCH_TO_PROCESS: Record<string, string> = {
+  x64: 'x64',
+  x86: 'ia32',
+  armv7: 'arm',
+  armv7l: 'arm',
+  arm64: 'arm64',
+  ppc64: 'ppc64',
+  s390x: 's390x',
+  riscv64: 'riscv64',
+  loong64: 'loong64',
+};
+
+/** The `process.platform` a base Node binary for `targetPlatform` must report. */
+export function expectedProcessPlatform(targetPlatform: string): string {
+  const platform = TARGET_PLATFORM_TO_PROCESS[targetPlatform];
+  if (platform === undefined) {
+    throw wasReported(
+      `No process.platform mapping for target platform "${targetPlatform}" — ` +
+        `please report this so pkg can learn it.`,
+    );
+  }
+  return platform;
+}
+
+/** The `process.arch` a base Node binary for `targetArch` must report. */
+export function expectedProcessArch(targetArch: string): string {
+  const arch = TARGET_ARCH_TO_PROCESS[targetArch];
+  if (arch === undefined) {
+    throw wasReported(
+      `No process.arch mapping for target arch "${targetArch}" — ` +
+        `please report this so pkg can learn it.`,
+    );
+  }
+  return arch;
+}
+
+/** Memoized {@link probeNode} results, keyed by binary path. */
+const probeCache = new Map<
+  string,
+  { version: string; platform: string; arch: string }
+>();
+
+/**
+ * What a Node binary reports about itself when run (`process.version` /
+ * `process.platform` / `process.arch`). The custom base binary must therefore
+ * be runnable on the build host; a foreign, non-runnable binary fails here with
+ * a clear message instead of a cryptic ENOEXEC. The result is memoized so the
+ * two callers (the target guard and the version resolver) share a single spawn.
+ */
 async function probeNode(
   binPath: string,
 ): Promise<{ version: string; platform: string; arch: string }> {
@@ -366,12 +431,26 @@ async function probeNode(
       arch: process.arch,
     };
   }
-  const { stdout } = await execFileAsync(binPath, [
-    '-p',
-    "process.version + ' ' + process.platform + ' ' + process.arch",
-  ]);
+  const cached = probeCache.get(binPath);
+  if (cached) return cached;
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync(binPath, [
+      '-p',
+      "process.version + ' ' + process.platform + ' ' + process.arch",
+    ]));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw wasReported(
+      `Couldn't run the custom base Node binary "${binPath}" on this host. ` +
+        `pkg runs it to read its version/platform/arch and validate it against ` +
+        `the target, so the binary must be runnable here (got: ${reason}).`,
+    );
+  }
   const [version, platform, arch] = stdout.trim().split(' ');
-  return { version, platform, arch };
+  const result = { version, platform, arch };
+  probeCache.set(binPath, result);
+  return result;
 }
 
 /**
@@ -425,20 +504,23 @@ async function assertCustomBaseNodeTarget(
   }
   const { platform, arch } = [...combos.values()][0];
 
-  // 2. Ask the binary what it actually is and reject any disagreement.
+  // 2. Ask the binary what it actually is and reject any disagreement. pkg's
+  // target identifiers differ from Node's process.platform/arch (macos→darwin,
+  // armv7l→arm, alpine/linuxstatic→linux, …), so translate before comparing.
   const node = await probeNode(binPath);
 
-  const expectedPlatform = PROCESS_PLATFORM[platform] ?? platform;
+  const expectedPlatform = expectedProcessPlatform(platform);
   if (node.platform !== expectedPlatform) {
     throw wasReported(
-      `Custom base Node binary is for "${node.platform}", but target ` +
-        `"${platform}" needs "${expectedPlatform}".`,
+      `Custom base Node binary reports platform "${node.platform}", but target ` +
+        `"${platform}" needs a "${expectedPlatform}" binary.`,
     );
   }
-  if (node.arch !== arch) {
+  const expectedArch = expectedProcessArch(arch);
+  if (node.arch !== expectedArch) {
     throw wasReported(
-      `Custom base Node binary is ${node.arch}, but target arch is "${arch}". ` +
-        `The binary must match the target's architecture.`,
+      `Custom base Node binary reports arch "${node.arch}", but target "${arch}" ` +
+        `needs a "${expectedArch}" binary. It must match the target's architecture.`,
     );
   }
 
