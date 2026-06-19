@@ -459,10 +459,13 @@ const probeCache = new Map<
 
 /**
  * What a Node binary reports about itself when run (`process.version` /
- * `process.platform` / `process.arch`). The custom base binary must therefore
- * be runnable on the build host; a foreign, non-runnable binary fails here with
- * a clear message instead of a cryptic ENOEXEC. The result is memoized so the
- * two callers (the target guard and the version resolver) share a single spawn.
+ * `process.platform` / `process.arch`), emitted as JSON so parsing can't be
+ * tripped by an unexpected delimiter. The custom base binary must therefore be
+ * runnable on the build host; a foreign, non-runnable binary fails here with a
+ * clear message instead of a cryptic ENOEXEC, and unexpected output fails with a
+ * clear parse error rather than silently yielding undefined fields. The result
+ * is memoized so the two callers (the target guard and the version resolver)
+ * share a single spawn.
  */
 async function probeNode(
   binPath: string,
@@ -480,7 +483,7 @@ async function probeNode(
   try {
     ({ stdout } = await execFileAsync(binPath, [
       '-p',
-      "process.version + ' ' + process.platform + ' ' + process.arch",
+      'JSON.stringify({ version: process.version, platform: process.platform, arch: process.arch })',
     ]));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -490,8 +493,28 @@ async function probeNode(
         `the target, so the binary must be runnable here (got: ${reason}).`,
     );
   }
-  const [version, platform, arch] = stdout.trim().split(' ');
-  const result = { version, platform, arch };
+  let result: { version: string; platform: string; arch: string };
+  try {
+    const parsed = JSON.parse(stdout.trim());
+    if (
+      typeof parsed?.version !== 'string' ||
+      typeof parsed?.platform !== 'string' ||
+      typeof parsed?.arch !== 'string'
+    ) {
+      throw new Error('missing version/platform/arch');
+    }
+    result = {
+      version: parsed.version,
+      platform: parsed.platform,
+      arch: parsed.arch,
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw wasReported(
+      `Custom base Node binary "${binPath}" produced unexpected output when ` +
+        `probed for its identity (${reason}): ${JSON.stringify(stdout.trim())}`,
+    );
+  }
   probeCache.set(binPath, result);
   return result;
 }

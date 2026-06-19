@@ -3,6 +3,7 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const utils = require('../utils.js');
@@ -71,13 +72,13 @@ const otherPlatform = hostPlatform === 'macos' ? 'linux' : 'macos';
 const otherMajor = M === 22 ? 20 : 22;
 const out = path.join(os.tmpdir(), 'pkg-sea-guard-out');
 
-function expectGuardError(targets, re, label) {
+function expectGuardError(targets, re, label, nodePath = process.execPath) {
   const r = utils.pkg.sync(
     [
       input,
       '--sea',
       '--sea-node-path',
-      process.execPath,
+      nodePath,
       '--targets',
       targets,
       '--output',
@@ -119,3 +120,49 @@ expectGuardError(
   /major version must match|requests Node/i,
   'major mismatch',
 );
+
+// e+f) Drive probeNode's real exec + JSON-parse path with a *non-host* binary.
+// Cases a-d all pass process.execPath, which short-circuits probeNode (no exec,
+// no parse). Here we hand pkg a tiny mock "node" that prints a controlled
+// identity, so the guard fails with a known error rather than letting pkg march
+// on into postject against a non-Node file (which would blow up unpredictably).
+//
+// POSIX-only: a shebang script is directly execFile-able, but on Windows
+// execFile can't run a .bat/.cmd without a shell and a real .exe isn't
+// practical to author here. The parse/guard logic is OS-agnostic JS, so
+// Linux/macOS coverage is sufficient.
+if (process.platform !== 'win32') {
+  const mockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-sea-mock-'));
+
+  // e) Valid JSON, but a mismatched version. The mock reports the *real* host
+  // platform/arch (via node) so those checks pass and we reach the major check;
+  // it claims v22.0.0 while we request node24, so assertBaseMajorSatisfiesTarget
+  // throws. Exercises probeNode exec + JSON.parse + the major-version guard.
+  const versionMock = path.join(mockDir, 'node');
+  fs.writeFileSync(
+    versionMock,
+    '#!/usr/bin/env node\n' +
+      "console.log(JSON.stringify({ version: 'v22.0.0', " +
+      'platform: process.platform, arch: process.arch }));\n',
+  );
+  fs.chmodSync(versionMock, 0o755);
+  expectGuardError(
+    `node24-${hostPlatform}-${hostArch}`,
+    /major version must match|requests Node 24/i,
+    'mock binary: version mismatch',
+    versionMock,
+  );
+
+  // f) Non-JSON output. Exercises the parse-failure branch: probeNode runs the
+  // binary fine, but the output isn't the expected JSON, so it must fail with a
+  // clear "unexpected output" error rather than silently using undefined fields.
+  const garbageMock = path.join(mockDir, 'garbage-node');
+  fs.writeFileSync(garbageMock, '#!/bin/sh\necho "this is not json"\n');
+  fs.chmodSync(garbageMock, 0o755);
+  expectGuardError(
+    `node${M}-${hostPlatform}-${hostArch}`,
+    /produced unexpected output/i,
+    'mock binary: non-JSON output',
+    garbageMock,
+  );
+}
