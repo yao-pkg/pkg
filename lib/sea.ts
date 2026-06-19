@@ -53,6 +53,13 @@ const execFileAsync = util.promisify(cExecFile);
 const SEA_SENTINEL_FUSE =
   'NODE_SEA' + '_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
+/**
+ * Minimum Node.js major a SEA *target* (and thus a custom base binary) must be.
+ * node:sea exists from Node 20, but pkg's enhanced VFS bootstrap requires 22
+ * (see {@link seaEnhanced} and engines.node / the @roberts_lando/vfs dep).
+ */
+const MIN_SEA_TARGET_MAJOR = 22;
+
 /** Returns stat of path when exits, false otherwise */
 const exists = async (path: string) => {
   try {
@@ -408,6 +415,42 @@ export function expectedProcessArch(targetArch: string): string {
   return arch;
 }
 
+/**
+ * Assert a custom base binary's major version is compatible with the requested
+ * target `nodeRange`. Pure (no process spawn) so it's unit-testable.
+ *
+ *  - Concrete target major (e.g. `node24`): the binary's major must equal it.
+ *  - `latest` / unparseable range: there's no specific major to match, but the
+ *    binary must still be new enough for SEA ({@link MIN_SEA_TARGET_MAJOR}).
+ *    seaEnhanced's later `minTargetMajor` check resolves `latest` to the host
+ *    major (>= 22), so without this floor a too-old *custom* binary (e.g. Node
+ *    18 with `-t latest-...`) would slip through and break at injection instead
+ *    of failing cleanly here.
+ */
+export function assertBaseMajorSatisfiesTarget(
+  binVersion: string,
+  nodeRange: string,
+): void {
+  const binMajor = parseInt(binVersion.replace(/^v/, ''), 10);
+  const targetMajor = parseInt(nodeRange.replace('node', ''), 10);
+  if (Number.isNaN(targetMajor)) {
+    if (binMajor < MIN_SEA_TARGET_MAJOR) {
+      throw wasReported(
+        `Custom base Node binary is ${binVersion}, but SEA requires Node ` +
+          `${MIN_SEA_TARGET_MAJOR} or newer.`,
+      );
+    }
+    return;
+  }
+  if (binMajor !== targetMajor) {
+    throw wasReported(
+      `Custom base Node binary is ${binVersion} (major ${binMajor}), but ` +
+        `target "${nodeRange}" requests Node ${targetMajor}. The binary's ` +
+        `major version must match the target.`,
+    );
+  }
+}
+
 /** Memoized {@link probeNode} results, keyed by binary path. */
 const probeCache = new Map<
   string,
@@ -524,18 +567,9 @@ async function assertCustomBaseNodeTarget(
     );
   }
 
-  // 3. Major version match (assertSingleTargetMajor only compares the targets
-  // to each other, never to the supplied binary).
-  const targetMajor = parseInt(targets[0].nodeRange.replace('node', ''), 10);
-  if (Number.isNaN(targetMajor)) return; // 'latest' / unparseable: nothing to compare
-  const binMajor = parseInt(node.version.replace(/^v/, ''), 10);
-  if (binMajor !== targetMajor) {
-    throw wasReported(
-      `Custom base Node binary is ${node.version} (major ${binMajor}), but ` +
-        `target "${targets[0].nodeRange}" requests Node ${targetMajor}. The ` +
-        `binary's major version must match the target.`,
-    );
-  }
+  // 3. Major version compatibility (assertSingleTargetMajor only compares the
+  // targets to each other, never to the supplied binary).
+  assertBaseMajorSatisfiesTarget(node.version, targets[0].nodeRange);
 }
 
 /**
@@ -762,9 +796,9 @@ async function withSeaTmpDir<T>(
  */
 function assertHostSeaNodeVersion(): number {
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
-  if (nodeMajor < 22) {
+  if (nodeMajor < MIN_SEA_TARGET_MAJOR) {
     throw new Error(
-      `SEA support requires at least node v22.0.0, actual node version is ${process.version}`,
+      `SEA support requires at least node v${MIN_SEA_TARGET_MAJOR}.0.0, actual node version is ${process.version}`,
     );
   }
   return nodeMajor;
@@ -978,9 +1012,9 @@ export async function seaEnhanced(
   await assertCustomBaseNodeTarget(opts.targets, opts);
 
   const minTargetMajor = resolveMinTargetMajor(opts.targets);
-  if (minTargetMajor < 22) {
+  if (minTargetMajor < MIN_SEA_TARGET_MAJOR) {
     throw wasReported(
-      `Enhanced SEA mode requires Node >= 22 targets. ` +
+      `Enhanced SEA mode requires Node >= ${MIN_SEA_TARGET_MAJOR} targets. ` +
         `Minimum target version resolved to Node ${minTargetMajor}.`,
     );
   }

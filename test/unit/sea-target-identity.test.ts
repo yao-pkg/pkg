@@ -3,7 +3,11 @@ import { describe, it } from 'node:test';
 
 import { system } from '@yao-pkg/pkg-fetch';
 
-import { expectedProcessPlatform, expectedProcessArch } from '../../lib/sea';
+import {
+  expectedProcessPlatform,
+  expectedProcessArch,
+  assertBaseMajorSatisfiesTarget,
+} from '../../lib/sea';
 
 // The SEA custom-base guard validates a supplied node binary by *running* it
 // and comparing its reported process.platform / process.arch to the target.
@@ -82,6 +86,45 @@ describe('expectedProcessArch', () => {
     assert.throws(
       () => expectedProcessArch('sparc64'),
       /no process\.arch mapping/i,
+    );
+  });
+});
+
+describe('assertBaseMajorSatisfiesTarget', () => {
+  it('accepts a binary whose major matches a concrete target', () => {
+    assert.doesNotThrow(() =>
+      assertBaseMajorSatisfiesTarget('v24.16.0', 'node24'),
+    );
+  });
+
+  it('rejects a binary whose major differs from a concrete target', () => {
+    assert.throws(
+      () => assertBaseMajorSatisfiesTarget('v22.22.2', 'node24'),
+      /major version must match|requests Node 24/i,
+    );
+  });
+
+  it('accepts a new-enough binary for a "latest" target', () => {
+    assert.doesNotThrow(() =>
+      assertBaseMajorSatisfiesTarget('v24.16.0', 'latest'),
+    );
+    // Exactly the floor is allowed.
+    assert.doesNotThrow(() =>
+      assertBaseMajorSatisfiesTarget('v22.0.0', 'latest'),
+    );
+  });
+
+  it('rejects a too-old binary for a "latest" target', () => {
+    // 'latest' has no concrete major, and seaEnhanced resolves it to the host
+    // major (>= 22), so this floor is the only thing catching an old custom
+    // binary. Node 18 / 21 must be rejected here.
+    assert.throws(
+      () => assertBaseMajorSatisfiesTarget('v18.20.4', 'latest'),
+      /SEA requires Node 22 or newer/i,
+    );
+    assert.throws(
+      () => assertBaseMajorSatisfiesTarget('v21.7.3', 'latest'),
+      /SEA requires Node 22 or newer/i,
     );
   });
 });
