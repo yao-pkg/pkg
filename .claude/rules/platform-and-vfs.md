@@ -24,6 +24,7 @@ paths:
 - Bytecode generation requires the target architecture binary.
 - Use `--no-bytecode` for cross-arch builds.
 - Linux: QEMU for emulation. macOS: Rosetta 2 for arm64 building x64.
+- Windows: Wine for `win-x64` bytecode from Linux — opt-in via `--cross-bytecode` (same CPU arch only; needs a `binfmt_misc` MZ→Wine handler).
 
 ## ESM
 

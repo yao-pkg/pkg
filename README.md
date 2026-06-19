@@ -29,6 +29,8 @@
 
 `pkg` takes your Node.js project and ships it as a single binary that runs on devices without Node.js installed. Cross-compile for Linux, macOS, and Windows from any host.
 
+> Building a `win-x64` binary on a non-Windows host **with bytecode** (source protection) runs the Windows Node under Wine — install Wine, register a `binfmt_misc` `MZ` handler, and pass `--cross-bytecode`. See [Building Windows binaries on Linux (Wine)](https://yao-pkg.github.io/pkg/guide/targets#building-windows-binaries-on-linux-wine).
+
 ## Install
 
 ```sh

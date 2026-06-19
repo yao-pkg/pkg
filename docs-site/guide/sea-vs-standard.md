@@ -25,19 +25,19 @@ Everything else — bytecode, worker threads, native addons, bundling strategy �
 
 ## Feature matrix
 
-| Feature                            | **Standard**                                                           | **Enhanced SEA**         |
-| ---------------------------------- | ---------------------------------------------------------------------- | ------------------------ |
-| **Node.js binary**                 | Custom patched (`pkg-fetch`)                                           | **Stock Node.js** ✨     |
-| Source protection (V8 bytecode)    | ✅                                                                     | ❌ plaintext             |
-| Compression (Brotli / GZip / Zstd) | ✅                                                                     | ✅                       |
-| Build speed                        | Slower                                                                 | **Faster**               |
-| Cross-compile                      | ⚠️ broken on Node 22 ([see](/guide/targets#cross-compilation-support)) | ✅                       |
-| Worker threads                     | ✅                                                                     | ✅                       |
-| Native addons                      | ✅                                                                     | ✅                       |
-| ESM + top-level await              | Partial                                                                | ✅ every target          |
-| Maintenance burden                 | High — patch each Node release                                         | **Low — stock binaries** |
-| Security updates                   | Wait for `pkg-fetch` rebuild                                           | **Immediate**            |
-| Future path                        | Tied to `pkg-fetch`                                                    | Migrates to `node:vfs`   |
+| Feature                            | **Standard**                                                                                                                    | **Enhanced SEA**         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| **Node.js binary**                 | Custom patched (`pkg-fetch`)                                                                                                    | **Stock Node.js** ✨     |
+| Source protection (V8 bytecode)    | ✅                                                                                                                              | ❌ plaintext             |
+| Compression (Brotli / GZip / Zstd) | ✅                                                                                                                              | ✅                       |
+| Build speed                        | Slower                                                                                                                          | **Faster**               |
+| Cross-compile                      | ⚠️ Node 22 regression; `win-x64` keeps bytecode via Wine + `--cross-bytecode` ([see](/guide/targets#cross-compilation-support)) | ✅                       |
+| Worker threads                     | ✅                                                                                                                              | ✅                       |
+| Native addons                      | ✅                                                                                                                              | ✅                       |
+| ESM + top-level await              | Partial                                                                                                                         | ✅ every target          |
+| Maintenance burden                 | High — patch each Node release                                                                                                  | **Low — stock binaries** |
+| Security updates                   | Wait for `pkg-fetch` rebuild                                                                                                    | **Immediate**            |
+| Future path                        | Tied to `pkg-fetch`                                                                                                             | Migrates to `node:vfs`   |
 
 ## When to pick which
 

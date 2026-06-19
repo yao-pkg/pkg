@@ -57,16 +57,36 @@ function buildMarker(
 
 const { hostArch, hostPlatform } = system;
 
-function fabricatorForTarget({ nodeRange, arch }: NodeTarget) {
-  let fabPlatform = hostPlatform;
+// Exported for unit testing. `host` defaults to the real build host but can be
+// overridden in tests so the branch selection can be exercised as a pure
+// function (mirrors how lib/sea.ts host matching is tested).
+export function fabricatorForTarget(
+  { nodeRange, platform, arch }: NodeTarget,
+  crossBytecode: boolean,
+  host: { platform: string; arch: string } = {
+    platform: hostPlatform,
+    arch: hostArch,
+  },
+) {
+  let fabPlatform: string = host.platform;
 
   if (
-    hostArch !== arch &&
-    (hostPlatform === 'linux' || hostPlatform === 'alpine')
+    host.arch !== arch &&
+    (host.platform === 'linux' || host.platform === 'alpine')
   ) {
     // With linuxstatic, it is possible to generate bytecode for different
     // arch with simple QEMU configuration instead of the entire sysroot.
     fabPlatform = 'linuxstatic';
+  } else if (
+    crossBytecode &&
+    platform === 'win' &&
+    (host.platform === 'linux' || host.platform === 'alpine')
+  ) {
+    // Same CPU arch but different OS: run the Windows target's own Node under
+    // Wine (an OS-ABI layer registered via binfmt_misc) so the bytecode is
+    // produced by the target's V8 and accepted at runtime on Windows. Opt-in
+    // via --cross-bytecode because it requires Wine + a binfmt MZ handler.
+    fabPlatform = 'win';
   }
 
   return {
@@ -223,14 +243,14 @@ export async function exec(
 
   // fetch targets
 
-  const { bytecode, nativeBuild } = flags;
+  const { bytecode, nativeBuild, crossBytecode } = flags;
 
   for (const target of targets) {
     target.forceBuild = forceBuild;
 
     await needWithDryRun(target);
 
-    target.fabricator = fabricatorForTarget(target) as Target;
+    target.fabricator = fabricatorForTarget(target, crossBytecode) as Target;
 
     if (bytecode) {
       await needWithDryRun({

@@ -169,6 +169,14 @@ pkg --no-bytecode --public-packages '*' --public -t node22-linux-arm64 .
 
 Skips the bytecode step, so there's no need to run an arm64 interpreter on your x64 host. Trade-off: source is plaintext in the binary. See [Targets → Cross-compilation support](/guide/targets#cross-compilation-support).
 
+## Cross-compile to Windows x64 on Linux with Wine
+
+```sh
+pkg --cross-bytecode -t node22-win-x64 .
+```
+
+Runs the Windows target Node under Wine to fabricate Windows-native bytecode, so the `.exe` keeps source protection (no plaintext sources) — unlike `--no-bytecode`. Requires Wine and a `binfmt_misc` `MZ` handler registered from a privileged container or the host kernel. See [Targets → Building Windows binaries on Linux (Wine)](/guide/targets#building-windows-binaries-on-linux-wine).
+
 ## Exclude test and doc directories from dependencies
 
 ```json
