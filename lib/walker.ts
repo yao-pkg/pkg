@@ -264,9 +264,13 @@ function stepDetect(
   try {
     detector.detect(
       body,
-      (node, trying) => {
+      (node, trying, requireAliases) => {
         const { toplevel } = marker;
-        let d = detector.visitorSuccessful(node) as unknown as Derivative;
+        let d = detector.visitorSuccessful(
+          node,
+          false,
+          requireAliases,
+        ) as unknown as Derivative;
 
         if (d) {
           if (d.mustExclude) {
@@ -279,7 +283,10 @@ function stepDetect(
           return false;
         }
 
-        d = detector.visitorNonLiteral(node) as unknown as Derivative;
+        d = detector.visitorNonLiteral(
+          node,
+          requireAliases,
+        ) as unknown as Derivative;
 
         if (d) {
           if (typeof d === 'object' && d.mustExclude) {
@@ -298,7 +305,10 @@ function stepDetect(
           return false;
         }
 
-        d = detector.visitorMalformed(node) as unknown as Derivative;
+        d = detector.visitorMalformed(
+          node,
+          requireAliases,
+        ) as unknown as Derivative;
 
         if (d) {
           // there is no 'mustExclude'
