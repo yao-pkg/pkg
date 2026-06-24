@@ -23,6 +23,9 @@ examples/express/express-example
 # Example dependencies
 examples/express/node_modules
 
+# Claude Code agent worktrees (the rest of .claude/ is tracked)
+.claude/worktrees/
+
 # Editors
 yarn-error.log
 tsconfig.tsbuildinfo
