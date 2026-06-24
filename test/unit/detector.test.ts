@@ -293,6 +293,41 @@ describe('visitorSuccessful', () => {
     assert.equal(visitorSuccessful(node!), null);
   });
 
+  it('ignores scheme-prefixed first arg even with import.meta.url base', () => {
+    // `new URL("https://…", import.meta.url)` is an absolute URL — the base is
+    // ignored, so it never resolves to a snapshot-relative asset. Matching it
+    // would bundle a bogus path and emit a spurious "Cannot stat" warning.
+    for (const abs of [
+      'https://example.com/foo',
+      'data:text/plain,hi',
+      'file:///etc/hosts',
+    ]) {
+      const node = firstRelevantNode(
+        `const u = new URL(${JSON.stringify(abs)}, import.meta.url);`,
+        true,
+      );
+      assert.equal(
+        visitorSuccessful(node!),
+        null,
+        `expected no match for absolute URL ${abs}`,
+      );
+    }
+  });
+
+  it('still picks up a scheme-less bare sibling name in new URL(…, import.meta.url)', () => {
+    // No leading "./" but also no scheme — resolves relative to the base, so
+    // it is a real sibling asset and must still be bundled.
+    const node = firstRelevantNode(
+      'const u = new URL("rel.txt", import.meta.url);',
+      true,
+    );
+    assert.deepEqual(visitorSuccessful(node!), {
+      alias: 'rel.txt',
+      aliasType: 0,
+      mayExclude: false,
+    });
+  });
+
   it('picks up import.meta.resolve("lit") as ALIAS_AS_RESOLVABLE (regression: #269)', () => {
     const node = firstRelevantNode('import.meta.resolve("lit");', true);
     assert.deepEqual(visitorSuccessful(node!), {

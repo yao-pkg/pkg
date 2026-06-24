@@ -301,6 +301,13 @@ function visitorNewURL(n: babelTypes.Node) {
     return null;
   }
 
+  // A scheme-prefixed first arg (e.g. "https:", "data:", "file:") is an
+  // absolute URL that ignores the base, so it never resolves to a
+  // snapshot-relative asset — only scheme-less relative references do.
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(value)) {
+    return null;
+  }
+
   return { v1: value };
 }
 
