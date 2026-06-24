@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { log } from '../../lib/log';
@@ -269,6 +272,46 @@ describe('runTransform', () => {
         records,
       ),
       /transform hook threw for "\/abs\/a\.js": user died/,
+    );
+  });
+
+  it('loads body from disk when not preloaded, then caches it', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'pkg-transform-'));
+    const file = join(tmp, 'src.js');
+    await writeFile(file, 'from-disk');
+    try {
+      const records: FileRecords = {
+        '/snap/src.js': { file, [STORE_BLOB]: true },
+      };
+      const seen: string[] = [];
+      await runTransform(
+        {
+          transform: (_file: string, contents: Buffer | string) => {
+            seen.push(contents.toString());
+            return undefined; // leave unchanged
+          },
+        } as PkgOptions,
+        records,
+      );
+      // transform saw the on-disk bytes...
+      assert.deepEqual(seen, ['from-disk']);
+      // ...and the loaded body is cached so packer/sea-assets don't re-read.
+      assert.equal(records['/snap/src.js'].body!.toString(), 'from-disk');
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces a disk read failure with the file path', async () => {
+    const records: FileRecords = {
+      '/snap/missing.js': {
+        file: '/abs/does/not/exist.js',
+        [STORE_BLOB]: true,
+      },
+    };
+    await assert.rejects(
+      runTransform({ transform: () => undefined } as PkgOptions, records),
+      /transform hook: failed to read "\/abs\/does\/not\/exist\.js":/,
     );
   });
 });

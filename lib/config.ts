@@ -358,6 +358,23 @@ function parseCliInput(argv: string[]): ParsedInput {
 }
 
 /**
+ * Validate a `preBuild`/`postBuild` hook value: it must be a non-empty shell
+ * string or a function. `label` prefixes the error so the message matches the
+ * config source (`exec() option` vs `pkg config:`). Shared by the programmatic
+ * and config-file validators so the empty-string rule can't drift between them.
+ */
+function validateShellOrFnHook(label: string, key: string, v: unknown): void {
+  if (typeof v !== 'string' && typeof v !== 'function') {
+    throw wasReported(
+      `${label} "${key}" must be a shell command (string) or a function`,
+    );
+  }
+  if (typeof v === 'string' && v.trim() === '') {
+    throw wasReported(`${label} "${key}" must not be an empty string`);
+  }
+}
+
+/**
  * Parse a programmatic `exec()` options object into a `ParsedInput`. Validates
  * each flag's type at the boundary — wrong types throw immediately instead of
  * being silently dropped.
@@ -399,25 +416,12 @@ function parseOptionsInput(options: PkgExecOptions): ParsedInput {
   }
 
   const apiPkg: Partial<PkgOptions> = {};
-  const validateShellOrFn = (
-    key: 'preBuild' | 'postBuild',
-    v: unknown,
-  ): void => {
-    if (typeof v !== 'string' && typeof v !== 'function') {
-      throw wasReported(
-        `exec() option "${key}" must be a shell command (string) or a function`,
-      );
-    }
-    if (typeof v === 'string' && v.trim() === '') {
-      throw wasReported(`exec() option "${key}" must not be an empty string`);
-    }
-  };
   if (options.preBuild !== undefined) {
-    validateShellOrFn('preBuild', options.preBuild);
+    validateShellOrFnHook('exec() option', 'preBuild', options.preBuild);
     apiPkg.preBuild = options.preBuild;
   }
   if (options.postBuild !== undefined) {
-    validateShellOrFn('postBuild', options.postBuild);
+    validateShellOrFnHook('exec() option', 'postBuild', options.postBuild);
     apiPkg.postBuild = options.postBuild;
   }
   if (options.transform !== undefined) {
@@ -511,15 +515,8 @@ export function validatePkgConfig(cfg: unknown): void {
   // transform. Functions are unreachable from JSON config files but valid
   // when loaded from `pkg.config.{js,cjs,mjs}` or passed via the Node API.
   for (const key of ['preBuild', 'postBuild'] as const) {
-    const v = rec[key];
-    if (v === undefined) continue;
-    if (typeof v !== 'string' && typeof v !== 'function') {
-      throw wasReported(
-        `pkg config: "${key}" must be a shell command (string) or a function`,
-      );
-    }
-    if (typeof v === 'string' && v.trim() === '') {
-      throw wasReported(`pkg config: "${key}" must not be an empty string`);
+    if (rec[key] !== undefined) {
+      validateShellOrFnHook('pkg config:', key, rec[key]);
     }
   }
   if (rec.transform !== undefined && typeof rec.transform !== 'function') {
