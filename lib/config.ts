@@ -139,6 +139,25 @@ const FLAG_SPECS: readonly FlagSpec[] = [
   },
   { cli: 'sea', cfg: 'sea', resolved: 'sea', kind: 'bool', default: false },
   {
+    // SEA mode: use a specific Node binary as the base for the executable
+    // instead of downloading one from nodejs.org. Lets you embed a custom
+    // build (e.g. one that runs on older glibc, or a differently-configured
+    // runtime). The binary's major version must match the target's.
+    cli: 'sea-node-path',
+    cfg: 'seaNodePath',
+    resolved: 'seaNodePath',
+    kind: 'string',
+  },
+  {
+    // SEA mode: use the Node binary currently running pkg (process.execPath)
+    // as the base. Shorthand for `--sea-node-path "$(command -v node)"`.
+    cli: 'sea-use-local-node',
+    cfg: 'seaUseLocalNode',
+    resolved: 'seaUseLocalNode',
+    kind: 'bool',
+    default: false,
+  },
+  {
     cli: 'compress',
     cfg: 'compress',
     resolved: 'compress',
@@ -485,6 +504,10 @@ export interface ResolvedFlags {
   fallbackToSource: boolean;
   public: boolean;
   sea: boolean;
+  /** SEA mode: path to a base Node binary to embed (overrides the download). */
+  seaNodePath: string | undefined;
+  /** SEA mode: embed the Node binary running pkg (process.execPath) as the base. */
+  seaUseLocalNode: boolean;
   publicPackages: string[] | undefined;
   noDictionary: string[] | undefined;
   bakeOptions: string[] | undefined;

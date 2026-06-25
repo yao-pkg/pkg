@@ -19,9 +19,11 @@ flowchart TD
     T4 --> TB["Patched Node.js binary<br/>with custom VFS"]
 
     S1 --> S2["Asset blob + manifest"]
-    S2 --> S3["node --experimental-sea-config"]
-    S3 --> S4["postject inject"]
-    S4 --> SB["Stock Node.js binary<br/>with NODE_SEA_BLOB"]
+    S2 --> S3{"generator Node<br/>>= 25.5?"}
+    S3 -- ">= 25.5" --> S3a["node --build-sea<br/>(in-core LIEF)"]
+    S3 -- "< 25.5" --> S3b["node --experimental-sea-config<br/>+ postject inject"]
+    S3a --> SB["Node.js binary<br/>with NODE_SEA_BLOB"]
+    S3b --> SB
 
     style P stroke:#e89b2c,stroke-width:2px
     style TB stroke:#ec7a96,stroke-width:2px
@@ -204,17 +206,20 @@ flowchart TD
     SEA[sea.ts seaEnhanced]
     CONFIG[Build sea-config.json]
     BOOT[sea-bootstrap.bundle.js<br/>pre-bundled by esbuild]
+    INJ{generator Node >= 25.5?}
+    BUILDSEA[node --build-sea<br/>generate blob + inject in-core]
     BLOB[node --experimental-sea-config<br/>produces prep blob]
-    INJ[postject<br/>inject NODE_SEA_BLOB]
-    OUT[Stock Node.js executable<br/>+ NODE_SEA_BLOB resource]
+    POST[postject<br/>inject NODE_SEA_BLOB]
+    OUT[Node.js executable<br/>+ NODE_SEA_BLOB resource]
 
     CLI --> DETECT
     DETECT -- enhanced --> WALK
-    DETECT -- simple single-file --> BLOB
+    DETECT -- simple single-file --> CONFIG
     WALK --> ASSETS --> SEA
-    SEA --> CONFIG --> BLOB
-    SEA --> BOOT --> BLOB
-    BLOB --> INJ --> OUT
+    SEA --> CONFIG --> INJ
+    SEA --> BOOT --> CONFIG
+    INJ -- ">= 25.5" --> BUILDSEA --> OUT
+    INJ -- "< 25.5" --> BLOB --> POST --> OUT
 
     style CLI stroke:#e89b2c,stroke-width:2px
     style OUT stroke:#66bb6a,stroke-width:2px
@@ -256,17 +261,37 @@ CLI (lib/index.ts)
       ├─ Pick blob generator binary (host/target major):
       │     host major === target major → process.execPath
       │     otherwise                    → downloaded target binary
-      ├─ Generate blob:
-      │     node --experimental-sea-config sea-config.json
-      │     (--build-sea is intentionally NOT used — it produces a
-      │      finished executable and bypasses the prep-blob + postject
-      │      flow that pkg needs for multi-target injection)
-      ├─ For each target:
-      │     1. Download Node.js binary (getNodejsExecutable)
-      │     2. Inject blob via postject (bake)
-      │     3. Sign macOS if needed (signMacOSIfNeeded)
+      ├─ injectAllTargets() — choose injection path by generator version:
+      │
+      │   • Generator Node >= 25.5 → in-core `node --build-sea`:
+      │       For each target, write a per-target config adding
+      │         { executable: <base binary>, output: <final exe> }
+      │       then run `node --build-sea config.json`. Node generates the
+      │       blob AND injects it (its bundled, current LIEF) in one step.
+      │       `executable` lets us point at any per-target base binary, and
+      │       assertSingleTargetMajor() keeps every target on the generator's
+      │       major, so the generated blob is valid for all of them — i.e. the
+      │       multi-target concern that previously ruled --build-sea out does
+      │       not actually apply. This is preferred because Node's bundled LIEF
+      │       is current; postject's vendored LIEF (0.13) corrupts the dynamic
+      │       symbol table of PIE/ET_DYN bases and breaks native addons.
+      │
+      │   • Generator Node < 25.5 → classic prep-blob + postject:
+      │       1. node --experimental-sea-config sea-config.json (one blob)
+      │       2. For each target: copy base binary, inject blob via postject
+      │          (bake), sign macOS if needed.
       └─ Cleanup tmpDir
 ```
+
+> **Note on `--build-sea`:** earlier versions of pkg deliberately avoided
+> `node --build-sea`, on the assumption that it produced a finished executable
+> from the _running_ Node and so couldn't serve pkg's prep-blob + per-target
+> injection model. That turns out not to hold: `--build-sea` reads the base
+> binary from the config's `executable` field (defaulting to the running Node
+> only when omitted) and writes to `output`, so a single host-runnable Node
+>
+> > = 25.5 can inject into each target's base binary directly. pkg now uses it
+> > whenever the generator supports it, and falls back to postject otherwise.
 
 ### SEA Binary Format
 
@@ -277,7 +302,7 @@ The SEA executable uses the official Node.js resource format:
 │ Node.js binary                   │
 │ with NODE_SEA_FUSE activated     │  ← Sentinel fuse flipped
 ├──────────────────────────────────┤
-│ NODE_SEA_BLOB resource:          │  ← Injected via postject
+│ NODE_SEA_BLOB resource:          │  ← Injected via node --build-sea (>=25.5) or postject
 │   ┌──────────────────────────┐   │
 │   │ main: sea-bootstrap.js   │   │  ← Bundled bootstrap + VFS polyfill
 │   ├──────────────────────────┤   │
@@ -575,13 +600,14 @@ For users who require code protection with SEA mode:
 
 ### Current (April 2026)
 
-| Dependency                  | Purpose                                                        | Status                                                                                                                                                                                                                     |
-| --------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `node:sea` API              | Archive blob and manifest storage/retrieval in SEA executables | Stable, Node 20+ (pkg requires 22+, aligned with `engines.node`)                                                                                                                                                           |
-| `@roberts_lando/vfs`        | VFS polyfill — patches `fs`, `fs/promises`, and module loader  | Published, Node 22+, maintained by Matteo Collina                                                                                                                                                                          |
-| `postject`                  | Injects `NODE_SEA_BLOB` resource into executables              | Stable, used by Node.js project                                                                                                                                                                                            |
-| `--experimental-sea-config` | Generates the prep blob consumed by postject                   | Stable, Node 22+. Used on every target — `--build-sea` is intentionally NOT used because it produces a finished executable and bypasses the prep-blob + postject flow pkg needs for multi-target injection                 |
-| `mainFormat: "module"`      | Native ESM SEA main in sea-config                              | Not used. Node 25.5+'s embedder `importModuleDynamicallyForEmbedder` callback only resolves builtins ([nodejs/node#62726](https://github.com/nodejs/node/issues/62726)), so a native ESM main cannot import the user entry |
+| Dependency                  | Purpose                                                        | Status                                                                                                                                                                                                                                       |
+| --------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node:sea` API              | Archive blob and manifest storage/retrieval in SEA executables | Stable, Node 20+ (pkg requires 22+, aligned with `engines.node`)                                                                                                                                                                             |
+| `@roberts_lando/vfs`        | VFS polyfill — patches `fs`, `fs/promises`, and module loader  | Published, Node 22+, maintained by Matteo Collina                                                                                                                                                                                            |
+| `postject`                  | Injects `NODE_SEA_BLOB` resource into executables              | Stable. Fallback injector when the generator Node is < 25.5. NB: postject's vendored LIEF (0.13) corrupts the dynamic symbol table of PIE/ET_DYN base binaries, breaking native addons — fixed in LIEF 0.16.7 / Node's in-core `--build-sea` |
+| `--experimental-sea-config` | Generates the prep blob (postject fallback path only)          | Stable, Node 22+. Used when the generator Node is < 25.5                                                                                                                                                                                     |
+| `--build-sea`               | Generates the blob **and** injects it in-core (current LIEF)   | Node 25.5+. Preferred path: reads the base binary from the config `executable` field and writes `output`, so one host-runnable Node injects each target's base directly                                                                      |
+| `mainFormat: "module"`      | Native ESM SEA main in sea-config                              | Not used. Node 25.5+'s embedder `importModuleDynamicallyForEmbedder` callback only resolves builtins ([nodejs/node#62726](https://github.com/nodejs/node/issues/62726)), so a native ESM main cannot import the user entry                   |
 
 ### Future
 

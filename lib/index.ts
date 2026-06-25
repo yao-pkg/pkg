@@ -192,6 +192,18 @@ export async function exec(
   }
 
   if (flags.sea) {
+    // Base-node override (both forms are mutually exclusive). nodePath embeds a
+    // specific binary; useLocalNode embeds the Node running pkg. Either lets you
+    // ship a SEA built on a custom runtime (e.g. one linked against older glibc).
+    if (flags.seaNodePath && flags.seaUseLocalNode) {
+      throw wasReported(
+        "Specify either '--sea-node-path' or '--sea-use-local-node', not both",
+      );
+    }
+    const seaBase = {
+      nodePath: flags.seaNodePath,
+      useLocalNode: flags.seaUseLocalNode,
+    };
     if (inputJson || configJson) {
       // Enhanced SEA mode — use walker pipeline.
       // seaEnhanced validates the host Node version and minTargetMajor itself.
@@ -202,6 +214,7 @@ export async function exec(
         params: { ...params, seaMode: true },
         addition: isConfiguration(input) ? input : undefined,
         doCompress: flags.compress,
+        ...seaBase,
       });
     } else {
       // Simple SEA mode — plain .js file without package.json.
@@ -216,6 +229,7 @@ export async function exec(
       await sea(inputFin, {
         targets,
         signature: flags.signature,
+        ...seaBase,
       });
     }
     return;
