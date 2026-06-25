@@ -53,6 +53,13 @@ const execFileAsync = util.promisify(cExecFile);
 const SEA_SENTINEL_FUSE =
   'NODE_SEA' + '_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
+/**
+ * Minimum Node.js major a SEA *target* (and thus a custom base binary) must be.
+ * node:sea exists from Node 20, but pkg's enhanced VFS bootstrap requires 22
+ * (see {@link seaEnhanced} and engines.node / the @roberts_lando/vfs dep).
+ */
+const MIN_SEA_TARGET_MAJOR = 22;
+
 /** Returns stat of path when exits, false otherwise */
 const exists = async (path: string) => {
   try {
@@ -330,6 +337,265 @@ async function getNodeVersion(
 }
 
 /**
+ * The custom base Node binary to embed for SEA, or `undefined` to download one.
+ *
+ * Precedence matches standard mode: an explicit `opts.nodePath` (from the
+ * `--sea-node-path` CLI flag or the `seaNodePath` pkg-config key) wins over the
+ * `PKG_NODE_PATH` environment variable. `PKG_NODE_PATH` is the same env var
+ * pkg-fetch honours for the traditional build path (`localPlace()`); folding it
+ * in here makes it work for SEA too, instead of a separate SEA-only mechanism.
+ */
+function resolveCustomBaseNode(
+  opts: GetNodejsExecutableOptions,
+): string | undefined {
+  if (opts.nodePath) return resolve(opts.nodePath);
+  if (process.env.PKG_NODE_PATH) return resolve(process.env.PKG_NODE_PATH);
+  return undefined;
+}
+
+/**
+ * pkg target platform/arch identifiers -> the values Node reports as
+ * `process.platform` / `process.arch`.
+ *
+ * A custom base binary is validated by *running* it (see {@link probeNode}) and
+ * comparing what it reports against the target, so pkg-fetch's identifiers must
+ * be translated into Node's: pkg's `macos`/`win` are Node's `darwin`/`win32`;
+ * `alpine`/`linuxstatic` are pkg-fetch *flavors* of Linux that Node still
+ * reports as `linux` (the musl/static distinction isn't in `process.platform`);
+ * pkg's `armv7`/`armv7l`/`x86` are Node's `arm`/`ia32`.
+ *
+ * Keyed over the full `knownPlatforms`/`knownArchs` sets (asserted complete by
+ * `sea-target-identity.test.ts`) so a newly-added target can't silently fall
+ * through to a wrong identity default — which would falsely reject a legitimate
+ * single target such as a musl-on-musl (`alpine`) or 32-bit-ARM (`armv7l`)
+ * custom runtime, the very case this feature exists for.
+ */
+const TARGET_PLATFORM_TO_PROCESS: Record<string, string> = {
+  alpine: 'linux',
+  freebsd: 'freebsd',
+  linux: 'linux',
+  linuxstatic: 'linux',
+  macos: 'darwin',
+  win: 'win32',
+};
+
+const TARGET_ARCH_TO_PROCESS: Record<string, string> = {
+  x64: 'x64',
+  x86: 'ia32',
+  armv7: 'arm',
+  armv7l: 'arm',
+  arm64: 'arm64',
+  ppc64: 'ppc64',
+  s390x: 's390x',
+  riscv64: 'riscv64',
+  loong64: 'loong64',
+};
+
+/** The `process.platform` a base Node binary for `targetPlatform` must report. */
+export function expectedProcessPlatform(targetPlatform: string): string {
+  const platform = TARGET_PLATFORM_TO_PROCESS[targetPlatform];
+  if (platform === undefined) {
+    throw wasReported(
+      `No process.platform mapping for target platform "${targetPlatform}" — ` +
+        `please report this so pkg can learn it.`,
+    );
+  }
+  return platform;
+}
+
+/** The `process.arch` a base Node binary for `targetArch` must report. */
+export function expectedProcessArch(targetArch: string): string {
+  const arch = TARGET_ARCH_TO_PROCESS[targetArch];
+  if (arch === undefined) {
+    throw wasReported(
+      `No process.arch mapping for target arch "${targetArch}" — ` +
+        `please report this so pkg can learn it.`,
+    );
+  }
+  return arch;
+}
+
+/**
+ * Assert a custom base binary's major version is compatible with the requested
+ * target `nodeRange`. Pure (no process spawn) so it's unit-testable.
+ *
+ *  - Concrete target major (e.g. `node24`): the binary's major must equal it.
+ *  - `latest` / unparseable range: there's no specific major to match, but the
+ *    binary must still be new enough for SEA ({@link MIN_SEA_TARGET_MAJOR}).
+ *    seaEnhanced's later `minTargetMajor` check resolves `latest` to the host
+ *    major (>= 22), so without this floor a too-old *custom* binary (e.g. Node
+ *    18 with `-t latest-...`) would slip through and break at injection instead
+ *    of failing cleanly here.
+ */
+export function assertBaseMajorSatisfiesTarget(
+  binVersion: string,
+  nodeRange: string,
+): void {
+  const binMajor = parseInt(binVersion.replace(/^v/, ''), 10);
+  const targetMajor = parseInt(nodeRange.replace('node', ''), 10);
+  if (Number.isNaN(targetMajor)) {
+    if (binMajor < MIN_SEA_TARGET_MAJOR) {
+      throw wasReported(
+        `Custom base Node binary is ${binVersion}, but SEA requires Node ` +
+          `${MIN_SEA_TARGET_MAJOR} or newer.`,
+      );
+    }
+    return;
+  }
+  if (binMajor !== targetMajor) {
+    throw wasReported(
+      `Custom base Node binary is ${binVersion} (major ${binMajor}), but ` +
+        `target "${nodeRange}" requests Node ${targetMajor}. The binary's ` +
+        `major version must match the target.`,
+    );
+  }
+}
+
+/** Memoized {@link probeNode} results, keyed by binary path. */
+const probeCache = new Map<
+  string,
+  { version: string; platform: string; arch: string }
+>();
+
+/**
+ * What a Node binary reports about itself when run (`process.version` /
+ * `process.platform` / `process.arch`), emitted as JSON so parsing can't be
+ * tripped by an unexpected delimiter. The custom base binary must therefore be
+ * runnable on the build host; a foreign, non-runnable binary fails here with a
+ * clear message instead of a cryptic ENOEXEC, and unexpected output fails with a
+ * clear parse error rather than silently yielding undefined fields. The result
+ * is memoized so the two callers (the target guard and the version resolver)
+ * share a single spawn.
+ */
+async function probeNode(
+  binPath: string,
+): Promise<{ version: string; platform: string; arch: string }> {
+  if (binPath === process.execPath) {
+    return {
+      version: process.version,
+      platform: process.platform,
+      arch: process.arch,
+    };
+  }
+  const cached = probeCache.get(binPath);
+  if (cached) return cached;
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync(binPath, [
+      '-p',
+      'JSON.stringify({ version: process.version, platform: process.platform, arch: process.arch })',
+    ]));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw wasReported(
+      `Couldn't run the custom base Node binary "${binPath}" on this host. ` +
+        `pkg runs it to read its version/platform/arch and validate it against ` +
+        `the target, so the binary must be runnable here (got: ${reason}).`,
+    );
+  }
+  let result: { version: string; platform: string; arch: string };
+  try {
+    const parsed = JSON.parse(stdout.trim());
+    if (
+      typeof parsed?.version !== 'string' ||
+      typeof parsed?.platform !== 'string' ||
+      typeof parsed?.arch !== 'string'
+    ) {
+      throw new Error('missing version/platform/arch');
+    }
+    result = {
+      version: parsed.version,
+      platform: parsed.platform,
+      arch: parsed.arch,
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw wasReported(
+      `Custom base Node binary "${binPath}" produced unexpected output when ` +
+        `probed for its identity (${reason}): ${JSON.stringify(stdout.trim())}`,
+    );
+  }
+  probeCache.set(binPath, result);
+  return result;
+}
+
+/**
+ * Guard a custom base Node binary against multi-target / wrong-platform /
+ * version-skew footguns.
+ *
+ * A supplied binary (via `--sea-node-path` / `seaNodePath` / `PKG_NODE_PATH`, or
+ * `useLocalNode`) is returned by {@link getNodejsExecutable} for *every* target,
+ * so a multi-target run would bake that one binary into outputs for other
+ * platforms/arches — silently producing broken artifacts. We:
+ *
+ *  1. Reject if the requested targets span more than one distinct
+ *     `platform`+`arch` — one binary can't be several mutually-exclusive things
+ *     at once (incl. linux vs alpine vs linuxstatic, which we can't tell apart
+ *     from the binary but the user clearly can't have meant simultaneously).
+ *  2. Run the binary and reject if what it reports (`process.platform` /
+ *     `process.arch`) disagrees with that single target (e.g. a macOS binary
+ *     for a `linux` target, or x64 for `arm64`). We exec it for its version
+ *     regardless (here and in {@link resolveTargetNodeVersion}), so asking it
+ *     everything at once is simpler and stricter than sniffing its header — at
+ *     the cost of requiring the base to be runnable on the build host, which is
+ *     already true in practice. The glibc/musl/static flavor isn't reported, so
+ *     that sub-distinction stays the user's responsibility.
+ *  3. Verify the binary's major matches the requested `nodeRange`
+ *     (`assertSingleTargetMajor` only compares the targets to each other).
+ */
+async function assertCustomBaseNodeTarget(
+  targets: (NodeTarget & Partial<Target>)[],
+  opts: GetNodejsExecutableOptions,
+): Promise<void> {
+  const customNode = resolveCustomBaseNode(opts);
+  if (!customNode && !opts.useLocalNode) return;
+  const binPath = customNode ?? process.execPath;
+
+  // 1. A single binary maps to exactly one platform+arch. Key on the raw target
+  // suffix strings so linux / alpine / linuxstatic stay distinct (they collapse
+  // under getNodeOs, but they're mutually exclusive runtimes).
+  const combos = new Map<string, { platform: string; arch: string }>();
+  for (const t of targets) {
+    const platform = String(t.platform);
+    const arch = String(t.arch);
+    combos.set(`${platform}-${arch}`, { platform, arch });
+  }
+  if (combos.size > 1) {
+    throw wasReported(
+      `A custom base Node binary applies to a single platform/arch, but the ` +
+        `requested targets span ${combos.size}: ${[...combos.keys()].join(', ')}. ` +
+        `One binary can't be all of them — run pkg once per target with a ` +
+        `matching binary.`,
+    );
+  }
+  const { platform, arch } = [...combos.values()][0];
+
+  // 2. Ask the binary what it actually is and reject any disagreement. pkg's
+  // target identifiers differ from Node's process.platform/arch (macos→darwin,
+  // armv7l→arm, alpine/linuxstatic→linux, …), so translate before comparing.
+  const node = await probeNode(binPath);
+
+  const expectedPlatform = expectedProcessPlatform(platform);
+  if (node.platform !== expectedPlatform) {
+    throw wasReported(
+      `Custom base Node binary reports platform "${node.platform}", but target ` +
+        `"${platform}" needs a "${expectedPlatform}" binary.`,
+    );
+  }
+  const expectedArch = expectedProcessArch(arch);
+  if (node.arch !== expectedArch) {
+    throw wasReported(
+      `Custom base Node binary reports arch "${node.arch}", but target "${arch}" ` +
+        `needs a "${expectedArch}" binary. It must match the target's architecture.`,
+    );
+  }
+
+  // 3. Major version compatibility (assertSingleTargetMajor only compares the
+  // targets to each other, never to the supplied binary).
+  assertBaseMajorSatisfiesTarget(node.version, targets[0].nodeRange);
+}
+
+/**
  * Resolve the concrete Node.js version (e.g. `v22.22.2`) pkg will use
  * for `target` — mirrors the version selection done inside
  * {@link getNodejsExecutable} without performing the download, so
@@ -341,11 +607,11 @@ async function resolveTargetNodeVersion(
   opts: GetNodejsExecutableOptions,
 ): Promise<NodeVersion> {
   if (opts.useLocalNode) return process.version as NodeVersion;
-  if (opts.nodePath) {
+  const customNode = resolveCustomBaseNode(opts);
+  if (customNode) {
     // A user-supplied binary can be any version — don't assume it
     // matches the host. Ask it directly.
-    const { stdout } = await execFileAsync(opts.nodePath, ['--version']);
-    return stdout.trim() as NodeVersion;
+    return (await probeNode(customNode)).version as NodeVersion;
   }
   const os = getNodeOs(target.platform);
   const arch = getNodeArch(target.arch);
@@ -357,15 +623,16 @@ async function getNodejsExecutable(
   target: NodeTarget,
   opts: GetNodejsExecutableOptions,
 ): Promise<string> {
-  if (opts.nodePath) {
-    // check if the nodePath exists
-    if (!(await exists(opts.nodePath))) {
+  const customNode = resolveCustomBaseNode(opts);
+  if (customNode) {
+    // check if the custom base binary exists
+    if (!(await exists(customNode))) {
       throw new Error(
-        `Priovided node executable path "${opts.nodePath}" does not exist`,
+        `Provided node executable path "${customNode}" does not exist`,
       );
     }
 
-    return opts.nodePath;
+    return customNode;
   }
 
   if (opts.useLocalNode) {
@@ -552,9 +819,9 @@ async function withSeaTmpDir<T>(
  */
 function assertHostSeaNodeVersion(): number {
   const nodeMajor = parseInt(process.version.slice(1).split('.')[0], 10);
-  if (nodeMajor < 22) {
+  if (nodeMajor < MIN_SEA_TARGET_MAJOR) {
     throw new Error(
-      `SEA support requires at least node v22.0.0, actual node version is ${process.version}`,
+      `SEA support requires at least node v${MIN_SEA_TARGET_MAJOR}.0.0, actual node version is ${process.version}`,
     );
   }
   return nodeMajor;
@@ -765,11 +1032,12 @@ export async function seaEnhanced(
   }
 
   assertSingleTargetMajor(opts.targets);
+  await assertCustomBaseNodeTarget(opts.targets, opts);
 
   const minTargetMajor = resolveMinTargetMajor(opts.targets);
-  if (minTargetMajor < 22) {
+  if (minTargetMajor < MIN_SEA_TARGET_MAJOR) {
     throw wasReported(
-      `Enhanced SEA mode requires Node >= 22 targets. ` +
+      `Enhanced SEA mode requires Node >= ${MIN_SEA_TARGET_MAJOR} targets. ` +
         `Minimum target version resolved to Node ${minTargetMajor}.`,
     );
   }
@@ -883,6 +1151,7 @@ export async function seaEnhanced(
 export default async function sea(entryPoint: string, opts: SeaOptions) {
   assertHostSeaNodeVersion();
   assertSingleTargetMajor(opts.targets);
+  await assertCustomBaseNodeTarget(opts.targets, opts);
 
   entryPoint = resolve(process.cwd(), entryPoint);
 

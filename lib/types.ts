@@ -66,6 +66,12 @@ export interface PkgOptions {
   debug?: boolean;
   signature?: boolean;
   sea?: boolean;
+  /**
+   * SEA mode: path to a base Node binary to embed instead of downloading one
+   * (overrides the PKG_NODE_PATH env var). Its major version must match the
+   * target's, and it applies to a single target.
+   */
+  seaNodePath?: string;
 }
 
 export interface PackageJson {
@@ -200,4 +206,11 @@ export interface PkgExecOptions {
   noDictionary?: string[];
   /** Sign macOS binaries when applicable. Default `true`. */
   signature?: boolean;
+  /**
+   * SEA mode: path to a base Node binary to embed instead of downloading one
+   * from nodejs.org. Use to embed a custom build (e.g. one linked against an
+   * older glibc). Overrides the PKG_NODE_PATH env var. Its major version must
+   * match the target's, and it applies to a single target.
+   */
+  seaNodePath?: string;
 }

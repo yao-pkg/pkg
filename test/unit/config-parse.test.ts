@@ -165,6 +165,15 @@ describe('parseInput — CLI argv', () => {
     it('--options "" preserves the explicit empty signal', () => {
       assert.equal(parseInput(['--options', '', 'a.js']).flags.options, '');
     });
+
+    it('string flag --sea-node-path (kebab key preserved)', () => {
+      assert.equal(
+        parseInput(['--sea-node-path', '/opt/node/bin/node', 'a.js']).flags[
+          'sea-node-path'
+        ],
+        '/opt/node/bin/node',
+      );
+    });
   });
 
   describe('negation', () => {
@@ -408,6 +417,20 @@ describe('resolveFlags — CLI > config > default', () => {
     // cfg.bytecode=true.
     const f = resolveFlags({ bytecode: false }, { bytecode: true });
     assert.equal(f.bytecode, false);
+  });
+
+  it('SEA base-node override (seaNodePath) — defaults, config, CLI precedence', () => {
+    assert.equal(resolveFlags({}, {}).seaNodePath, undefined);
+
+    // config key (cfg name) resolves when CLI is absent
+    assert.equal(resolveFlags({}, { seaNodePath: '/n' }).seaNodePath, '/n');
+
+    // CLI (kebab cli name) overrides config
+    assert.equal(
+      resolveFlags({ 'sea-node-path': '/cli' }, { seaNodePath: '/cfg' })
+        .seaNodePath,
+      '/cli',
+    );
   });
 
   describe('list handling', () => {

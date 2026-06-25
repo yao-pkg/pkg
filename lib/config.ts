@@ -139,6 +139,18 @@ const FLAG_SPECS: readonly FlagSpec[] = [
   },
   { cli: 'sea', cfg: 'sea', resolved: 'sea', kind: 'bool', default: false },
   {
+    // SEA mode: use a specific Node binary as the base for the executable
+    // instead of downloading one from nodejs.org. Lets you embed a custom
+    // build (e.g. one that runs on older glibc, or a differently-configured
+    // runtime). Equivalent to the PKG_NODE_PATH env var (which this overrides);
+    // the binary's major version must match the target's, and it applies to a
+    // single target. Also settable as the `seaNodePath` pkg-config key.
+    cli: 'sea-node-path',
+    cfg: 'seaNodePath',
+    resolved: 'seaNodePath',
+    kind: 'string',
+  },
+  {
     cli: 'compress',
     cfg: 'compress',
     resolved: 'compress',
@@ -485,6 +497,8 @@ export interface ResolvedFlags {
   fallbackToSource: boolean;
   public: boolean;
   sea: boolean;
+  /** SEA mode: path to a base Node binary to embed (overrides the download / PKG_NODE_PATH). */
+  seaNodePath: string | undefined;
   publicPackages: string[] | undefined;
   noDictionary: string[] | undefined;
   bakeOptions: string[] | undefined;

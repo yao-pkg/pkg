@@ -25,8 +25,17 @@ PKG_NODE_PATH=/path/to/node pkg app.js
 ## Caveats
 
 - The binary must be a **compatible** Node.js version — `pkg` still injects its bootstrap prelude and payload, and depends on specific symbol offsets. Use a version supported by `pkg-fetch` unless you know what you're doing.
-- `PKG_NODE_PATH` affects a **single target**. Multi-target builds still fetch the other platforms from `pkg-fetch` unless you set it per-run.
-- SEA mode uses stock Node.js by its own mechanism and does **not** honour `PKG_NODE_PATH` in the same way. For SEA, use `process.execPath` of the Node.js you want directly.
+- `PKG_NODE_PATH` affects a **single target**. In standard mode, multi-target builds still fetch the other platforms from `pkg-fetch` unless you set it per-run.
+
+### SEA mode caveats
+
+SEA mode honours `PKG_NODE_PATH`, and also has its own overrides: the `--sea-node-path` CLI flag or the `seaNodePath` pkg-config key (both take precedence over `PKG_NODE_PATH`). To embed the Node.js you're currently running, pass `PKG_NODE_PATH="$(command -v node)"` (or `--sea-node-path "$(command -v node)"`).
+
+Because SEA injects the payload into the supplied binary directly (there is no per-platform fetch fallback), supplying a custom base binary imposes strict limits to avoid silently baking a mismatched binary into the output:
+
+- **Single target only** — the custom binary applies to exactly one platform/arch, so pkg rejects a run whose targets span more than one (including `linux` vs `alpine` vs `linuxstatic`, which a single binary can't be all of at once).
+- **No cross-compilation** — pkg validates the binary by **running it** and checking its `process.platform`, `process.arch`, and major version against the requested target. So the custom base binary must be **natively runnable on your build host** (e.g. you can't supply a Linux binary while building on macOS). Standard, non-SEA builds don't have this restriction and still cross-compile via `pkg-fetch`.
+- **Flavor matching is yours** — `process.platform` reports `linux` for glibc, musl (`alpine`), and static (`linuxstatic`) alike, so matching the specific flavor of your binary to the target remains your responsibility.
 
 ## See also
 

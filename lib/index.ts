@@ -192,6 +192,11 @@ export async function exec(
   }
 
   if (flags.sea) {
+    // Base-node override: embed a custom Node binary instead of downloading one.
+    // From --sea-node-path / the seaNodePath config key, falling back to the
+    // PKG_NODE_PATH env var (resolved in lib/sea.ts). Lets you ship a SEA built
+    // on a custom runtime (e.g. one linked against an older glibc).
+    const seaBase = { nodePath: flags.seaNodePath };
     if (inputJson || configJson) {
       // Enhanced SEA mode — use walker pipeline.
       // seaEnhanced validates the host Node version and minTargetMajor itself.
@@ -202,6 +207,7 @@ export async function exec(
         params: { ...params, seaMode: true },
         addition: isConfiguration(input) ? input : undefined,
         doCompress: flags.compress,
+        ...seaBase,
       });
     } else {
       // Simple SEA mode — plain .js file without package.json.
@@ -216,6 +222,7 @@ export async function exec(
       await sea(inputFin, {
         targets,
         signature: flags.signature,
+        ...seaBase,
       });
     }
     return;
