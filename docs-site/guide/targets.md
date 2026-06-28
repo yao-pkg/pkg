@@ -79,12 +79,13 @@ On Node 22, Standard cross-compile **builds cleanly but produces a broken execut
 - `linux-arm64` crashes with `Error: UNEXPECTED-20` in `readFileFromSnapshot`
 - `win-x64` exits silently with no stdout (EXIT=4)
 
-Tracked in [#87](https://github.com/yao-pkg/pkg/issues/87) and [#181](https://github.com/yao-pkg/pkg/issues/181). Three workarounds:
+Tracked in [#87](https://github.com/yao-pkg/pkg/issues/87) and [#181](https://github.com/yao-pkg/pkg/issues/181). Workarounds:
 
 1. **Switch to SEA** — `pkg . --sea`. Avoids the V8 bytecode step entirely.
 2. **Disable bytecode** — `pkg . --no-bytecode --public-packages "*" --public`. Keeps Standard mode, stores source as plaintext.
 3. **Fallback to source** — `pkg . --fallback-to-source`. Keeps bytecode for files that compile successfully and ships the rest as plain source. See [Bytecode → Fallback to source](/guide/bytecode#fallback-to-source-on-failure).
 4. **Target Node 24** — the regression is gone on `node24-*` targets.
+5. **Keep bytecode for `win-x64`** — build on Linux with Wine and pass `--cross-bytecode`. The only workaround that preserves source protection for Windows targets. See [Building Windows binaries on Linux (Wine)](#building-windows-binaries-on-linux-wine) below.
 
 :::
 
@@ -99,6 +100,35 @@ Regardless of the bug above, the V8 bytecode fabricator in Standard mode needs t
 - Or use `--fallback-to-source` to ship only the failing files as plain source while keeping bytecode for the rest
 
 Enhanced SEA doesn't have this limitation when the host and target share the same Node major: pkg uses `process.execPath` to generate the SEA blob, so no target-arch interpreter is needed. Cross-major SEA builds (e.g. building `node22-*` targets on a Node 24 host) still require an interpreter for the downloaded target binary.
+
+### Building Windows binaries on Linux (Wine)
+
+When a `win-x64` target's bytecode is fabricated with the **host** (Linux) Node, the target's Windows V8 can reject it at runtime — producing an executable that fails to start (this is the failure mode behind the Node 22 regression above). Passing `--cross-bytecode` runs the **Windows** target Node under [Wine](https://www.winehq.org/) to generate Windows-native bytecode — the OS analogue of using QEMU for a foreign arch.
+
+Wine is an **OS-ABI translation layer**, not a CPU emulator: because `win-x64` is the same CPU arch as an x64 Linux host, there is **no CPU emulation** and fabrication runs at near-native speed. This path is **`x64` host → `win-x64` only**; `win-arm64` from an x64 host would also need CPU emulation and is not supported.
+
+Setup (Debian/Ubuntu shown; adapt for your distro):
+
+```sh
+# 1. Install Wine (same CPU arch as the host)
+apt-get update && apt-get install -y --no-install-recommends wine wine64
+
+# 2. Register a binfmt_misc handler so the kernel runs .exe files through Wine.
+#    pkg forwards the Wine environment (WINEPREFIX, HOME, PATH, …) to the
+#    fabricator, so a plain handler with no wrapper script is enough:
+echo ':winePE:M::MZ::/usr/bin/wine:' > /proc/sys/fs/binfmt_misc/register
+
+# 3. Build, opting in with --cross-bytecode
+pkg --cross-bytecode -t node22-win-x64 index.js
+```
+
+::: warning Privileged context required to register binfmt
+Registering a `binfmt_misc` handler writes to `/proc/sys/fs/binfmt_misc` and needs a **privileged** context — a rootful `docker run --privileged` / `docker:dind`, or the host kernel. **Rootless** containers cannot mount or write `binfmt_misc`; register the handler on the host instead. It is a kernel-wide setting, so it only needs registering once per host/boot.
+:::
+
+`--cross-bytecode` is **off by default** — without it, `win-x64` builds on Linux behave exactly as before. It can also be set as `crossBytecode` in the pkg config. If Wine or the binfmt handler is missing, the build **fails with an error** pointing back here rather than silently producing a broken binary.
+
+To verify end to end, run the produced `.exe` on Windows: it should start with no `V8 rejected the bytecode cache` error, and the app code stays shipped as bytecode (no plaintext sources).
 
 ## macOS arm64
 

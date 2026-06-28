@@ -165,6 +165,13 @@ const FLAG_SPECS: readonly FlagSpec[] = [
     resolved: 'noDictionary',
     kind: 'list',
   },
+  {
+    cli: 'cross-bytecode',
+    cfg: 'crossBytecode',
+    resolved: 'crossBytecode',
+    kind: 'bool',
+    default: false,
+  },
 ];
 
 /** Programmatic option key for a flag (defaults to the config key). */
@@ -488,6 +495,7 @@ export interface ResolvedFlags {
   publicPackages: string[] | undefined;
   noDictionary: string[] | undefined;
   bakeOptions: string[] | undefined;
+  crossBytecode: boolean;
 }
 
 /** Narrow an arbitrary value to `string | string[] | undefined` or `undefined`. */

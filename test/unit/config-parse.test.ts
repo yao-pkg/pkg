@@ -194,6 +194,7 @@ describe('parseInput — CLI argv', () => {
       'fallback-to-source',
       'public',
       'sea',
+      'cross-bytecode',
     ]) {
       it(`--no-${flag} sets flag to false`, () => {
         assert.equal(parseInput([`--no-${flag}`, 'a.js']).flags[flag], false);
@@ -371,6 +372,7 @@ describe('resolveFlags — CLI > config > default', () => {
     assert.equal(f.bakeOptions, undefined);
     assert.equal(f.publicPackages, undefined);
     assert.equal(f.noDictionary, undefined);
+    assert.equal(f.crossBytecode, false);
   });
 
   it('config wins when CLI is absent', () => {
@@ -527,6 +529,7 @@ describe('validatePkgConfig', () => {
       options: ['a'],
       publicPackages: 'x,y',
       noDictionary: ['*'],
+      crossBytecode: true,
     });
     assert.equal(warned.length, 0, `unexpected warns: ${warned.join('|')}`);
   });
@@ -572,6 +575,48 @@ describe('validatePkgConfig', () => {
 
   it('list with string[] OK', () => {
     validatePkgConfig({ publicPackages: ['a', 'b'] });
+  });
+});
+
+describe('crossBytecode flag', () => {
+  it('--cross-bytecode parses to true', () => {
+    assert.equal(
+      parseInput(['--cross-bytecode', 'a.js']).flags['cross-bytecode'],
+      true,
+    );
+  });
+
+  it('--no-cross-bytecode parses to false', () => {
+    assert.equal(
+      parseInput(['--no-cross-bytecode', 'a.js']).flags['cross-bytecode'],
+      false,
+    );
+  });
+
+  it('programmatic crossBytecode option round-trips', () => {
+    assert.equal(
+      parseInput({ input: 'a.js', crossBytecode: true }).flags[
+        'cross-bytecode'
+      ],
+      true,
+    );
+  });
+
+  it('default is false; config can enable it; CLI overrides config', () => {
+    assert.equal(resolveFlags({}, {}).crossBytecode, false);
+    assert.equal(resolveFlags({}, { crossBytecode: true }).crossBytecode, true);
+    assert.equal(
+      resolveFlags({ 'cross-bytecode': false }, { crossBytecode: true })
+        .crossBytecode,
+      false,
+    );
+  });
+
+  it('non-boolean config value throws', () => {
+    assert.throws(
+      () => validatePkgConfig({ crossBytecode: 'yes' }),
+      /"crossBytecode" must be a boolean/,
+    );
   });
 });
 

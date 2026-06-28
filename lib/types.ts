@@ -66,6 +66,13 @@ export interface PkgOptions {
   debug?: boolean;
   signature?: boolean;
   sea?: boolean;
+  /**
+   * Run the Windows target's own Node under Wine to fabricate V8 bytecode when
+   * building a same-arch `win` target on a Linux/Alpine host. Requires Wine +
+   * a `binfmt_misc` `MZ` handler. Off by default. See the Windows-on-Linux
+   * cross-build guide.
+   */
+  crossBytecode?: boolean;
 }
 
 export interface PackageJson {
@@ -200,4 +207,10 @@ export interface PkgExecOptions {
   noDictionary?: string[];
   /** Sign macOS binaries when applicable. Default `true`. */
   signature?: boolean;
+  /**
+   * Run the Windows target's own Node under Wine to fabricate V8 bytecode when
+   * building a same-arch `win` target on a Linux/Alpine host. Default `false`.
+   * Requires Wine + a `binfmt_misc` `MZ` handler.
+   */
+  crossBytecode?: boolean;
 }

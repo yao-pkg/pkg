@@ -34,6 +34,8 @@ Bytecode generation requires running the **target** architecture's Node.js to co
 pkg --no-bytecode --public-packages "*" --public -t node22-linux-arm64 index.js
 ```
 
+For a **Windows** target on Linux the analogous setup runs the target Node under Wine. To **keep** bytecode (and source protection) for `win-x64` instead of disabling it, build with `--cross-bytecode` — see [Targets → Building Windows binaries on Linux (Wine)](/guide/targets#building-windows-binaries-on-linux-wine).
+
 See [Targets → Cross-compilation support](/guide/targets#cross-compilation-support).
 
 ## Licenses and `--public-packages`

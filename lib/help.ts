@@ -21,6 +21,7 @@ export default function help() {
     --no-bytecode        skip bytecode generation and include source files as plain js
     --no-native-build    skip native addons build
     --fallback-to-source if bytecode generation fails for a file, ship it as plain source instead of skipping it
+    --cross-bytecode     run the win target's Node under Wine to make Windows bytecode when building win-x64 on Linux [off]
     --no-dict            comma-separated list of packages names to ignore dictionaries. Use --no-dict * to disable all dictionaries
     -C, --compress       [default=None] compression algorithm = Brotli, GZip, or Zstd (Zstd requires Node.js >= 22.15)
     --signature          enable macOS binary signing (default; use to override signature:false in config)
@@ -28,8 +29,8 @@ export default function help() {
     --sea                (Experimental) compile given file using node's SEA feature. Requires node v20.0.0 or higher and only single file is supported
 
   All build-shaping flags above (compress, fallback-to-source, public, public-packages,
-  options, bytecode, native-build, no-dict, debug, signature, sea) can also be set in
-  the pkg config file (camelCase keys). CLI flags override config values.
+  options, bytecode, native-build, no-dict, debug, signature, sea, cross-bytecode) can
+  also be set in the pkg config file (camelCase keys). CLI flags override config values.
 
   ${pc.dim('Examples:')}
 
