@@ -1,5 +1,28 @@
 # Changelog
 
+## [6.21.0](https://github.com/yao-pkg/pkg/compare/v6.19.0...v6.21.0) (2026-06-30)
+
+### Features
+
+- build hooks (preBuild, postBuild, per-file transform) ([#273](https://github.com/yao-pkg/pkg/issues/273)) ([3667383](https://github.com/yao-pkg/pkg/commit/3667383c983b3e1819e3af8888491ce13ea964d6)), closes [package.json#pkg](https://github.com/yao-pkg/package.json/issues/pkg)
+- bump fetch 3.6.3 with node 22.22.3, 24.15.0 and 26.2.0 ([#277](https://github.com/yao-pkg/pkg/issues/277)) ([546bbf0](https://github.com/yao-pkg/pkg/commit/546bbf02f1cff07527c770cc0853b0d9d586eac7))
+- bump fetch 3.6.4 with nodejs 22.23.1, 24.18.0, 26.4.0 ([#288](https://github.com/yao-pkg/pkg/issues/288)) ([3520d26](https://github.com/yao-pkg/pkg/commit/3520d26250d4b9bc957f8b3b4970897d7cb94c3a))
+
+### Bug Fixes
+
+- **detector:** pick up six more silent-drop shapes (re-exports, new URL, multi-arg path.join, path.resolve(\_\_dirname,…), createRequire aliases, import.meta.resolve) ([#272](https://github.com/yao-pkg/pkg/issues/272)) ([ea66111](https://github.com/yao-pkg/pkg/commit/ea66111a675bc11a802abab2ab58d91c4897711f)), closes [#269](https://github.com/yao-pkg/pkg/issues/269)
+- **sea:** set process.pkg in worker threads ([#270](https://github.com/yao-pkg/pkg/issues/270)) ([376e2a4](https://github.com/yao-pkg/pkg/commit/376e2a44c2048f79912cd45e53b907ddcfeb2bbb))
+
+### Test added
+
+- **fetch-all:** track supported node majors, drop node20 ([#286](https://github.com/yao-pkg/pkg/issues/286)) ([1b0002f](https://github.com/yao-pkg/pkg/commit/1b0002ff643e46a9ad2f51003cff1e0cfc0dbc0d))
+- split unit tests into node:test suite, add c8 coverage ([#271](https://github.com/yao-pkg/pkg/issues/271)) ([26f10a3](https://github.com/yao-pkg/pkg/commit/26f10a3e5a499d0d1d9f61eee40dfb4c2b1f6244)), closes [#267](https://github.com/yao-pkg/pkg/issues/267) [#267](https://github.com/yao-pkg/pkg/issues/267)
+
+### Chores
+
+- add worktrees to gitignore ([d585e27](https://github.com/yao-pkg/pkg/commit/d585e2707090fe3da143b262f69baeefd03bad1d))
+- **deps:** bump esbuild to >=0.28.1 to fix security vuln ([#282](https://github.com/yao-pkg/pkg/issues/282)) ([#284](https://github.com/yao-pkg/pkg/issues/284)) ([68f41d5](https://github.com/yao-pkg/pkg/commit/68f41d5df50842a1edd7e3719fb48c8fddfb8d26))
+
 ## [6.19.0](https://github.com/yao-pkg/pkg/compare/v6.18.2...v6.19.0) (2026-04-24)
 
 ### Features
