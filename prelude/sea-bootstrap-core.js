@@ -28,6 +28,7 @@ var SNAPSHOT_PREFIX = vfs.SNAPSHOT_PREFIX;
 
 shared.patchDlopen(insideSnapshot);
 shared.patchChildProcess(entrypoint);
+shared.patchIntlSegmenter();
 shared.setupProcessPkg(entrypoint, manifest.entrypoint);
 
 // /////////////////////////////////////////////////////////////////

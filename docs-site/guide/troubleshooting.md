@@ -117,6 +117,20 @@ unset NODE_OPTIONS NODE_DEBUG NODE_EXTRA_CA_CERTS NODE_NO_WARNINGS
 
 If your shell or IDE re-adds them automatically, add an exception rule — e.g. in VS Code add `"terminal.integrated.env.linux": { "NODE_OPTIONS": null }` to disable the auto-injection just for this project.
 
+## Error: `RangeError: pkg: Intl.Segmenter is unavailable in this executable`
+
+Standard-mode binaries embed a Node.js built with `small-icu`, which ships no ICU break-iterator data. `new Intl.Segmenter()` constructs fine, but `segment()` has no data to work with.
+
+Upstream Node.js crashes the process outright here — an uncatchable `SIGSEGV` with no stack trace ([nodejs/node#51752](https://github.com/nodejs/node/issues/51752)). pkg replaces `segment()` with this `RangeError` so the failure points at its caller instead.
+
+You will usually hit this through a dependency rather than directly: `string-width` v7+ calls `Intl.Segmenter` to measure text, and it is a transitive dependency of `ora`, `boxen`, `inquirer` and `cli-table3`. Spinner frames are the classic trigger.
+
+Pick whichever fits:
+
+- **Build with [`--sea`](./sea-mode.md).** SEA mode uses the official Node.js binaries, which are full-icu. Nothing else to do.
+- **Ship ICU data alongside the executable.** Download the `icudt<N>l.dat` matching `process.versions.icu` from the [ICU releases](https://github.com/unicode-org/icu/releases) and point `NODE_ICU_DATA` at its directory. pkg detects the data and steps aside. This costs you the single-file property, and pkg cannot do it for you — ICU initializes before any user code runs, so the file cannot come from the virtual filesystem.
+- **Avoid the API.** Pin `string-width` to v6, or shim `Intl.Segmenter` before importing anything that pulls it in.
+
 ## AI-assisted debugging with Claude Code
 
 If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code), you can install the `/pkg-debug` skill to get interactive AI-assisted troubleshooting for any packaging issue.

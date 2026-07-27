@@ -22,3 +22,7 @@ shared.setupProcessPkg(
   vfs.toPlatformPath(vfs.manifest.entrypoint),
   vfs.manifest.entrypoint,
 );
+
+// Worker threads get their own Intl, so the main-thread patch does not
+// carry over — see patchIntlSegmenter in bootstrap-shared.
+shared.patchIntlSegmenter();

@@ -373,6 +373,67 @@ function patchChildProcess(entrypoint) {
 }
 
 // /////////////////////////////////////////////////////////////////
+// INTL SEGMENTER //////////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+/**
+ * Replace Intl.Segmenter#segment with a throwing stub when the embedded
+ * Node.js has no ICU break-iterator data.
+ *
+ * pkg-fetch base binaries are built with --with-intl=small-icu, which
+ * ships no break-iterator data. V8 only DCHECKs the null
+ * icu::BreakIterator returned by BreakIterator::create*Instance, and
+ * DCHECKs are compiled out of release builds — so `new Intl.Segmenter()`
+ * succeeds and the first .segment() call dereferences null. The result is
+ * an uncatchable SIGSEGV with no stack, which is close to undebuggable
+ * downstream (nodejs/node#51752, https://issues.chromium.org/issues/531782498).
+ *
+ * Throwing the RangeError upstream intends to throw once the V8 fix lands
+ * costs nothing and makes the failure name its caller.
+ */
+function patchIntlSegmenter() {
+  if (typeof Intl === 'undefined' || typeof Intl.Segmenter !== 'function') {
+    return;
+  }
+
+  var variables = (process.config && process.config.variables) || {};
+
+  // Cheap gate first — full-icu builds are unaffected and pay only this
+  // property read.
+  if (variables.icu_small !== true) return;
+
+  // icu_small stays true when the user supplies real data through
+  // NODE_ICU_DATA / --icu-data-dir, and Segmenter then works, so probe for
+  // the data rather than trusting the build flag. Data-less small-icu
+  // resolves every locale to the default one; requiring two unrelated
+  // locales means no single system locale can mask the check.
+  if (
+    new Intl.DateTimeFormat('de').resolvedOptions().locale === 'de' &&
+    new Intl.DateTimeFormat('ja').resolvedOptions().locale === 'ja'
+  ) {
+    return;
+  }
+
+  var dat = 'icudt' + (variables.icu_ver_major || '') + 'l.dat';
+
+  // Only .segment() is replaced. string-width v7+ — a transitive
+  // dependency of ora, boxen, inquirer and cli-table3 — constructs a
+  // Segmenter at module scope, so removing the constructor would break
+  // those imports outright instead of at the point of use.
+  Intl.Segmenter.prototype.segment = function segment() {
+    throw new RangeError(
+      'pkg: Intl.Segmenter is unavailable in this executable. It embeds a ' +
+        'small-icu Node.js build with no break-iterator data, where calling ' +
+        'segment() would crash the process (nodejs/node#51752). Re-package ' +
+        'with --sea, which uses full-icu official Node.js binaries, or set ' +
+        'NODE_ICU_DATA to a directory containing ' +
+        dat +
+        '.',
+    );
+  };
+}
+
+// /////////////////////////////////////////////////////////////////
 // PROCESS.PKG SETUP ///////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
@@ -564,6 +625,7 @@ function installDiagnostic(snapshotPrefix) {
 module.exports = {
   patchDlopen: patchDlopen,
   patchChildProcess: patchChildProcess,
+  patchIntlSegmenter: patchIntlSegmenter,
   setupProcessPkg: setupProcessPkg,
   installDiagnostic: installDiagnostic,
   COMPRESS_NONE: COMPRESS_NONE,

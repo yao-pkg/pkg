@@ -1958,3 +1958,4 @@ REQUIRE_SHARED.patchChildProcess(ENTRYPOINT);
 // /////////////////////////////////////////////////////////////////
 
 REQUIRE_SHARED.patchDlopen(insideSnapshot);
+REQUIRE_SHARED.patchIntlSegmenter();
