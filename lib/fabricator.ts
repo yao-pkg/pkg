@@ -3,39 +3,53 @@ import { Readable, Writable } from 'stream';
 import { log } from './log';
 import { Target } from './types';
 
-const script = `
+const FABRICATOR_MAX_FRAME_PART_SIZE = 256 * 1024 * 1024;
+
+export const fabricatorScript = `
   var vm = require('vm');
   var module = require('module');
+  var MAX_FRAME_PART_SIZE = ${FABRICATOR_MAX_FRAME_PART_SIZE};
   var stdin = Buffer.alloc(0);
   process.stdin.on('data', function (data) {
     stdin = Buffer.concat([ stdin, data ]);
-    if (stdin.length >= 4) {
+    while (stdin.length >= 4) {
       var sizeOfSnap = stdin.readInt32LE(0);
-      if (stdin.length >= 4 + sizeOfSnap + 4) {
-        var sizeOfBody = stdin.readInt32LE(4 + sizeOfSnap);
-        if (stdin.length >= 4 + sizeOfSnap + 4 + sizeOfBody) {
-          var snap = stdin.toString('utf8', 4, 4 + sizeOfSnap);
-          var body = Buffer.alloc(sizeOfBody);
-          var startOfBody = 4 + sizeOfSnap + 4;
-          stdin.copy(body, 0, startOfBody, startOfBody + sizeOfBody);
-          stdin = Buffer.alloc(0);
-          var code = module.wrap(body);
-          var s = new vm.Script(code, {
-            filename: snap,
-            produceCachedData: true,
-            sourceless: true
-          });
-          if (!s.cachedDataProduced) {
-            console.error('Pkg: Cached data not produced.');
-            process.exit(2);
-          }
-          var h = Buffer.alloc(4);
-          var b = s.cachedData;
-          h.writeInt32LE(b.length, 0);
-          process.stdout.write(h);
-          process.stdout.write(b);
-        }
+      if (sizeOfSnap < 0 || sizeOfSnap > MAX_FRAME_PART_SIZE) {
+        console.error('Pkg: Invalid snap size header: ' + sizeOfSnap);
+        process.exit(2);
       }
+      if (stdin.length < 4 + sizeOfSnap + 4) break;
+      var sizeOfBody = stdin.readInt32LE(4 + sizeOfSnap);
+      if (sizeOfBody < 0 || sizeOfBody > MAX_FRAME_PART_SIZE) {
+        console.error('Pkg: Invalid body size header: ' + sizeOfBody);
+        process.exit(2);
+      }
+      var totalSize = 4 + sizeOfSnap + 4 + sizeOfBody;
+      if (stdin.length < totalSize) break;
+
+      var snap = stdin.toString('utf8', 4, 4 + sizeOfSnap);
+      var body = Buffer.alloc(sizeOfBody);
+      var startOfBody = 4 + sizeOfSnap + 4;
+      stdin.copy(body, 0, startOfBody, startOfBody + sizeOfBody);
+
+      // Preserve unconsumed bytes for subsequent payloads
+      stdin = stdin.subarray(totalSize);
+
+      var code = module.wrap(body);
+      var s = new vm.Script(code, {
+        filename: snap,
+        produceCachedData: true,
+        sourceless: true
+      });
+      if (!s.cachedDataProduced) {
+        console.error('Pkg: Cached data not produced.');
+        process.exit(2);
+      }
+      var h = Buffer.alloc(4);
+      var b = s.cachedData;
+      h.writeInt32LE(b.length, 0);
+      process.stdout.write(h);
+      process.stdout.write(b);
     }
   });
   process.stdin.resume();
@@ -43,8 +57,37 @@ const script = `
 
 const children: Record<
   string,
-  ChildProcessByStdio<Writable, Readable, null>
+  ChildProcessByStdio<Writable, Readable, Readable | null>
 > = {};
+
+export function buildFabricatorRequestChunks(
+  snap: string,
+  body: Buffer,
+): [Buffer, Buffer, Buffer, Buffer] {
+  const snapBuf = Buffer.from(snap);
+
+  if (snapBuf.length > FABRICATOR_MAX_FRAME_PART_SIZE) {
+    throw new Error(
+      `Fabricator snap exceeds max frame size (${snapBuf.length} bytes)`,
+    );
+  }
+
+  if (body.length > FABRICATOR_MAX_FRAME_PART_SIZE) {
+    throw new Error(
+      `Fabricator body exceeds max frame size (${body.length} bytes)`,
+    );
+  }
+
+  // Keep separate header buffers so async stream writes cannot mutate
+  // previously queued bytes.
+  const h1 = Buffer.alloc(4);
+  h1.writeInt32LE(snapBuf.length, 0);
+
+  const h2 = Buffer.alloc(4);
+  h2.writeInt32LE(body.length, 0);
+
+  return [h1, snapBuf, h2, body];
+}
 
 export function fabricate(
   bakes: string[],
@@ -67,12 +110,17 @@ export function fabricate(
   let child = children[key];
 
   if (!child) {
-    const stderr = log.debugMode ? process.stdout : 'ignore';
-    children[key] = spawn(cmd, activeBakes.concat('-e', script), {
-      stdio: ['pipe', 'pipe', stderr],
+    children[key] = spawn(cmd, activeBakes.concat('-e', fabricatorScript), {
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: { PKG_EXECPATH: 'PKG_INVOKE_NODEJS' },
     });
     child = children[key];
+
+    if (child.stderr) {
+      child.stderr.on('data', (data: Buffer) => {
+        log.debug(`fabricator: ${data.toString().trim()}`);
+      });
+    }
   }
 
   function kill() {
@@ -103,7 +151,9 @@ export function fabricate(
       );
     }
 
-    console.log(stdout.toString());
+    if (stdout.length > 0) {
+      log.debug(`fabricator: unexpected close output: ${stdout.toString()}`);
+    }
     return cb(new Error(`${cmd} closed unexpectedly`));
   }
 
@@ -134,15 +184,21 @@ export function fabricate(
   child.stdout.on('error', onError);
   child.stdout.on('data', onData);
 
-  const h = Buffer.alloc(4);
-  let b = Buffer.from(snap);
-  h.writeInt32LE(b.length, 0);
-  child.stdin.write(h);
-  child.stdin.write(b);
-  b = body;
-  h.writeInt32LE(b.length, 0);
-  child.stdin.write(h);
-  child.stdin.write(b);
+  let requestChunks: [Buffer, Buffer, Buffer, Buffer];
+  try {
+    requestChunks = buildFabricatorRequestChunks(snap, body);
+  } catch (error) {
+    removeListeners();
+    return cb(
+      new Error(
+        `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap} error (${(error as Error).message})`,
+      ),
+    );
+  }
+
+  for (const chunk of requestChunks) {
+    child.stdin.write(chunk);
+  }
 }
 
 export function fabricateTwice(
