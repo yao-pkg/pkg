@@ -307,6 +307,10 @@ class SEAProvider extends MemoryProvider {
     this._manifest = seaManifest;
     this._fileCache = new Map();
 
+    // Precompute whether the manifest has any symlinks.
+    // If a project has no symlinks, there is also no need to resolve them.
+    this._hasSymlinks = Object.keys(seaManifest.symlinks).length > 0;
+
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
     // shared helper raises a uniformly-worded error when the host Node.js is
@@ -337,15 +341,26 @@ class SEAProvider extends MemoryProvider {
   }
 
   _resolveSymlink(p) {
-    // Fast path: the vast majority of lookups (~30K per startup on large
-    // projects) are not symlinks. A single object-has-key check avoids
-    // entering the loop and the i++/target fetch overhead for the common
-    // case.
+    // Fast path: if the manifest has no symlinks, skip the loop entirely.
+    if (!this._hasSymlinks) return p;
     var symlinks = this._manifest.symlinks;
-    if (symlinks[p] === undefined) return p;
     var original = p;
     for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
+      // First check the full path, then walk up the directory tree to find a symlink.
       var target = symlinks[p];
+      if (!target) {
+        var parentIdx = p.lastIndexOf('/');
+        while (parentIdx > 0) {
+          var parent = p.slice(0, parentIdx);
+          target = symlinks[parent];
+          if (target) {
+            // Resolve the symlink and append the remainder of the original path.
+            target = target + p.slice(parentIdx);
+            break;
+          }
+          parentIdx = parent.lastIndexOf('/');
+        }
+      }
       if (!target) return p;
       p = target;
     }
