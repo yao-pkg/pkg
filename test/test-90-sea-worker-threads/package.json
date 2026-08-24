@@ -6,6 +6,9 @@
   "pkg": {
     "scripts": [
       "worker.js"
+    ],
+    "assets": [
+      "lib/fake.node"
     ]
   }
 }

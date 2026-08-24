@@ -26,3 +26,8 @@ shared.setupProcessPkg(
 // Worker threads get their own Intl, so the main-thread patch does not
 // carry over — see patchIntlSegmenter in bootstrap-shared.
 shared.patchIntlSegmenter();
+
+// Same story for process.dlopen: each worker thread gets its own `process`,
+// so native addons would be handed the raw C:\snapshot path and fail with
+// ERR_DLOPEN_FAILED — see patchDlopen in bootstrap-shared.
+shared.patchDlopen(vfs.insideSnapshot);

@@ -1,7 +1,17 @@
 'use strict';
 
 const { Worker } = require('worker_threads');
+const os = require('os');
 const path = require('path');
+
+// Redirect the native addon cache so the worker's dlopen check writes to a
+// throwaway directory instead of the real ~/.cache. Must be set before the
+// Worker is created — the worker copies process.env at spawn time and its
+// bootstrap reads this while patching dlopen.
+process.env.PKG_NATIVE_CACHE_PATH = path.join(
+  os.tmpdir(),
+  'pkg-test-90-native-cache',
+);
 
 function runWorker() {
   return new Promise((resolve, reject) => {
@@ -42,6 +52,7 @@ async function main() {
     console.log('hasDirname:' + result.hasDirname);
     console.log('hasProcessPkg:' + result.hasProcessPkg);
     console.log('helperResult:' + result.helperResult);
+    console.log('addonExtracted:' + result.addonExtracted);
   } catch (e) {
     console.log('worker-error:' + e.message);
   }
