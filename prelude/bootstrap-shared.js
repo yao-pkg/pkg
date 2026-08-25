@@ -632,6 +632,75 @@ function installDiagnostic(snapshotPrefix) {
   }
 }
 
+// /////////////////////////////////////////////////////////////////
+// SYMLINK PROCESSING //////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// Matches the typical Linux SYMLOOP_MAX. Bounds the symlink resolution
+// loop so a manifest cycle (or a corrupt manifest) cannot hang startup.
+var MAX_SYMLINK_DEPTH = 40;
+
+function resolveSymlink(p, sep, symlinks, cache) {
+  // Cache symlink resolution results to avoid re-walking the same path.
+  // The cache is keyed by the original path, not the resolved path, so that
+  // repeated calls with the same input path hit the cache. Only paths that
+  // actually traverse a symlink get cached (see below) — the vast majority
+  // of lookups are non-symlinked files, and most of those are looked up
+  // once (module resolution tries many one-off candidate paths), so
+  // memoizing them would grow the cache unboundedly for no benefit and add
+  // Map overhead to every miss without amortizing it. Bounding the cache to
+  // real hits keeps it both fast and small.
+  var cached = cache.get(p);
+  if (cached !== undefined) return cached;
+
+  var original = p;
+  var matched = false;
+  for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
+    // Exact match first (e.g. the path itself is the symlink).
+    var target = symlinks[p];
+    if (!target) {
+      // Walk the path front-to-back (POSIX-style): resolve the shallowest
+      // symlinked component first. This is O(path depth) hash lookups,
+      // independent of how many symlinks exist in the manifest. Symlinks
+      // (e.g. a package manager's node_modules entries) sit near the root
+      // while the remainder of the path can be arbitrarily deep, so this
+      // finds a hit in far fewer lookups than scanning from the leaf
+      // backwards would.
+      var pos = p.indexOf(sep, 1);
+      while (pos > 0) {
+        var prefix = p.slice(0, pos);
+        var t = symlinks[prefix];
+        if (t) {
+          // If the symlink target ends with a separator, we need to skip
+          // the leading separator of the remainder to avoid a double
+          // separator. Otherwise, we can just append the remainder as-is.
+          target = t.endsWith(sep) ? t + p.slice(pos + 1) : t + p.slice(pos);
+          break;
+        }
+        pos = p.indexOf(sep, pos + 1);
+      }
+    }
+
+    if (!target) {
+      // No symlink found in the path, so the current path is fully resolved.
+      if (matched) cache.set(original, p);
+      return p;
+    }
+
+    matched = true;
+    p = target;
+  }
+
+  var err = new Error(
+    "ELOOP: too many symbolic links encountered, '" + original + "'",
+  );
+  err.code = 'ELOOP';
+  err.errno = -40;
+  err.syscall = 'stat';
+  err.path = original;
+  throw err;
+}
+
 module.exports = {
   pkgCacheDir: pkgCacheDir,
   patchDlopen: patchDlopen,
@@ -642,4 +711,5 @@ module.exports = {
   COMPRESS_NONE: COMPRESS_NONE,
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
+  resolveSymlink: resolveSymlink,
 };
