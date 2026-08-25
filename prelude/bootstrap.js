@@ -231,25 +231,16 @@ function toOriginal(fShort) {
     .join(path.sep);
 }
 
-const symlinksEntries = Object.entries(SYMLINKS);
+const hasSymlinks = Object.keys(SYMLINKS).length > 0;
+const symlinkCache = new Map();
 
 // separator for substitution depends on platform;
 const sepsep = DOCOMPRESS ? separator : path.sep;
 
 function findVirtualFileSystemKeyAndFollowLinks(path_) {
   let vfsKey = findVirtualFileSystemKey(path_, path.sep);
-  let needToSubstitute = true;
-  while (needToSubstitute) {
-    needToSubstitute = false;
-    for (const [k, v] of symlinksEntries) {
-      if (vfsKey.startsWith(`${k}${sepsep}`) || vfsKey === k) {
-        vfsKey = vfsKey.replace(k, v);
-        needToSubstitute = true;
-        break;
-      }
-    }
-  }
-  return vfsKey;
+  if (!hasSymlinks) return vfsKey;
+  return REQUIRE_SHARED.resolveSymlink(vfsKey, sepsep, SYMLINKS, symlinkCache);
 }
 
 function realpathFromSnapshot(path_) {

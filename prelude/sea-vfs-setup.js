@@ -24,10 +24,6 @@ try {
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
 var MemoryProvider = vfsModule.MemoryProvider;
 
-// Matches the typical Linux SYMLOOP_MAX. Bounds the symlink resolution
-// loop so a manifest cycle (or a corrupt manifest) cannot hang startup.
-var MAX_SYMLINK_DEPTH = 40;
-
 // /////////////////////////////////////////////////////////////////
 // PERFORMANCE INSTRUMENTATION /////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
@@ -151,6 +147,7 @@ var perf = {
       'statSync calls',
       'existsSync calls',
       'readdirSync calls',
+      '_resolveSymlink calls',
     ];
     counterOrder.forEach(function (label) {
       var v = self._counters[label];
@@ -283,13 +280,21 @@ function _makeStats(meta) {
  *
  * Performance design:
  *
- *   - internalModuleStat()  O(1) manifest hash lookup (no tree walk).
+ *   - internalModuleStat()  Symlink resolution (no-op O(1) if the manifest has
+ *     no symlinks; O(path depth) for any path that isn't itself symlinked,
+ *     paid on every call — not memoised, since most lookups are one-off
+ *     candidate paths and caching them would grow the cache unboundedly for
+ *     no benefit; O(1) amortized only for paths that actually traverse a
+ *     symlink, via a Map keyed by the original path — see resolveSymlink()
+ *     in bootstrap-shared.js) + O(1) manifest lookup.
  *     This is the hottest path (~30K calls for large projects).
  *
- *   - statSync()            O(1) manifest lookup + lightweight stat allocation.
+ *   - statSync()            Same symlink resolution as above + O(1) manifest
+ *     lookup + lightweight stat allocation.
  *     Not on the module resolution hot path.  Returns a fresh object each call.
  *
- *   - existsSync()          O(1) manifest lookup.
+ *   - existsSync()          Same symlink resolution as above + O(1) manifest
+ *     lookup.
  *
  *   - readFileSync()        Zero-copy subarray from the archive with a Map
  *     cache.  Bypasses the MemoryProvider tree entirely.  Returns a Buffer
@@ -307,9 +312,8 @@ class SEAProvider extends MemoryProvider {
     this._manifest = seaManifest;
     this._fileCache = new Map();
 
-    // Precompute whether the manifest has any symlinks.
-    // If a project has no symlinks, there is also no need to resolve them.
-    this._hasSymlinks = Object.keys(seaManifest.symlinks).length > 0;
+    this._hasSymlinks = Object.keys(seaManifest.symlinks || {}).length > 0;
+    this._symlinkCache = new Map();
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
@@ -341,37 +345,14 @@ class SEAProvider extends MemoryProvider {
   }
 
   _resolveSymlink(p) {
-    // Fast path: if the manifest has no symlinks, skip the loop entirely.
+    perf.count('_resolveSymlink calls');
     if (!this._hasSymlinks) return p;
-    var symlinks = this._manifest.symlinks;
-    var original = p;
-    for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
-      // First check the full path, then walk up the directory tree to find a symlink.
-      var target = symlinks[p];
-      if (!target) {
-        var parentIdx = p.lastIndexOf('/');
-        while (parentIdx > 0) {
-          var parent = p.slice(0, parentIdx);
-          target = symlinks[parent];
-          if (target) {
-            // Resolve the symlink and append the remainder of the original path.
-            target = target + p.slice(parentIdx);
-            break;
-          }
-          parentIdx = parent.lastIndexOf('/');
-        }
-      }
-      if (!target) return p;
-      p = target;
-    }
-    var err = new Error(
-      "ELOOP: too many symbolic links encountered, '" + original + "'",
+    return shared.resolveSymlink(
+      p,
+      '/',
+      this._manifest.symlinks,
+      this._symlinkCache,
     );
-    err.code = 'ELOOP';
-    err.errno = -40;
-    err.syscall = 'stat';
-    err.path = original;
-    throw err;
   }
 
   get fileCacheSize() {
@@ -459,6 +440,10 @@ class SEAProvider extends MemoryProvider {
   }
 
   readlinkSync(filePath) {
+    // readlinkSync must return the symlink target verbatim, without resolving
+    // it. If the path is not a symlink, fall back to the super method (which throws
+    // ENOENT for non-existent paths).  The manifest's symlinks map is keyed by
+    // the symlink path and contains the target path, so we can look it up directly.
     var p = toManifestKey(filePath);
     var target = this._manifest.symlinks[p];
     if (target) return target;
