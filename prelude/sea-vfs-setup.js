@@ -463,6 +463,16 @@ class SEAProvider extends MemoryProvider {
     return super.readlinkSync(p);
   }
 
+  realpathSync(filePath) {
+    // The base class only knows the directory tree built in the constructor,
+    // so without this every archive file resolves to ENOENT — which also
+    // breaks fs.readlinkSync, since the VFS answers readlink by way of
+    // realpath.  Following the symlink chain here is the whole point.
+    var p = this._resolveSymlink(toManifestKey(filePath));
+    if (p in this._manifest.stats) return p;
+    return super.realpathSync(p);
+  }
+
   statSync(filePath) {
     perf.count('statSync calls');
     var p = this._resolveSymlink(toManifestKey(filePath));
