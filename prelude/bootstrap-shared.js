@@ -725,6 +725,12 @@ function makeSymlinkResolver(symlinks, sep) {
   function resolve(p, origin, hops) {
     if (hops > MAX_SYMLINK_DEPTH) throw eloop(origin);
 
+    // Exact match first.  The walker records entries along the path it walked,
+    // so a link *inside* a symlinked directory gets its own key under that
+    // unresolved path — both `<dir>/lib` and `<dir>/lib/inner.js` exist, and
+    // the more specific one has to win over its symlinked parent.
+    if (typeof symlinks[p] === 'string') return follow(p, origin, hops);
+
     var pos = p.indexOf(sep, 1);
     var depth = 0;
     while (pos > 0 && depth <= maxDepth) {
@@ -744,16 +750,6 @@ function makeSymlinkResolver(symlinks, sep) {
       }
       pos = p.indexOf(sep, pos + 1);
       depth++;
-    }
-
-    // The path itself, checked last: it is the deepest prefix, and POSIX
-    // resolves the shallowest linked component first.
-    if (
-      depth <= maxDepth &&
-      depthHasKey[depth] &&
-      typeof symlinks[p] === 'string'
-    ) {
-      return follow(p, origin, hops);
     }
 
     return p;

@@ -58,18 +58,22 @@ describe('makeSymlinkResolver', () => {
     assert.equal(resolve('/a/b/c'), '/shallow-target/b/c');
   });
 
-  it('applies shallowest-first to the exact path too', () => {
-    // The full path is just the deepest prefix, so an exact hit must not
-    // out-rank a shallower parent — otherwise /a/b and /a/b/c would resolve
-    // through different symlinks.
+  it('prefers an exact entry over its symlinked parent', () => {
+    // The real manifest shape: the walker descends through a symlinked
+    // directory, so a link inside one gets its own key under the unresolved
+    // path. Both keys exist, and the exact (more specific) one must win —
+    // resolving through the parent instead would land on a path the archive
+    // has no entry for. Regression guard for test-99-#295/reallib/inner.js.
     const resolve = makeSymlinkResolver(
       {
-        '/a': '/shallow-target',
-        '/a/b': '/deep-target',
+        '/app/lib': '/app/reallib',
+        '/app/lib/inner.js': '/app/reallib/log.js',
       },
       '/',
     );
-    assert.equal(resolve('/a/b'), '/shallow-target/b');
+    assert.equal(resolve('/app/lib/inner.js'), '/app/reallib/log.js');
+    // A path with no exact entry still follows the symlinked parent.
+    assert.equal(resolve('/app/lib/sub/deep.js'), '/app/reallib/sub/deep.js');
   });
 
   it('chains through multiple independent symlinks', () => {
