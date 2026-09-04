@@ -636,69 +636,132 @@ function installDiagnostic(snapshotPrefix) {
 // SYMLINK PROCESSING //////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-// Matches the typical Linux SYMLOOP_MAX. Bounds the symlink resolution
-// loop so a manifest cycle (or a corrupt manifest) cannot hang startup.
+// Matches the typical Linux SYMLOOP_MAX. Bounds symlink resolution so a
+// manifest cycle (or a corrupt manifest) cannot hang startup.
 var MAX_SYMLINK_DEPTH = 40;
 
-function resolveSymlink(p, sep, symlinks, cache) {
-  // Cache symlink resolution results to avoid re-walking the same path.
-  // The cache is keyed by the original path, not the resolved path, so that
-  // repeated calls with the same input path hit the cache. Only paths that
-  // actually traverse a symlink get cached (see below) — the vast majority
-  // of lookups are non-symlinked files, and most of those are looked up
-  // once (module resolution tries many one-off candidate paths), so
-  // memoizing them would grow the cache unboundedly for no benefit and add
-  // Map overhead to every miss without amortizing it. Bounding the cache to
-  // real hits keeps it both fast and small.
-  var cached = cache.get(p);
-  if (cached !== undefined) return cached;
+// Marks a symlink key whose resolution is still on the stack, so a cycle
+// (/a -> /b -> /a, or /a -> /a/b) is caught instead of recursing forever.
+var RESOLVING = {};
 
-  var original = p;
-  var matched = false;
-  for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
-    // Exact match first (e.g. the path itself is the symlink).
-    var target = symlinks[p];
-    if (!target) {
-      // Walk the path front-to-back (POSIX-style): resolve the shallowest
-      // symlinked component first. This is O(path depth) hash lookups,
-      // independent of how many symlinks exist in the manifest. Symlinks
-      // (e.g. a package manager's node_modules entries) sit near the root
-      // while the remainder of the path can be arbitrarily deep, so this
-      // finds a hit in far fewer lookups than scanning from the leaf
-      // backwards would.
-      var pos = p.indexOf(sep, 1);
-      while (pos > 0) {
-        var prefix = p.slice(0, pos);
-        var t = symlinks[prefix];
-        if (t) {
-          // If the symlink target ends with a separator, we need to skip
-          // the leading separator of the remainder to avoid a double
-          // separator. Otherwise, we can just append the remainder as-is.
-          target = t.endsWith(sep) ? t + p.slice(pos + 1) : t + p.slice(pos);
-          break;
-        }
-        pos = p.indexOf(sep, pos + 1);
-      }
-    }
+/**
+ * Build a symlink resolver over a manifest's symlinks record.
+ *
+ * The returned function maps a virtual path onto what its symlinks point at,
+ * following parent components the way POSIX does: `node_modules/@x/y` being a
+ * link makes `node_modules/@x/y/package.json` resolve too (#295).
+ *
+ * This runs before every fs operation inside a packaged binary (~30K times at
+ * startup on a large project), so the empty-manifest case and the no-match
+ * case are both kept allocation-free.
+ */
+function makeSymlinkResolver(symlinks, sep) {
+  var keys = Object.keys(symlinks || {});
 
-    if (!target) {
-      // No symlink found in the path, so the current path is fully resolved.
-      if (matched) cache.set(original, p);
+  // Nothing to resolve: hand back identity, so no caller needs a guard of its
+  // own and a symlink-free binary pays nothing.
+  if (keys.length === 0) {
+    return function (p) {
       return p;
-    }
-
-    matched = true;
-    p = target;
+    };
   }
 
-  var err = new Error(
-    "ELOOP: too many symbolic links encountered, '" + original + "'",
-  );
-  err.code = 'ELOOP';
-  err.errno = -40;
-  err.syscall = 'stat';
-  err.path = original;
-  throw err;
+  // Symlink keys sit at a handful of depths — a package manager's links all
+  // live at the same level of node_modules. Recording which separator counts
+  // can host a key lets the walk below slice only at those depths and stop
+  // past the deepest one: for a 15-segment path in a tree whose links live at
+  // depth 4, that is one probe instead of fifteen.
+  var depthHasKey = [];
+  var maxDepth = 0;
+  for (var i = 0; i < keys.length; i++) {
+    var depth = 0;
+    var at = keys[i].indexOf(sep, 1);
+    while (at > 0) {
+      depth++;
+      at = keys[i].indexOf(sep, at + 1);
+    }
+    depthHasKey[depth] = true;
+    if (depth > maxDepth) maxDepth = depth;
+  }
+
+  // Symlink key -> its fully resolved target. Keyed by manifest entry rather
+  // than by the caller's path, so the map stays bounded by the manifest no
+  // matter how many distinct paths are looked up — including ones an
+  // application derives from untrusted input. It also amortizes across
+  // siblings: every file under one linked directory reuses a single entry.
+  var resolved = new Map();
+
+  function eloop(origin) {
+    var err = new Error(
+      "ELOOP: too many symbolic links encountered, '" + origin + "'",
+    );
+    err.code = 'ELOOP';
+    err.errno = -40;
+    err.syscall = 'stat';
+    err.path = origin;
+    return err;
+  }
+
+  function follow(key, origin, hops) {
+    var cached = resolved.get(key);
+    if (cached !== undefined) {
+      if (cached === RESOLVING) throw eloop(origin);
+      return cached;
+    }
+    resolved.set(key, RESOLVING);
+    var target;
+    try {
+      target = resolve(symlinks[key], origin, hops + 1);
+    } catch (e) {
+      // Don't leave the sentinel behind, or a caught ELOOP would poison this
+      // key for every later lookup.
+      resolved.delete(key);
+      throw e;
+    }
+    resolved.set(key, target);
+    return target;
+  }
+
+  function resolve(p, origin, hops) {
+    if (hops > MAX_SYMLINK_DEPTH) throw eloop(origin);
+
+    var pos = p.indexOf(sep, 1);
+    var depth = 0;
+    while (pos > 0 && depth <= maxDepth) {
+      if (depthHasKey[depth]) {
+        var prefix = p.slice(0, pos);
+        // typeof, not truthiness: the record is JSON-derived and read with a
+        // bracket index, so `__proto__`/`constructor`/`toString` would
+        // otherwise match on an inherited, non-string value.
+        if (typeof symlinks[prefix] === 'string') {
+          var target = follow(prefix, origin, hops);
+          // Drop the remainder's leading separator when the target already
+          // ends in one, so the join cannot double up.
+          var rest = target.endsWith(sep) ? p.slice(pos + 1) : p.slice(pos);
+          // The remainder may hold links of its own, so walk the result.
+          return resolve(target + rest, origin, hops + 1);
+        }
+      }
+      pos = p.indexOf(sep, pos + 1);
+      depth++;
+    }
+
+    // The path itself, checked last: it is the deepest prefix, and POSIX
+    // resolves the shallowest linked component first.
+    if (
+      depth <= maxDepth &&
+      depthHasKey[depth] &&
+      typeof symlinks[p] === 'string'
+    ) {
+      return follow(p, origin, hops);
+    }
+
+    return p;
+  }
+
+  return function (p) {
+    return resolve(p, p, 0);
+  };
 }
 
 module.exports = {
@@ -711,5 +774,5 @@ module.exports = {
   COMPRESS_NONE: COMPRESS_NONE,
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
-  resolveSymlink: resolveSymlink,
+  makeSymlinkResolver: makeSymlinkResolver,
 };
