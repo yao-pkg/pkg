@@ -231,16 +231,15 @@ function toOriginal(fShort) {
     .join(path.sep);
 }
 
-const hasSymlinks = Object.keys(SYMLINKS).length > 0;
-const symlinkCache = new Map();
-
 // separator for substitution depends on platform;
 const sepsep = DOCOMPRESS ? separator : path.sep;
 
+// The resolver owns the no-symlink fast path and its own memoisation, so
+// there is nothing to guard here.
+const resolveSymlink = REQUIRE_SHARED.makeSymlinkResolver(SYMLINKS, sepsep);
+
 function findVirtualFileSystemKeyAndFollowLinks(path_) {
-  let vfsKey = findVirtualFileSystemKey(path_, path.sep);
-  if (!hasSymlinks) return vfsKey;
-  return REQUIRE_SHARED.resolveSymlink(vfsKey, sepsep, SYMLINKS, symlinkCache);
+  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep));
 }
 
 function realpathFromSnapshot(path_) {
@@ -1097,8 +1096,11 @@ function payloadFileSync(pointer) {
   Dirent.prototype.isSocket = noop;
   Dirent.prototype.isFIFO = noop;
 
+  // typeof, not truthiness: this indexes SYMLINKS with a bare dirent name, so
+  // a snapshot file called `constructor` or `toString` would otherwise report
+  // itself as a symlink.
   Dirent.prototype.isSymbolicLink = (fileOrFolderName) =>
-    Boolean(SYMLINKS[fileOrFolderName]);
+    typeof SYMLINKS[fileOrFolderName] === 'string';
 
   function getFileTypes(path_, entries) {
     return entries.map((entry) => {

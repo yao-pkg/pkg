@@ -147,7 +147,7 @@ var perf = {
       'statSync calls',
       'existsSync calls',
       'readdirSync calls',
-      '_resolveSymlink calls',
+      'symlink resolutions',
     ];
     counterOrder.forEach(function (label) {
       var v = self._counters[label];
@@ -312,8 +312,13 @@ class SEAProvider extends MemoryProvider {
     this._manifest = seaManifest;
     this._fileCache = new Map();
 
-    this._hasSymlinks = Object.keys(seaManifest.symlinks || {}).length > 0;
-    this._symlinkCache = new Map();
+    // One normalised symlinks record for every consumer below, so the
+    // resolver and readlinkSync cannot disagree about whether it may be absent.
+    this._symlinks = seaManifest.symlinks || {};
+    this._resolve = shared.makeSymlinkResolver(this._symlinks, '/');
+    // Only used to keep the perf counter honest on symlink-free binaries; the
+    // resolver owns the fast path itself.
+    this._hasSymlinks = Object.keys(this._symlinks).length > 0;
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
@@ -345,14 +350,9 @@ class SEAProvider extends MemoryProvider {
   }
 
   _resolveSymlink(p) {
-    perf.count('_resolveSymlink calls');
     if (!this._hasSymlinks) return p;
-    return shared.resolveSymlink(
-      p,
-      '/',
-      this._manifest.symlinks,
-      this._symlinkCache,
-    );
+    perf.count('symlink resolutions');
+    return this._resolve(p);
   }
 
   get fileCacheSize() {
@@ -441,12 +441,25 @@ class SEAProvider extends MemoryProvider {
 
   readlinkSync(filePath) {
     // readlinkSync must return the symlink target verbatim, without resolving
-    // it. If the path is not a symlink, fall back to the super method (which throws
-    // ENOENT for non-existent paths).  The manifest's symlinks map is keyed by
-    // the symlink path and contains the target path, so we can look it up directly.
+    // it.  The walker records keys along the path it walked, so a link found
+    // under a symlinked directory is already keyed by that unresolved path and
+    // the raw lookup hits.
     var p = toManifestKey(filePath);
-    var target = this._manifest.symlinks[p];
-    if (target) return target;
+    var target = this._symlinks[p];
+    if (typeof target === 'string') return target;
+    // A link keyed under its *resolved* parent instead is only reachable once
+    // that parent is followed — POSIX readlink resolves the parent and returns
+    // only the final component verbatim.  Same gap as #295, which every
+    // sibling method closes via _resolveSymlink.
+    var slash = p.lastIndexOf('/');
+    if (slash > 0) {
+      var viaParent = this._resolveSymlink(p.slice(0, slash)) + p.slice(slash);
+      if (viaParent !== p) {
+        target = this._symlinks[viaParent];
+        if (typeof target === 'string') return target;
+        p = viaParent;
+      }
+    }
     return super.readlinkSync(p);
   }
 

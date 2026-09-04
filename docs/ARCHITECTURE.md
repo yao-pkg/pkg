@@ -502,6 +502,10 @@ This keeps the VFS setup, shared patches, worker interception, and diagnostics a
 - Set `PKG_EXECPATH` env var so child processes can detect they were spawned from a packaged app
 - Replace references to `node`, `process.argv[0]`, or the entrypoint with `process.execPath` (the actual executable)
 
+**`makeSymlinkResolver(symlinks, sep)`** — Builds the symlink resolver used by **both** modes: the traditional bootstrap (`findVirtualFileSystemKeyAndFollowLinks`) and the SEA provider (`SEAProvider._resolveSymlink`). It returns a function mapping a virtual path onto what its symlinks point at, walking parent components the way POSIX does — so a link at `node_modules/@scope/lib` also resolves `node_modules/@scope/lib/package.json` (#295).
+
+An empty `symlinks` record yields the identity function, so a symlink-free binary pays nothing. Otherwise the resolver precomputes which path depths can host a symlink key and memoises each key's fully resolved target — the memo is keyed by manifest entry, not by the caller's path, so it stays bounded by the manifest however many paths are looked up. A manifest cycle raises `ELOOP` rather than hanging startup.
+
 **`setupProcessPkg(entrypoint)`** — Creates the `process.pkg` compatibility object with `entrypoint`, `defaultEntrypoint`, and `path.resolve()`.
 
 **`installDiagnostic(snapshotPrefix)`** — Installs runtime diagnostics triggered by the `DEBUG_PKG` environment variable. Available in both traditional and SEA modes. The implementation lives in `prelude/bootstrap-shared.js` and is always present in the runtime bootstrap, but it is **only invoked when the binary was built with `--debug` / `-d`** — release builds omit the entrypoint call, so the diagnostic handler never runs and cannot expose the VFS tree contents.
@@ -620,10 +624,10 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | File                             | Lines | Purpose                                                                                      |
 | -------------------------------- | ----- | -------------------------------------------------------------------------------------------- |
 | `prelude/bootstrap.js`           | ~1970 | Traditional runtime bootstrap (fs/module/process patching)                                   |
-| `prelude/bootstrap-shared.js`    | ~486  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics)                     |
+| `prelude/bootstrap-shared.js`    | ~767  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
-| `prelude/sea-vfs-setup.js`       | ~469  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
+| `prelude/sea-vfs-setup.js`       | ~580  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
 | `prelude/sea-worker-entry.js`    | ~11   | Worker thread entry: requires sea-vfs-setup.js for VFS in workers                            |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |
