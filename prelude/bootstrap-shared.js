@@ -640,6 +640,11 @@ function installDiagnostic(snapshotPrefix) {
 // manifest cycle (or a corrupt manifest) cannot hang startup.
 var MAX_SYMLINK_DEPTH = 40;
 
+// libuv gives ELOOP a different number on Windows (uv/errno.h: UV__ELOOP is
+// -4067 there, -40 everywhere else). Same positive-constant, negated-at-use
+// convention as bootstrap.js's own error codes.
+var ELOOP = process.platform === 'win32' ? 4067 : 40;
+
 // Marks a symlink key whose resolution is still on the stack, so a cycle
 // (/a -> /b -> /a, or /a -> /a/b) is caught instead of recursing forever.
 var RESOLVING = {};
@@ -652,8 +657,12 @@ var RESOLVING = {};
  * link makes `node_modules/@x/y/package.json` resolve too (#295).
  *
  * This runs before every fs operation inside a packaged binary (~30K times at
- * startup on a large project), so the empty-manifest case and the no-match
- * case are both kept allocation-free.
+ * startup on a large project). The empty-manifest case is allocation-free; the
+ * no-match case costs one `slice` per depth that actually hosts a key, not one
+ * per path component (see `depthHasKey` below).
+ *
+ * The returned resolver keeps hop-accounting state in its closure, so it is not
+ * reentrant — never call it from inside its own resolution.
  */
 function makeSymlinkResolver(symlinks, sep) {
   var keys = Object.keys(symlinks || {});
@@ -699,13 +708,22 @@ function makeSymlinkResolver(symlinks, sep) {
   // first.
   var deepest = 0;
 
+  // Syscall reported by any ELOOP raised by the resolution in flight. Held in
+  // the closure rather than threaded through resolve()/follow(), which are on
+  // the startup hot path.
+  var syscall = 'stat';
+
   function eloop(origin) {
     var err = new Error(
-      "ELOOP: too many symbolic links encountered, '" + origin + "'",
+      'ELOOP: too many symbolic links encountered, ' +
+        syscall +
+        " '" +
+        origin +
+        "'",
     );
     err.code = 'ELOOP';
-    err.errno = -40;
-    err.syscall = 'stat';
+    err.errno = -ELOOP;
+    err.syscall = syscall;
     err.path = origin;
     return err;
   }
@@ -748,6 +766,12 @@ function makeSymlinkResolver(symlinks, sep) {
     // while a shallower one would strand the walk on a path the archive has no
     // entry for. `<dir>/lib` and `<dir>/lib/sub` can both be keys. An exact
     // match is just the deepest case, so it short-circuits the scan below.
+    //
+    // Deepest-prefix-first is not POSIX's leftmost-first, and the two agree
+    // only because every target the walker records is already a full realpath
+    // (`toNormalizedRealPath` in lib/walker.ts), so no component of a target
+    // can itself be a key. A hand-written manifest that breaks that invariant
+    // would resolve differently here than on disk.
     if (typeof symlinks[p] === 'string') return follow(p, origin, hops);
 
     var bestPos = -1;
@@ -779,8 +803,9 @@ function makeSymlinkResolver(symlinks, sep) {
     return resolve(target + rest, origin, hops + 1);
   }
 
-  return function (p) {
+  return function (p, forSyscall) {
     deepest = 0;
+    syscall = forSyscall || 'stat';
     return resolve(p, p, 0);
   };
 }

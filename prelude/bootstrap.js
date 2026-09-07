@@ -488,6 +488,8 @@ function payloadFileSync(pointer) {
     readdir: fs.readdir,
     realpathSync: fs.realpathSync,
     realpath: fs.realpath,
+    readlinkSync: fs.readlinkSync,
+    readlink: fs.readlink,
     statSync: fs.statSync,
     stat: fs.stat,
     lstatSync: fs.lstatSync,
@@ -514,6 +516,7 @@ function payloadFileSync(pointer) {
   const ENOTDIR = windows ? 4052 : 20;
   const ENOENT = windows ? 4058 : 2;
   const EISDIR = windows ? 4068 : 21;
+  const EINVAL = windows ? 4071 : 22;
 
   function assertEncoding(encoding) {
     if (encoding && !Buffer.isEncoding(encoding)) {
@@ -543,6 +546,18 @@ function payloadFileSync(pointer) {
     const error = new Error('EISDIR: illegal operation on a directory, read');
     error.errno = -EISDIR;
     error.code = 'EISDIR';
+    error.path = path_;
+    error.pkg = true;
+    return error;
+  }
+
+  function error_EINVAL(syscall, path_) {
+    const error = new Error(
+      `EINVAL: invalid argument, ${syscall} '${stripSnapshot(path_)}'`,
+    );
+    error.errno = -EINVAL;
+    error.code = 'EINVAL';
+    error.syscall = syscall;
     error.path = path_;
     error.pkg = true;
     return error;
@@ -1107,14 +1122,20 @@ function payloadFileSync(pointer) {
   function getFileTypes(path_, entries) {
     return entries.map((entry) => {
       const ff = path.join(path_, entry);
-      const entity = findVirtualFileSystemEntry(ff);
-      if (!entity) return undefined;
       // SYMLINKS is keyed by the *unresolved* vfs key, so this asks whether
-      // this entry is itself a link — not whether its target is one.
+      // this entry is itself a link — not whether its target is one. It runs
+      // before the entity lookup, which follows links: an entry whose target
+      // is missing from the snapshot is still a link, and answering
+      // `undefined` there would put a hole in the readdir array.
       // typeof, not truthiness: the record is read with a bracket index, so a
       // key like `constructor` would otherwise match an inherited value.
-      if (typeof SYMLINKS[findVirtualFileSystemKey(ff, path.sep)] === 'string')
-        return new Dirent(entry, 3);
+      const vfsKey = findVirtualFileSystemKey(ff, path.sep);
+      if (typeof SYMLINKS[vfsKey] === 'string') return new Dirent(entry, 3);
+      // Same lookup findVirtualFileSystemEntry() does, reusing the key above
+      // rather than rebuilding it — in DOCOMPRESS mode that is a full
+      // normalize+split+map+join per directory entry.
+      const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey)];
+      if (!entity) return undefined;
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
         return new Dirent(entry, 1);
       if (entity[STORE_LINKS]) return new Dirent(entry, 2);
@@ -1269,6 +1290,56 @@ function payloadFileSync(pointer) {
   fs.realpath.native = fs.realpath;
 
   // ///////////////////////////////////////////////////////////////
+  // readlink //////////////////////////////////////////////////////
+  // ///////////////////////////////////////////////////////////////
+
+  // readdir({ withFileTypes: true }) reports snapshot symlinks as links, so
+  // the usual `if (d.isSymbolicLink()) fs.readlinkSync(p)` pairing has to be
+  // answerable here — unpatched it would fall through to the host fs and
+  // ENOENT on a /snapshot path.
+  function readlinkFromSnapshot(path_) {
+    const vfsKey = findVirtualFileSystemKey(path_, path.sep);
+    const target = SYMLINKS[vfsKey];
+    // typeof, not truthiness: the record is read with a bracket index.
+    if (typeof target === 'string') return toOriginal(target);
+    // Node answers EINVAL for a path that exists but is not a link, and
+    // ENOENT for one that does not exist at all.
+    if (VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey)]) {
+      throw error_EINVAL('readlink', path_);
+    }
+    throw error_ENOENT('File or directory', path_);
+  }
+
+  fs.readlinkSync = function readlinkSync(path_) {
+    if (!insideSnapshot(path_)) {
+      return ancestor.readlinkSync.apply(fs, arguments);
+    }
+    if (insideMountpoint(path_)) {
+      return ancestor.readlinkSync.apply(fs, translateNth(arguments, 0, path_));
+    }
+
+    return readlinkFromSnapshot(path_);
+  };
+
+  fs.readlink = function readlink(path_) {
+    if (!insideSnapshot(path_)) {
+      return ancestor.readlink.apply(fs, arguments);
+    }
+    if (insideMountpoint(path_)) {
+      return ancestor.readlink.apply(fs, translateNth(arguments, 0, path_));
+    }
+
+    const callback = dezalgo(maybeCallback(arguments));
+    let target;
+    try {
+      target = readlinkFromSnapshot(path_);
+    } catch (error) {
+      return callback(error);
+    }
+    callback(null, target);
+  };
+
+  // ///////////////////////////////////////////////////////////////
   // stat //////////////////////////////////////////////////////////
   // ///////////////////////////////////////////////////////////////
 
@@ -1380,6 +1451,38 @@ function payloadFileSync(pointer) {
   // lstat /////////////////////////////////////////////////////////
   // ///////////////////////////////////////////////////////////////
 
+  // lstat must describe the link itself rather than what it points at. The
+  // walker records every stat with fs.stat, so the stored isSymbolicLinkValue
+  // is false even for a link; SYMLINKS — keyed by the *unresolved* vfs key —
+  // is the only source of truth, and it is the same one readdir uses, so the
+  // two cannot disagree about an entry.
+  function asLink(s) {
+    s.isSymbolicLink = () => true;
+    s.isFile = noop;
+    s.isDirectory = noop;
+    return s;
+  }
+
+  function lstatFromSnapshot(path_, cb) {
+    const vfsKey = findVirtualFileSystemKey(path_, path.sep);
+    // typeof, not truthiness: the record is read with a bracket index.
+    if (typeof SYMLINKS[vfsKey] !== 'string') {
+      return statFromSnapshot(path_, cb);
+    }
+    const entity = VIRTUAL_FILESYSTEM[vfsKey];
+    const entityStat = entity && entity[STORE_STAT];
+    // A link the walker recorded without its own stat entry: fall back rather
+    // than invent one.
+    if (!entityStat) return statFromSnapshot(path_, cb);
+    if (cb) {
+      return statFromSnapshotSub(entityStat, (error, s) => {
+        if (error) return cb(error);
+        cb(null, asLink(s));
+      });
+    }
+    return asLink(statFromSnapshotSub(entityStat));
+  }
+
   fs.lstatSync = function lstatSync(path_) {
     if (!insideSnapshot(path_)) {
       return ancestor.lstatSync.apply(fs, arguments);
@@ -1388,7 +1491,7 @@ function payloadFileSync(pointer) {
       return ancestor.lstatSync.apply(fs, translateNth(arguments, 0, path_));
     }
 
-    return statFromSnapshot(path_);
+    return lstatFromSnapshot(path_);
   };
 
   fs.lstat = function lstat(path_) {
@@ -1400,7 +1503,7 @@ function payloadFileSync(pointer) {
     }
 
     const callback = dezalgo(maybeCallback(arguments));
-    statFromSnapshot(path_, callback);
+    lstatFromSnapshot(path_, callback);
   };
 
   // ///////////////////////////////////////////////////////////////
@@ -1552,6 +1655,7 @@ function payloadFileSync(pointer) {
       realpath: fs.promises.realpath,
       stat: fs.promises.stat,
       lstat: fs.promises.lstat,
+      readlink: fs.promises.readlink,
       fstat: fs.promises.fstat,
       access: fs.promises.access,
       copyFile: fs.promises.copyFile,
@@ -1607,13 +1711,13 @@ function payloadFileSync(pointer) {
 
     fs.promises.read = util.promisify(fs.read);
     fs.promises.realpath = util.promisify(fs.realpath);
+    fs.promises.readlink = util.promisify(fs.readlink);
     fs.promises.fstat = util.promisify(fs.fstat);
     fs.promises.statfs = util.promisify(fs.statfs);
     fs.promises.access = util.promisify(fs.access);
 
     // TODO: all promises methods that try to edit files in snapshot should throw
     // TODO implement missing methods
-    // fs.promises.readlink ?
     // fs.promises.opendir ?
   }
 

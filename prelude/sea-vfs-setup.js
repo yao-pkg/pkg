@@ -285,8 +285,9 @@ function _makeStats(meta) {
  *     paid on every call — not memoised, since most lookups are one-off
  *     candidate paths and caching them would grow the cache unboundedly for
  *     no benefit; O(1) amortized only for paths that actually traverse a
- *     symlink, via a Map keyed by the original path — see resolveSymlink()
- *     in bootstrap-shared.js) + O(1) manifest lookup.
+ *     symlink, via a Map keyed by the manifest entry rather than by the
+ *     caller's path — see makeSymlinkResolver() in bootstrap-shared.js)
+ *     + O(1) manifest lookup.
  *     This is the hottest path (~30K calls for large projects).
  *
  *   - statSync()            Same symlink resolution as above + O(1) manifest
@@ -316,9 +317,6 @@ class SEAProvider extends MemoryProvider {
     // resolver and readlinkSync cannot disagree about whether it may be absent.
     this._symlinks = seaManifest.symlinks || {};
     this._resolve = shared.makeSymlinkResolver(this._symlinks, '/');
-    // Only used to keep the perf counter honest on symlink-free binaries; the
-    // resolver owns the fast path itself.
-    this._hasSymlinks = Object.keys(this._symlinks).length > 0;
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
@@ -349,10 +347,14 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p) {
-    if (!this._hasSymlinks) return p;
-    perf.count('symlink resolutions');
-    return this._resolve(p);
+  _resolveSymlink(p, syscall) {
+    // The resolver owns the no-symlink fast path, so there is nothing to guard
+    // here. Counting only the calls that actually moved the path keeps the
+    // counter meaningful on symlink-free binaries, where it used to be skipped
+    // by a separate guard.
+    var resolved = this._resolve(p, syscall);
+    if (resolved !== p) perf.count('symlink resolutions');
+    return resolved;
   }
 
   get fileCacheSize() {
@@ -440,20 +442,25 @@ class SEAProvider extends MemoryProvider {
   }
 
   readlinkSync(filePath) {
-    // readlinkSync must return the symlink target verbatim, without resolving
-    // it.  The walker records keys along the path it walked, so a link found
-    // under a symlinked directory is already keyed by that unresolved path and
-    // the raw lookup hits.
+    // Not reached through fs.readlinkSync: the VFS polyfill answers readlink
+    // by way of realpathSync (findVFSForRealpath in @roberts_lando/vfs), so
+    // this serves direct provider callers only.  Manifest targets are full
+    // realpaths (toNormalizedRealPath in lib/walker.ts), not the raw link body
+    // POSIX readlink would return, so what comes back is a resolved path.
     var p = toManifestKey(filePath);
     var target = this._symlinks[p];
     if (typeof target === 'string') return target;
     // A link keyed under its *resolved* parent instead is only reachable once
     // that parent is followed — POSIX readlink resolves the parent and returns
-    // only the final component verbatim.  Same gap as #295, which every
-    // sibling method closes via _resolveSymlink.
+    // only the final component.  Same gap as #295, which every sibling method
+    // closes via _resolveSymlink.
     var slash = p.lastIndexOf('/');
     if (slash > 0) {
-      var viaParent = this._resolveSymlink(p.slice(0, slash)) + p.slice(slash);
+      var parent = this._resolveSymlink(p.slice(0, slash), 'readlink');
+      // Drop the remainder's leading separator when the resolved parent already
+      // ends in one, so the join cannot produce `//name` and silently miss.
+      var viaParent =
+        parent + (parent.endsWith('/') ? p.slice(slash + 1) : p.slice(slash));
       if (viaParent !== p) {
         target = this._symlinks[viaParent];
         if (typeof target === 'string') return target;
@@ -468,8 +475,11 @@ class SEAProvider extends MemoryProvider {
     // so without this every archive file resolves to ENOENT — which also
     // breaks fs.readlinkSync, since the VFS answers readlink by way of
     // realpath.  Following the symlink chain here is the whole point.
-    var p = this._resolveSymlink(toManifestKey(filePath));
-    if (p in this._manifest.stats) return p;
+    var p = this._resolveSymlink(toManifestKey(filePath), 'realpath');
+    // Own-property truthiness, not `in`: the manifest is JSON-derived and read
+    // with a bracket index, so `in` would report `constructor`/`toString` as
+    // existing files.  Matches every sibling lookup below.
+    if (this._manifest.stats[p]) return p;
     return super.realpathSync(p);
   }
 
@@ -500,7 +510,7 @@ class SEAProvider extends MemoryProvider {
 
   readdirSync(dirPath) {
     perf.count('readdirSync calls');
-    var p = this._resolveSymlink(toManifestKey(dirPath));
+    var p = this._resolveSymlink(toManifestKey(dirPath), 'scandir');
     var entries = this._manifest.directories[p];
     if (entries) return entries.slice();
     return super.readdirSync(p);
@@ -509,7 +519,7 @@ class SEAProvider extends MemoryProvider {
   existsSync(filePath) {
     perf.count('existsSync calls');
     var p = this._resolveSymlink(toManifestKey(filePath));
-    return p in this._manifest.stats;
+    return Boolean(this._manifest.stats[p]);
   }
 }
 

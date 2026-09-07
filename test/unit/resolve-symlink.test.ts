@@ -6,7 +6,7 @@ const shared = createRequire(__filename)('../../prelude/bootstrap-shared.js');
 const makeSymlinkResolver = shared.makeSymlinkResolver as (
   _symlinks: Record<string, string>,
   _sep: string,
-) => (_p: string) => string;
+) => (_p: string, _syscall?: string) => string;
 
 // makeSymlinkResolver() backs both the classic bootstrap (prelude/bootstrap.js)
 // and the SEA VFS provider (prelude/sea-vfs-setup.js) — see #295/#296. These
@@ -145,6 +145,47 @@ describe('makeSymlinkResolver', () => {
         return true;
       },
     );
+  });
+
+  it('gives ELOOP the errno shape Node uses for the platform', () => {
+    // libuv numbers ELOOP differently on Windows (uv/errno.h: -4067 vs -40).
+    const expected = process.platform === 'win32' ? -4067 : -40;
+    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
+    assert.throws(
+      () => resolve('/a/x'),
+      (err: NodeJS.ErrnoException) => {
+        assert.equal(err.code, 'ELOOP');
+        assert.equal(err.errno, expected);
+        assert.equal(err.path, '/a/x');
+        return true;
+      },
+    );
+  });
+
+  it("reports the caller's syscall, defaulting to stat", () => {
+    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
+    assert.throws(
+      () => resolve('/a/x'),
+      (err: NodeJS.ErrnoException) => {
+        assert.equal(err.syscall, 'stat');
+        assert.match(err.message, /^ELOOP: .*, stat '\/a\/x'$/);
+        return true;
+      },
+    );
+    assert.throws(
+      () => resolve('/a/x', 'realpath'),
+      (err: NodeJS.ErrnoException) => {
+        assert.equal(err.syscall, 'realpath');
+        assert.match(err.message, /realpath '\/a\/x'$/);
+        return true;
+      },
+    );
+  });
+
+  it("does not leak the previous call's syscall into the next", () => {
+    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
+    assert.throws(() => resolve('/a/x', 'readlink'), { syscall: 'readlink' });
+    assert.throws(() => resolve('/a/x'), { syscall: 'stat' });
   });
 
   it('keeps throwing ELOOP on a repeat lookup', () => {
