@@ -1096,17 +1096,25 @@ function payloadFileSync(pointer) {
   Dirent.prototype.isSocket = noop;
   Dirent.prototype.isFIFO = noop;
 
-  // typeof, not truthiness: this indexes SYMLINKS with a bare dirent name, so
-  // a snapshot file called `constructor` or `toString` would otherwise report
-  // itself as a symlink.
-  Dirent.prototype.isSymbolicLink = (fileOrFolderName) =>
-    typeof SYMLINKS[fileOrFolderName] === 'string';
+  // fs.Dirent.isSymbolicLink() takes no argument, so the link status has to be
+  // baked into the dirent at construction. 3 is UV_DIRENT_LINK, matching the
+  // type real readdir({ withFileTypes: true }) reports — it lstats, so a link
+  // is a link rather than the file or directory it points at.
+  Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
+    return this.type === 3;
+  };
 
   function getFileTypes(path_, entries) {
     return entries.map((entry) => {
       const ff = path.join(path_, entry);
       const entity = findVirtualFileSystemEntry(ff);
       if (!entity) return undefined;
+      // SYMLINKS is keyed by the *unresolved* vfs key, so this asks whether
+      // this entry is itself a link — not whether its target is one.
+      // typeof, not truthiness: the record is read with a bracket index, so a
+      // key like `constructor` would otherwise match an inherited value.
+      if (typeof SYMLINKS[findVirtualFileSystemKey(ff, path.sep)] === 'string')
+        return new Dirent(entry, 3);
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
         return new Dirent(entry, 1);
       if (entity[STORE_LINKS]) return new Dirent(entry, 2);
