@@ -35,19 +35,37 @@ assert.strictEqual(
   'log.js',
 );
 
-// The VFS answers readlink by way of realpath, so this only holds in SEA
-// mode — the classic bootstrap does not patch fs.readlinkSync at all.
-if (isSea && nestedIsLink) {
+// Both modes answer readlink now: SEA by way of realpath through the VFS
+// polyfill, classic from the SYMLINKS record (#296).
+if (nestedIsLink) {
   assert.strictEqual(path.basename(fs.readlinkSync(nested)), 'log.js');
 }
 
+// readlink on a path that exists but is not a link is EINVAL, not ENOENT.
+// Classic mode only: in SEA mode the VFS polyfill answers readlink through
+// realpathSync without ever consulting the provider, so a non-link returns a
+// resolved path instead of throwing (yao-pkg/pkg#299, upstream routing).
+if (!isSea) {
+  assert.throws(() => fs.readlinkSync(path.join(__dirname, 'index.js')), {
+    code: 'EINVAL',
+  });
+}
+
+// readdir must return a usable listing in both modes. SEA builds its listing
+// from manifest.directories, which holds only the paths the walker recorded,
+// so which entries appear there is not asserted — only that it works at all.
+const dirents = fs.readdirSync(__dirname, { withFileTypes: true });
+assert.ok(
+  Array.isArray(dirents) && dirents.length > 0,
+  'readdir returned nothing',
+);
+
 // Classic-mode readdir is lstat-based, so a link reports as a link rather
 // than as the directory it points at — same as it does outside a packaged
-// binary. The SEA provider builds its listing from manifest.directories,
-// which holds resolved paths only, so it does not surface link entries at
-// all; that gap is tracked separately.
+// binary — and lstat must agree with the dirent. The SEA provider builds its
+// listing from manifest.directories, which holds resolved paths only, so it
+// does not surface link entries at all.
 if (!isSea) {
-  const dirents = fs.readdirSync(__dirname, { withFileTypes: true });
   const libEntry = dirents.find((e) => e.name === 'lib');
   assert.ok(libEntry, 'lib missing from readdir');
   assert.strictEqual(libEntry.isSymbolicLink(), true);
@@ -56,6 +74,17 @@ if (!isSea) {
   assert.ok(reallibEntry, 'reallib missing from readdir');
   assert.strictEqual(reallibEntry.isSymbolicLink(), false);
   assert.strictEqual(reallibEntry.isDirectory(), true);
+
+  // lstat describes the link itself; stat follows it. readdir and lstat must
+  // not contradict each other about the same entry.
+  const libPath = path.join(__dirname, 'lib');
+  assert.strictEqual(fs.lstatSync(libPath).isSymbolicLink(), true);
+  assert.strictEqual(fs.lstatSync(libPath).isDirectory(), false);
+  assert.strictEqual(fs.statSync(libPath).isDirectory(), true);
+  assert.strictEqual(fs.statSync(libPath).isSymbolicLink(), false);
+
+  // readlink round-trips the directory link too.
+  assert.strictEqual(path.basename(fs.readlinkSync(libPath)), 'reallib');
 }
 
 log(42);
