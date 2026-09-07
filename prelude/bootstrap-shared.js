@@ -684,12 +684,20 @@ function makeSymlinkResolver(symlinks, sep) {
     if (depth > maxDepth) maxDepth = depth;
   }
 
-  // Symlink key -> its fully resolved target. Keyed by manifest entry rather
-  // than by the caller's path, so the map stays bounded by the manifest no
-  // matter how many distinct paths are looked up — including ones an
-  // application derives from untrusted input. It also amortizes across
-  // siblings: every file under one linked directory reuses a single entry.
+  // Symlink key -> { target, cost }: where the key fully resolves to, and how
+  // many hops that took. Keyed by manifest entry rather than by the caller's
+  // path, so the map stays bounded by the manifest no matter how many distinct
+  // paths are looked up — including ones an application derives from untrusted
+  // input. It also amortizes across siblings: every file under one linked
+  // directory reuses a single entry.
   var resolved = new Map();
+
+  // High-water hop count of the resolution currently in flight. follow() reads
+  // it to record each key's `cost`, so a cache hit can charge the hops the
+  // collapsed chain stands for instead of getting them for free — otherwise
+  // MAX_SYMLINK_DEPTH would depend on which path happened to be looked up
+  // first.
+  var deepest = 0;
 
   function eloop(origin) {
     var err = new Error(
@@ -706,9 +714,16 @@ function makeSymlinkResolver(symlinks, sep) {
     var cached = resolved.get(key);
     if (cached !== undefined) {
       if (cached === RESOLVING) throw eloop(origin);
-      return cached;
+      var reached = hops + cached.cost;
+      if (reached > MAX_SYMLINK_DEPTH) throw eloop(origin);
+      if (reached > deepest) deepest = reached;
+      return cached.target;
     }
     resolved.set(key, RESOLVING);
+    // Restart the high-water mark at this key's depth so `cost` measures this
+    // subtree alone, then fold it back into the caller's mark on the way out.
+    var outer = deepest;
+    deepest = hops;
     var target;
     try {
       target = resolve(symlinks[key], origin, hops + 1);
@@ -718,19 +733,25 @@ function makeSymlinkResolver(symlinks, sep) {
       resolved.delete(key);
       throw e;
     }
-    resolved.set(key, target);
+    resolved.set(key, { target: target, cost: deepest - hops });
+    if (outer > deepest) deepest = outer;
     return target;
   }
 
   function resolve(p, origin, hops) {
     if (hops > MAX_SYMLINK_DEPTH) throw eloop(origin);
+    if (hops > deepest) deepest = hops;
 
-    // Exact match first.  The walker records entries along the path it walked,
-    // so a link *inside* a symlinked directory gets its own key under that
-    // unresolved path — both `<dir>/lib` and `<dir>/lib/inner.js` exist, and
-    // the more specific one has to win over its symlinked parent.
+    // Longest prefix wins. The walker keys every entry on the *unresolved*
+    // path it walked (`appendSymlink` in lib/walker.ts) and each target is
+    // already fully realpath'd, so the deepest key describes the whole chain
+    // while a shallower one would strand the walk on a path the archive has no
+    // entry for. `<dir>/lib` and `<dir>/lib/sub` can both be keys. An exact
+    // match is just the deepest case, so it short-circuits the scan below.
     if (typeof symlinks[p] === 'string') return follow(p, origin, hops);
 
+    var bestPos = -1;
+    var bestKey = null;
     var pos = p.indexOf(sep, 1);
     var depth = 0;
     while (pos > 0 && depth <= maxDepth) {
@@ -740,22 +761,26 @@ function makeSymlinkResolver(symlinks, sep) {
         // bracket index, so `__proto__`/`constructor`/`toString` would
         // otherwise match on an inherited, non-string value.
         if (typeof symlinks[prefix] === 'string') {
-          var target = follow(prefix, origin, hops);
-          // Drop the remainder's leading separator when the target already
-          // ends in one, so the join cannot double up.
-          var rest = target.endsWith(sep) ? p.slice(pos + 1) : p.slice(pos);
-          // The remainder may hold links of its own, so walk the result.
-          return resolve(target + rest, origin, hops + 1);
+          bestPos = pos;
+          bestKey = prefix;
         }
       }
       pos = p.indexOf(sep, pos + 1);
       depth++;
     }
 
-    return p;
+    if (bestKey === null) return p;
+
+    var target = follow(bestKey, origin, hops);
+    // Drop the remainder's leading separator when the target already ends in
+    // one, so the join cannot double up.
+    var rest = target.endsWith(sep) ? p.slice(bestPos + 1) : p.slice(bestPos);
+    // The remainder may hold links of its own, so walk the result.
+    return resolve(target + rest, origin, hops + 1);
   }
 
   return function (p) {
+    deepest = 0;
     return resolve(p, p, 0);
   };
 }

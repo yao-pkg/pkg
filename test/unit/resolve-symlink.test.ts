@@ -41,13 +41,12 @@ describe('makeSymlinkResolver', () => {
     );
   });
 
-  it('resolves the shallowest matching symlink first (POSIX order)', () => {
-    // Two independent symlinks where one path is a literal prefix of the
-    // other. Real manifests built from an actual filesystem walk can't
-    // produce this (a symlinked directory's contents aren't walked, so
-    // nothing "under" it becomes a separate entry) — this is a synthetic
-    // case to lock in walk direction, matching real POSIX symlink
-    // resolution (shallowest component wins, not longest-prefix-match).
+  it('resolves the deepest matching symlink (longest prefix wins)', () => {
+    // Two symlinks where one key is a literal prefix of the other. The walker
+    // keys entries on the path it walked, *before* resolution, and every
+    // target is already fully realpath'd — so the deeper key is the complete
+    // answer and taking the shallower one would strand the walk on a path the
+    // archive has no entry for.
     const resolve = makeSymlinkResolver(
       {
         '/a': '/shallow-target',
@@ -55,7 +54,27 @@ describe('makeSymlinkResolver', () => {
       },
       '/',
     );
-    assert.equal(resolve('/a/b/c'), '/shallow-target/b/c');
+    assert.equal(resolve('/a/b/c'), '/deep-target/c');
+  });
+
+  it('follows a directory symlink nested inside another one', () => {
+    // The real manifest shape behind the case above: `walker.appendSymlink`
+    // records `<dir>/sub` under the unresolved path because it descended
+    // through the `<dir>` link to reach it. Resolving the parent first would
+    // yield /app/reallib/sub/file.js, which the archive has no entry for.
+    const resolve = makeSymlinkResolver(
+      {
+        '/app/lib': '/app/reallib',
+        '/app/lib/sub': '/app/reallib/realsub',
+      },
+      '/',
+    );
+    assert.equal(
+      resolve('/app/lib/sub/file.js'),
+      '/app/reallib/realsub/file.js',
+    );
+    // A sibling with no entry of its own still follows the parent link.
+    assert.equal(resolve('/app/lib/other.js'), '/app/reallib/other.js');
   });
 
   it('prefers an exact entry over its symlinked parent', () => {
@@ -134,6 +153,51 @@ describe('makeSymlinkResolver', () => {
     const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
     assert.throws(() => resolve('/a/x'), { code: 'ELOOP' });
     assert.throws(() => resolve('/a/y'), { code: 'ELOOP' });
+  });
+
+  describe('the MAX_SYMLINK_DEPTH bound', () => {
+    // Chain of `n` links ending at '/end': /l0 -> /l1 -> ... -> /ln -> /end.
+    const chain = (n: number) => {
+      const m: Record<string, string> = {};
+      for (let i = 0; i < n; i += 1) m[`/l${i}`] = `/l${i + 1}`;
+      m[`/l${n}`] = '/end';
+      return m;
+    };
+
+    it('does not depend on which path was resolved first', () => {
+      // A cache hit hands back a target that stands for many hops. Those hops
+      // have to be charged back, or warming the tail of an over-long chain
+      // would let the head through the bound that a cold lookup rejects.
+      const cold = makeSymlinkResolver(chain(41), '/');
+      assert.throws(() => cold('/l0'), { code: 'ELOOP' });
+
+      const warm = makeSymlinkResolver(chain(41), '/');
+      warm('/l20');
+      assert.throws(() => warm('/l0'), { code: 'ELOOP' });
+    });
+
+    it('still resolves a chain that fits, warm or cold', () => {
+      const cold = makeSymlinkResolver(chain(30), '/');
+      assert.equal(cold('/l0'), '/end');
+
+      const warm = makeSymlinkResolver(chain(30), '/');
+      warm('/l15');
+      assert.equal(warm('/l0'), '/end');
+    });
+
+    it('charges each key only for its own hops', () => {
+      // '/end/short' is one hop, but it is first reached at the tail of a long
+      // chain. Billing it the whole chain's depth would make a later, shallow
+      // lookup through it blow the bound for no reason.
+      const symlinks: Record<string, string> = chain(38);
+      symlinks['/end/short'] = '/y';
+      symlinks['/p'] = '/q';
+      symlinks['/q'] = '/r';
+      symlinks['/r'] = '/end/short';
+      const resolve = makeSymlinkResolver(symlinks, '/');
+      assert.equal(resolve('/l0/short/f.js'), '/y/f.js');
+      assert.equal(resolve('/p/f.js'), '/y/f.js');
+    });
   });
 
   it('is separator-agnostic (works with a non-"/" separator)', () => {
