@@ -467,7 +467,7 @@ This keeps the VFS setup, shared patches, worker interception, and diagnostics a
 
 ## Shared Runtime Code
 
-`prelude/bootstrap-shared.js` (~438 lines) contains runtime patches used by both bootstraps:
+`prelude/bootstrap-shared.js` (~763 lines) contains runtime patches used by both bootstraps:
 
 ### Injection Mechanisms
 
@@ -624,7 +624,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | File                             | Lines | Purpose                                                                                      |
 | -------------------------------- | ----- | -------------------------------------------------------------------------------------------- |
 | `prelude/bootstrap.js`           | ~1970 | Traditional runtime bootstrap (fs/module/process patching)                                   |
-| `prelude/bootstrap-shared.js`    | ~767  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
+| `prelude/bootstrap-shared.js`    | ~763  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
 | `prelude/sea-vfs-setup.js`       | ~580  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
