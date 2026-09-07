@@ -107,6 +107,7 @@ function detectESMFeatures(
             parent.isFunctionDeclaration() ||
             parent.isFunctionExpression() ||
             parent.isArrowFunctionExpression() ||
+            parent.isClassPrivateMethod() ||
             parent.isObjectMethod() ||
             parent.isClassMethod()
           ) {
@@ -136,6 +137,7 @@ function detectESMFeatures(
               parent.isFunctionDeclaration() ||
               parent.isFunctionExpression() ||
               parent.isArrowFunctionExpression() ||
+              parent.isClassPrivateMethod() ||
               parent.isObjectMethod() ||
               parent.isClassMethod()
             ) {
