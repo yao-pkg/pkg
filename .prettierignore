@@ -3,4 +3,7 @@ lib-es5/
 prelude/sea-bootstrap.bundle.js
 # Symlink needed for test
 test/test-99-#108/lib/log.js
+# Built by test-99-#295/main.js at test time, removed again afterwards
+test/test-99-#295/lib
 test/test-99-#295/reallib/inner.js
+test/test-99-#295/linkinfo.json
