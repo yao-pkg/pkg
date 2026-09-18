@@ -238,17 +238,26 @@ const sepsep = DOCOMPRESS ? separator : path.sep;
 // there is nothing to guard here.
 const resolveSymlink = REQUIRE_SHARED.makeSymlinkResolver(SYMLINKS, sepsep);
 
-function findVirtualFileSystemKeyAndFollowLinks(path_) {
-  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep));
+// syscall names the fs call in flight, so an ELOOP out of the resolver says
+// which one hit it rather than always saying `stat`. path_ is passed through as
+// the error's path because the resolver only ever sees the vfs key.
+function findVirtualFileSystemKeyAndFollowLinks(path_, syscall) {
+  return resolveSymlink(
+    findVirtualFileSystemKey(path_, path.sep),
+    syscall,
+    path_,
+  );
 }
 
 function realpathFromSnapshot(path_) {
-  const realPath = toOriginal(findVirtualFileSystemKeyAndFollowLinks(path_));
+  const realPath = toOriginal(
+    findVirtualFileSystemKeyAndFollowLinks(path_, 'realpath'),
+  );
   return realPath;
 }
 
-function findVirtualFileSystemEntry(path_) {
-  const vfsKey = findVirtualFileSystemKeyAndFollowLinks(path_);
+function findVirtualFileSystemEntry(path_, syscall) {
+  const vfsKey = findVirtualFileSystemKeyAndFollowLinks(path_, syscall);
   return VIRTUAL_FILESYSTEM[vfsKey];
 }
 
@@ -628,7 +637,7 @@ function payloadFileSync(pointer) {
   };
 
   function uncompressExternallyPath(path_) {
-    const entity = findVirtualFileSystemEntry(path_);
+    const entity = findVirtualFileSystemEntry(path_, 'open');
     const dock = { path: path_, entity, position: 0 };
     return uncompressExternally(dock);
   }
@@ -641,7 +650,7 @@ function payloadFileSync(pointer) {
 
   function openFromSnapshot(path_, uncompress, cb) {
     const cb2 = cb || rethrow;
-    const entity = findVirtualFileSystemEntry(path_);
+    const entity = findVirtualFileSystemEntry(path_, 'open');
     if (!entity) return cb2(error_ENOENT('File or directory', path_));
     const dock = { path: path_, entity, position: 0 };
 
@@ -932,7 +941,7 @@ function payloadFileSync(pointer) {
   function readFileFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
 
-    const entity = findVirtualFileSystemEntry(path_);
+    const entity = findVirtualFileSystemEntry(path_, 'open');
     if (!entity) return cb2(error_ENOENT('File', path_));
 
     const entityLinks = entity[STORE_LINKS];
@@ -1134,7 +1143,7 @@ function payloadFileSync(pointer) {
       // Same lookup findVirtualFileSystemEntry() does, reusing the key above
       // rather than rebuilding it — in DOCOMPRESS mode that is a full
       // normalize+split+map+join per directory entry.
-      const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey)];
+      const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, 'scandir', ff)];
       if (!entity) return undefined;
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
         return new Dirent(entry, 1);
@@ -1179,7 +1188,7 @@ function payloadFileSync(pointer) {
 
   function readdirFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    const entity = findVirtualFileSystemEntry(path_);
+    const entity = findVirtualFileSystemEntry(path_, 'scandir');
 
     if (!entity) {
       return cb2(error_ENOENT('Directory', path_));
@@ -1297,6 +1306,23 @@ function payloadFileSync(pointer) {
   // the usual `if (d.isSymbolicLink()) fs.readlinkSync(p)` pairing has to be
   // answerable here — unpatched it would fall through to the host fs and
   // ENOENT on a /snapshot path.
+  // Node takes readlink's options as a string encoding or an { encoding }
+  // object, and answers a Buffer for 'buffer'.
+  function readlinkEncoding(options) {
+    const encoding =
+      typeof options === 'string' ? options : options && options.encoding;
+    assertEncoding(encoding === 'buffer' ? undefined : encoding);
+    return encoding;
+  }
+
+  function applyReadlinkEncoding(target, encoding) {
+    if (encoding === 'buffer') return Buffer.from(target);
+    if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
+      return Buffer.from(target).toString(encoding);
+    }
+    return target;
+  }
+
   function readlinkFromSnapshot(path_) {
     const vfsKey = findVirtualFileSystemKey(path_, path.sep);
     const target = SYMLINKS[vfsKey];
@@ -1304,13 +1330,13 @@ function payloadFileSync(pointer) {
     if (typeof target === 'string') return toOriginal(target);
     // Node answers EINVAL for a path that exists but is not a link, and
     // ENOENT for one that does not exist at all.
-    if (VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey)]) {
+    if (VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, 'readlink', path_)]) {
       throw error_EINVAL('readlink', path_);
     }
     throw error_ENOENT('File or directory', path_);
   }
 
-  fs.readlinkSync = function readlinkSync(path_) {
+  fs.readlinkSync = function readlinkSync(path_, options) {
     if (!insideSnapshot(path_)) {
       return ancestor.readlinkSync.apply(fs, arguments);
     }
@@ -1318,10 +1344,11 @@ function payloadFileSync(pointer) {
       return ancestor.readlinkSync.apply(fs, translateNth(arguments, 0, path_));
     }
 
-    return readlinkFromSnapshot(path_);
+    const encoding = readlinkEncoding(options);
+    return applyReadlinkEncoding(readlinkFromSnapshot(path_), encoding);
   };
 
-  fs.readlink = function readlink(path_) {
+  fs.readlink = function readlink(path_, options) {
     if (!insideSnapshot(path_)) {
       return ancestor.readlink.apply(fs, arguments);
     }
@@ -1329,6 +1356,9 @@ function payloadFileSync(pointer) {
       return ancestor.readlink.apply(fs, translateNth(arguments, 0, path_));
     }
 
+    const encoding = readlinkEncoding(
+      typeof options === 'function' ? undefined : options,
+    );
     const callback = dezalgo(maybeCallback(arguments));
     let target;
     try {
@@ -1336,7 +1366,7 @@ function payloadFileSync(pointer) {
     } catch (error) {
       return callback(error);
     }
-    callback(null, target);
+    callback(null, applyReadlinkEncoding(target, encoding));
   };
 
   // ///////////////////////////////////////////////////////////////
@@ -1417,7 +1447,7 @@ function payloadFileSync(pointer) {
 
   function statFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    const entity = findVirtualFileSystemEntry(path_);
+    const entity = findVirtualFileSystemEntry(path_, 'stat');
     if (!entity) return findNativeAddonForStat(path_, cb);
     const entityStat = entity[STORE_STAT];
     if (entityStat) return statFromSnapshotSub(entityStat, cb);
@@ -1456,10 +1486,19 @@ function payloadFileSync(pointer) {
   // is false even for a link; SYMLINKS — keyed by the *unresolved* vfs key —
   // is the only source of truth, and it is the same one readdir uses, so the
   // two cannot disagree about an entry.
+  // POSIX file-type bits. The walker stats through the link, so a link's mode
+  // arrives describing its target; consumers that sniff `mode & S_IFMT`
+  // (tar, archiver, fs.cp) would then contradict isSymbolicLink().
+  const S_IFMT = 0o170000;
+  const S_IFLNK = 0o120000;
+
   function asLink(s) {
     s.isSymbolicLink = () => true;
     s.isFile = noop;
     s.isDirectory = noop;
+    if (typeof s.mode === 'number') {
+      s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
+    }
     return s;
   }
 
@@ -1546,7 +1585,16 @@ function payloadFileSync(pointer) {
   }
 
   function existsFromSnapshot(path_) {
-    const entity = findVirtualFileSystemEntry(path_);
+    let entity;
+    try {
+      entity = findVirtualFileSystemEntry(path_);
+    } catch (error) {
+      // fs.existsSync never throws — libuv swallows every errno and answers
+      // false — so a symlink cycle in the manifest has to read as "no" here
+      // rather than escaping into a caller that has no catch.
+      if (error.code === 'ELOOP') return false;
+      throw error;
+    }
     if (!entity) return findNativeAddonForExists(path_);
     return true;
   }
@@ -1580,7 +1628,7 @@ function payloadFileSync(pointer) {
 
   function accessFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    const entity = findVirtualFileSystemEntry(path_);
+    const entity = findVirtualFileSystemEntry(path_, 'access');
     if (!entity) return cb2(error_ENOENT('File or directory', path_));
     return cb2(null, undefined);
   }
@@ -1757,7 +1805,15 @@ function payloadFileSync(pointer) {
         .internalModuleStat(makeLong(translate(path_)));
     }
 
-    const entity = findVirtualFileSystemEntry(path_);
+    let entity;
+    try {
+      entity = findVirtualFileSystemEntry(path_);
+    } catch (error) {
+      // Contract is a negative errno, not a throw: module resolution calls
+      // this and would turn a cyclic manifest into an uncaught exception.
+      if (error.code === 'ELOOP') return error.errno;
+      throw error;
+    }
 
     if (!entity) {
       return findNativeAddonForInternalModuleStat(path_);
@@ -1806,7 +1862,7 @@ function payloadFileSync(pointer) {
       return readFile(makeLong(translate(path_)));
     }
 
-    const entity = findVirtualFileSystemEntry(path_);
+    const entity = findVirtualFileSystemEntry(path_, 'open');
 
     if (!entity) {
       return returnArray ? [undefined, false] : undefined;
@@ -1888,7 +1944,7 @@ function payloadFileSync(pointer) {
       return ancestor._compile.apply(this, arguments);
     }
 
-    const entity = findVirtualFileSystemEntry(filename_);
+    const entity = findVirtualFileSystemEntry(filename_, 'open');
 
     if (!entity) {
       // let user try to "_compile" a packaged file

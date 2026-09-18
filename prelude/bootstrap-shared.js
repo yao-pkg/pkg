@@ -3,8 +3,9 @@
 // Shared runtime utilities used by both the traditional bootstrap and
 // the SEA bootstrap.  Each consumer require()s or inlines this module.
 //
-// Traditional bootstrap: inlined via REQUIRE_COMMON (already has its
-//   own common.ts path helpers) — only calls the functions exported here.
+// Traditional bootstrap: inlined via REQUIRE_SHARED (already has its
+//   own common.ts path helpers via REQUIRE_COMMON) — only calls the
+//   functions exported here.
 // SEA bootstrap: bundled by esbuild via require('./bootstrap-shared').
 
 var childProcess = require('child_process');
@@ -606,6 +607,8 @@ function installDiagnostic(snapshotPrefix) {
     wrap(fs, 'readdir');
     wrap(fs, 'realpathSync');
     wrap(fs, 'realpath');
+    wrap(fs, 'readlinkSync');
+    wrap(fs, 'readlink');
     wrap(fs, 'statSync');
     wrap(fs, 'stat');
     wrap(fs, 'lstatSync');
@@ -725,6 +728,9 @@ function makeSymlinkResolver(symlinks, sep) {
     err.errno = -ELOOP;
     err.syscall = syscall;
     err.path = origin;
+    // Same marker every error factory in bootstrap.js sets, so the module
+    // wrapper there does not re-decorate a path this error already presents.
+    err.pkg = true;
     return err;
   }
 
@@ -803,10 +809,12 @@ function makeSymlinkResolver(symlinks, sep) {
     return resolve(target + rest, origin, hops + 1);
   }
 
-  return function (p, forSyscall) {
+  return function (p, forSyscall, forPath) {
     deepest = 0;
     syscall = forSyscall || 'stat';
-    return resolve(p, p, 0);
+    // forPath is what an ELOOP reports. Callers pass the user's path, because
+    // `p` is a vfs key — base36 under DOCOMPRESS, and never what was asked for.
+    return resolve(p, forPath === undefined ? p : forPath, 0);
   };
 }
 

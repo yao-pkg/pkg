@@ -347,12 +347,12 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p, syscall) {
+  _resolveSymlink(p, syscall, forPath) {
     // The resolver owns the no-symlink fast path, so there is nothing to guard
     // here. Counting only the calls that actually moved the path keeps the
     // counter meaningful on symlink-free binaries, where it used to be skipped
     // by a separate guard.
-    var resolved = this._resolve(p, syscall);
+    var resolved = this._resolve(p, syscall, forPath);
     if (resolved !== p) perf.count('symlink resolutions');
     return resolved;
   }
@@ -362,7 +362,7 @@ class SEAProvider extends MemoryProvider {
   }
 
   readFileSync(filePath, options) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(toManifestKey(filePath), 'open', filePath);
     // Fast path: for compressed archives, a per-file decompressed Buffer is
     // memoised in _fileCache (decompression is expensive and most prelude
     // modules are read once during module resolution, twice for the compile
@@ -456,7 +456,11 @@ class SEAProvider extends MemoryProvider {
     // closes via _resolveSymlink.
     var slash = p.lastIndexOf('/');
     if (slash > 0) {
-      var parent = this._resolveSymlink(p.slice(0, slash), 'readlink');
+      var parent = this._resolveSymlink(
+        p.slice(0, slash),
+        'readlink',
+        filePath,
+      );
       // Drop the remainder's leading separator when the resolved parent already
       // ends in one, so the join cannot produce `//name` and silently miss.
       var viaParent =
@@ -475,17 +479,18 @@ class SEAProvider extends MemoryProvider {
     // so without this every archive file resolves to ENOENT — which also
     // breaks fs.readlinkSync, since the VFS answers readlink by way of
     // realpath.  Following the symlink chain here is the whole point.
-    var p = this._resolveSymlink(toManifestKey(filePath), 'realpath');
-    // Own-property truthiness, not `in`: the manifest is JSON-derived and read
-    // with a bracket index, so `in` would report `constructor`/`toString` as
-    // existing files.  Matches every sibling lookup below.
-    if (this._manifest.stats[p]) return p;
+    var p = this._resolveSymlink(toManifestKey(filePath), 'realpath', filePath);
+    // typeof, not `in` or truthiness: the manifest is JSON-derived and read
+    // with a bracket index, so both would report `constructor`/`toString` as
+    // existing files — an inherited hit is a function, a real one is a stat
+    // record.  Same idiom as the resolver's `typeof === 'string'`.
+    if (typeof this._manifest.stats[p] === 'object') return p;
     return super.realpathSync(p);
   }
 
   statSync(filePath) {
     perf.count('statSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(toManifestKey(filePath), 'stat', filePath);
     var meta = this._manifest.stats[p];
     if (meta) {
       // Return a fresh stat object — matches Node.js fs.statSync contract.
@@ -500,7 +505,15 @@ class SEAProvider extends MemoryProvider {
    * startup (~30K calls for large projects) so it must be as lean as possible.
    */
   internalModuleStat(filePath) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p;
+    try {
+      p = this._resolveSymlink(toManifestKey(filePath), 'stat', filePath);
+    } catch (error) {
+      // Negative errno, not a throw: module resolution calls this and a cyclic
+      // manifest must not become an uncaught exception during require().
+      if (error.code === 'ELOOP') return error.errno;
+      throw error;
+    }
     var meta = this._manifest.stats[p];
     if (meta) {
       return meta.isDirectory ? 1 : 0;
@@ -510,7 +523,7 @@ class SEAProvider extends MemoryProvider {
 
   readdirSync(dirPath) {
     perf.count('readdirSync calls');
-    var p = this._resolveSymlink(toManifestKey(dirPath), 'scandir');
+    var p = this._resolveSymlink(toManifestKey(dirPath), 'scandir', dirPath);
     var entries = this._manifest.directories[p];
     if (entries) return entries.slice();
     return super.readdirSync(p);
@@ -518,8 +531,18 @@ class SEAProvider extends MemoryProvider {
 
   existsSync(filePath) {
     perf.count('existsSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
-    return Boolean(this._manifest.stats[p]);
+    var p;
+    try {
+      p = this._resolveSymlink(toManifestKey(filePath), 'access', filePath);
+    } catch (error) {
+      // fs.existsSync never throws, and @roberts_lando/vfs calls this one
+      // outside its try (module_hooks.js findVFSForRealpath), so an ELOOP here
+      // would escape fs.realpathSync and fs.readlinkSync as well.
+      if (error.code === 'ELOOP') return false;
+      throw error;
+    }
+    // typeof, not truthiness — see realpathSync.
+    return typeof this._manifest.stats[p] === 'object';
   }
 }
 
@@ -556,6 +579,14 @@ if (process.platform === 'win32') {
   var _origResolvePath = VirtualFileSystem.prototype.resolvePath;
   VirtualFileSystem.prototype.resolvePath = function (inputPath) {
     return _origResolvePath.call(this, _winToVFS(inputPath));
+  };
+  // ...and convert back on the way out. realpathSync is the only method that
+  // returns a path, and it rejoins the POSIX mount prefix, so without this it
+  // answers `/snapshot/app/x.js` where __filename is `C:\snapshot\app\x.js`
+  // — the two stop comparing equal and path.relative() against either breaks.
+  var _origRealpathSync = VirtualFileSystem.prototype.realpathSync;
+  VirtualFileSystem.prototype.realpathSync = function (filePath, options) {
+    return toPlatformPath(_origRealpathSync.call(this, filePath, options));
   };
 }
 

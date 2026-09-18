@@ -6,7 +6,7 @@ const shared = createRequire(__filename)('../../prelude/bootstrap-shared.js');
 const makeSymlinkResolver = shared.makeSymlinkResolver as (
   _symlinks: Record<string, string>,
   _sep: string,
-) => (_p: string, _syscall?: string) => string;
+) => (_p: string, _syscall?: string, _forPath?: string) => string;
 
 // makeSymlinkResolver() backs both the classic bootstrap (prelude/bootstrap.js)
 // and the SEA VFS provider (prelude/sea-vfs-setup.js) — see #295/#296. These
@@ -28,6 +28,21 @@ describe('makeSymlinkResolver', () => {
       '/',
     );
     assert.equal(resolve('/snapshot/linked'), '/snapshot/real');
+  });
+
+  it('does not match a key that is only a string prefix of the path', () => {
+    // The scan slices at separator offsets, so /snapshot/foo must not swallow
+    // /snapshot/foobar. A naive startsWith() would pass every other case here.
+    const resolve = makeSymlinkResolver(
+      { '/snapshot/foo': '/snapshot/real' },
+      '/',
+    );
+    assert.equal(
+      resolve('/snapshot/foobar/x.js'),
+      '/snapshot/foobar/x.js',
+      'sibling with a longer name must be left alone',
+    );
+    assert.equal(resolve('/snapshot/foo/x.js'), '/snapshot/real/x.js');
   });
 
   it('resolves a nested path under a symlinked directory', () => {
@@ -177,6 +192,36 @@ describe('makeSymlinkResolver', () => {
       (err: NodeJS.ErrnoException) => {
         assert.equal(err.syscall, 'realpath');
         assert.match(err.message, /realpath '\/a\/x'$/);
+        return true;
+      },
+    );
+  });
+
+  it("reports the caller's path, not the vfs key, when given one", () => {
+    // Under DOCOMPRESS the key is base36, so the bare key means nothing to the
+    // user reading the error.
+    const resolve = makeSymlinkResolver({ '/1': '/1/2' }, '/');
+    assert.throws(
+      () => resolve('/1/2', 'stat', '/snapshot/app/lib/index.js'),
+      (err: NodeJS.ErrnoException) => {
+        assert.equal(err.code, 'ELOOP');
+        assert.equal(err.path, '/snapshot/app/lib/index.js');
+        assert.match(err.message, /'\/snapshot\/app\/lib\/index\.js'$/);
+        return true;
+      },
+    );
+  });
+
+  it('marks ELOOP as pkg-originated, like the other snapshot errors', () => {
+    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
+    assert.throws(
+      () => resolve('/a/x'),
+      (
+        err: NodeJS.ErrnoException & {
+          pkg?: boolean;
+        },
+      ) => {
+        assert.equal(err.pkg, true);
         return true;
       },
     );
