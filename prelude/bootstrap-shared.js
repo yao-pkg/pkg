@@ -627,6 +627,7 @@ function installDiagnostic(snapshotPrefix) {
       wrap(fs.promises, 'write');
       wrap(fs.promises, 'readdir');
       wrap(fs.promises, 'realpath');
+      wrap(fs.promises, 'readlink');
       wrap(fs.promises, 'stat');
       wrap(fs.promises, 'lstat');
       wrap(fs.promises, 'access');
@@ -899,13 +900,30 @@ function makeSymlinkResolver(symlinks, sep) {
     return resolve(target + rest, origin, hops + 1);
   }
 
-  return function (p, forSyscall, forPath) {
+  function resolveKey(p, forSyscall, forPath) {
     deepest = 0;
     syscall = forSyscall || 'stat';
     // forPath is what an ELOOP reports. Callers pass the user's path, because
     // `p` is a vfs key — base36 under DOCOMPRESS, and never what was asked for.
     return resolve(p, forPath === undefined ? p : forPath, 0);
+  }
+
+  // The key a path has once its *parents* are followed but its own last
+  // component is not — what POSIX resolves before reading a link, so readlink
+  // and lstat can find an entry the walker recorded under a followed parent.
+  // Shared so the two modes cannot grow their own join rules.
+  resolveKey.parent = function (p, forSyscall, forPath) {
+    var slash = p.lastIndexOf(sep);
+    if (slash <= 0) return p;
+    var parent = resolveKey(p.slice(0, slash), forSyscall, forPath);
+    // Drop the remainder's leading separator when the resolved parent already
+    // ends in one, so the join cannot produce `//name` and silently miss.
+    return (
+      parent + (parent.endsWith(sep) ? p.slice(slash + 1) : p.slice(slash))
+    );
   };
+
+  return resolveKey;
 }
 
 module.exports = {

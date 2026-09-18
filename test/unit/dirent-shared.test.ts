@@ -55,12 +55,20 @@ describe('shared Dirent', () => {
   });
 
   it('keeps the name it was built with and answers false for device types', () => {
-    const d = new Dirent('node_modules', UV_DIRENT_LINK);
+    const d = new Dirent('node_modules', UV_DIRENT_LINK, '/snapshot/app');
     assert.equal(d.name, 'node_modules');
     assert.equal(d.isBlockDevice(), false);
     assert.equal(d.isCharacterDevice(), false);
     assert.equal(d.isSocket(), false);
     assert.equal(d.isFIFO(), false);
+  });
+
+  it('carries parentPath and its deprecated `path` alias', () => {
+    // path.join(d.parentPath, d.name) is the documented way to use
+    // withFileTypes, so an undefined parentPath throws ERR_INVALID_ARG_TYPE.
+    const d = new Dirent('lib', UV_DIRENT_LINK, '/snapshot/app');
+    assert.equal(d.parentPath, '/snapshot/app');
+    assert.equal(d.path, '/snapshot/app', "`path` is Node's alias for it");
   });
 });
 

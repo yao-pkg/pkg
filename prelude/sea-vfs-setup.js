@@ -370,12 +370,24 @@ class SEAProvider extends MemoryProvider {
   }
 
   _resolveSymlink(p, syscall, forPath) {
-    // forPath is what an ELOOP reports, so it has to be the caller's path.
     // The resolver owns the no-symlink fast path, so there is nothing to guard
     // here. Counting only the calls that actually moved the path keeps the
     // counter meaningful on symlink-free binaries, where it used to be skipped
     // by a separate guard.
-    var resolved = this._resolve(p, syscall, toCallerPath(forPath));
+    // toCallerPath() is only ever read by the error, so it is built in the
+    // catch rather than on every call — this is the hot path (~30K calls on a
+    // large project) and a try block costs nothing until something throws.
+    var resolved;
+    try {
+      resolved = this._resolve(p, syscall, forPath);
+    } catch (error) {
+      if (error.code === 'ELOOP' && error.path === forPath) {
+        var shown = toCallerPath(forPath);
+        error.message = error.message.split("'")[0] + "'" + shown + "'";
+        error.path = shown;
+      }
+      throw error;
+    }
     if (resolved !== p) perf.count('symlink resolutions');
     return resolved;
   }
@@ -472,38 +484,18 @@ class SEAProvider extends MemoryProvider {
     // lib/walker.ts), not the raw link body POSIX readlink would return, so
     // what comes back is a resolved path.
     var encoding = shared.readlinkEncoding(options);
-    var p = toManifestKey(filePath);
-    var target = this._symlinks[p];
-    if (typeof target === 'string') {
+    var key = toManifestKey(filePath);
+    // POSIX readlink resolves the parents and reads only the final component,
+    // so a link keyed under an already-followed parent is reachable too.
+    var resolvedKey = this._resolveParentKey(key, 'readlink', filePath);
+    var target = this._linkTarget(key, resolvedKey);
+    if (target !== undefined) {
       return shared.applyReadlinkEncoding(target, encoding);
-    }
-    // A link keyed under its *resolved* parent instead is only reachable once
-    // that parent is followed — POSIX readlink resolves the parent and returns
-    // only the final component.  Same gap as #295, which every sibling method
-    // closes via _resolveSymlink.
-    var slash = p.lastIndexOf('/');
-    if (slash > 0) {
-      var parent = this._resolveSymlink(
-        p.slice(0, slash),
-        'readlink',
-        filePath,
-      );
-      // Drop the remainder's leading separator when the resolved parent already
-      // ends in one, so the join cannot produce `//name` and silently miss.
-      var viaParent =
-        parent + (parent.endsWith('/') ? p.slice(slash + 1) : p.slice(slash));
-      if (viaParent !== p) {
-        target = this._symlinks[viaParent];
-        if (typeof target === 'string') {
-          return shared.applyReadlinkEncoding(target, encoding);
-        }
-        p = viaParent;
-      }
     }
     // Same contract as classic mode: EINVAL for a path that is there but is
     // not a link, ENOENT for one that is not there at all. The base class
     // only knows the directory tree, so it cannot tell those apart.
-    if (typeof this._manifest.stats[p] === 'object') {
+    if (typeof this._manifest.stats[resolvedKey] === 'object') {
       throw _einval('readlink', filePath);
     }
     throw _enoent('readlink', filePath);
@@ -517,8 +509,11 @@ class SEAProvider extends MemoryProvider {
     var p = this._resolveSymlink(toManifestKey(filePath), 'realpath', filePath);
     // typeof, not `in` or truthiness: the manifest is JSON-derived and read
     // with a bracket index, so both would report `constructor`/`toString` as
-    // existing files — an inherited hit is a function, a real one is a stat
-    // record.  Same idiom as the resolver's `typeof === 'string'`.
+    // existing files.  This does not block `__proto__` — typeof gives 'object'
+    // for that one — but a lookup key can only ever be `/`-prefixed
+    // (toManifestKey, and producer.ts snapshotifies every manifest key), so a
+    // bare inherited name cannot be formed.  Same idiom as the resolver's
+    // `typeof === 'string'`.
     if (typeof this._manifest.stats[p] === 'object') return p;
     return super.realpathSync(p);
   }
@@ -580,11 +575,31 @@ class SEAProvider extends MemoryProvider {
   // The type readdir reports for one entry, from the same records classic mode
   // reads: an entry is a link when the manifest keys it as one, and what it
   // points at is deliberately not consulted.
-  _direntType(unresolvedKey, resolvedKey) {
-    if (typeof this._symlinks[unresolvedKey] === 'string') {
-      return shared.UV_DIRENT_LINK;
+  // "Is this path a link, and to what?" — one policy for lstatSync, readdir and
+  // readlinkSync, which otherwise each grew their own. manifest.symlinks is
+  // keyed by the unresolved path the walker walked (appendSymlink in
+  // lib/walker.ts), so that spelling wins; the resolved one is a fallback for a
+  // manifest that keyed it under an already-followed parent.
+  // The key a path has once its *parents* are followed but its own last
+  // component is not — what POSIX resolves before reading a link. Returns the
+  // key unchanged when nothing moved.
+  // Shared with classic mode, so the join rule lives in one place.
+  _resolveParentKey(key, syscall, forPath) {
+    return this._resolve.parent(key, syscall, forPath);
+  }
+
+  _linkTarget(unresolvedKey, resolvedKey) {
+    var target = this._symlinks[unresolvedKey];
+    if (typeof target === 'string') return target;
+    if (resolvedKey !== undefined && resolvedKey !== unresolvedKey) {
+      target = this._symlinks[resolvedKey];
+      if (typeof target === 'string') return target;
     }
-    if (typeof this._symlinks[resolvedKey] === 'string') {
+    return undefined;
+  }
+
+  _direntType(unresolvedKey, resolvedKey) {
+    if (this._linkTarget(unresolvedKey, resolvedKey) !== undefined) {
       return shared.UV_DIRENT_LINK;
     }
     if (Array.isArray(this._manifest.directories[resolvedKey])) {
@@ -602,7 +617,13 @@ class SEAProvider extends MemoryProvider {
   // fetched and then given link semantics — same shape classic mode returns.
   lstatSync(filePath) {
     var key = toManifestKey(filePath);
-    if (typeof this._symlinks[key] !== 'string') return this.statSync(filePath);
+    // Resolve the parents before asking, so lstat agrees with readdir and
+    // readlink about which entries are links — all three go through
+    // _linkTarget with the same pair of keys.
+    var resolvedKey = this._resolveParentKey(key, 'lstat', filePath);
+    if (this._linkTarget(key, resolvedKey) === undefined) {
+      return this.statSync(filePath);
+    }
     var p = this._resolveSymlink(key, 'lstat', filePath);
     var meta = this._manifest.stats[p];
     if (typeof meta !== 'object') throw _enoent('lstat', filePath);
