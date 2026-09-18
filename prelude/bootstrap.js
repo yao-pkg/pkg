@@ -1144,7 +1144,19 @@ function payloadFileSync(pointer) {
       // Same lookup findVirtualFileSystemEntry() does, reusing the key above
       // rather than rebuilding it — in DOCOMPRESS mode that is a full
       // normalize+split+map+join per directory entry.
-      const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, 'scandir', ff)];
+      //
+      // A cycle reachable only through this entry's parents (the entry itself
+      // need not be a key) would otherwise throw from inside fs.readdir's
+      // callback. A dirent that cannot be resolved is a hole, same as a
+      // missing entity.
+      let resolved;
+      try {
+        resolved = resolveSymlink(vfsKey, 'scandir', ff);
+      } catch (error) {
+        if (error.code !== 'ELOOP') throw error;
+        return undefined;
+      }
+      const entity = VIRTUAL_FILESYSTEM[resolved];
       if (!entity) return undefined;
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
         return new Dirent(entry, UV_DIRENT_FILE, parentPath);
@@ -1269,8 +1281,17 @@ function payloadFileSync(pointer) {
 
     readdirFromSnapshot(path_, (error, entries) => {
       if (error) return callback(error);
-      if (options.withFileTypes) entries = getFileTypes(path_, entries);
-      callback(null, entries);
+      // This runs inside payloadFile's real I/O completion handler, so a throw
+      // from getFileTypes has nothing above it to catch.
+      let dirents;
+      try {
+        dirents = options.withFileTypes
+          ? getFileTypes(path_, entries)
+          : entries;
+      } catch (err) {
+        return callback(err);
+      }
+      callback(null, dirents);
     });
   };
 
@@ -1301,7 +1322,15 @@ function payloadFileSync(pointer) {
     }
 
     const callback = dezalgo(maybeCallback(arguments));
-    callback(null, realpathFromSnapshot(path_));
+    let realPath;
+    try {
+      realPath = realpathFromSnapshot(path_);
+    } catch (error) {
+      // Async fs never throws synchronously — an ELOOP belongs in the
+      // callback, like every sibling here.
+      return callback(error);
+    }
+    callback(null, realPath);
   };
 
   fs.realpathSync.native = fs.realpathSync;
@@ -1323,9 +1352,22 @@ function payloadFileSync(pointer) {
     const target = SYMLINKS[vfsKey];
     // typeof, not truthiness: the record is read with a bracket index.
     if (typeof target === 'string') return toOriginal(target);
+    // POSIX readlink resolves the parents and reads only the final component,
+    // so an entry the walker recorded under an already-followed parent is
+    // reachable too. Same step the SEA provider takes, from the same helper.
+    const viaParent = resolveSymlink.parent(vfsKey, 'readlink', path_);
+    if (viaParent !== vfsKey) {
+      const parentTarget = SYMLINKS[viaParent];
+      if (typeof parentTarget === 'string') return toOriginal(parentTarget);
+    }
     // Node answers EINVAL for a path that exists but is not a link, and
     // ENOENT for one that does not exist at all.
-    if (VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, 'readlink', path_)]) {
+    // typeof, not truthiness — the record is read with a bracket index, same
+    // as every sibling lookup.
+    if (
+      typeof VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, 'readlink', path_)] ===
+      'object'
+    ) {
       throw error_EINVAL('readlink', path_);
     }
     throw error_ENOENT('File or directory', path_);
