@@ -35,6 +35,16 @@ assert.strictEqual(
   'log.js',
 );
 
+// ...and it must answer in the platform's own path form. SEA mounts the VFS
+// under a POSIX '/snapshot' prefix, so on Windows the resolved path has to be
+// converted back to `C:\snapshot\...` before it leaves fs (yao-pkg/pkg#305).
+// A non-link round-trips to itself, which makes this a no-op off Windows.
+assert.strictEqual(
+  fs.realpathSync(__filename),
+  __filename,
+  'realpath must round-trip a non-link in the platform path form',
+);
+
 // Both modes answer readlink now: SEA by way of realpath through the VFS
 // polyfill, classic from the SYMLINKS record (#296).
 if (nestedIsLink) {
@@ -45,10 +55,14 @@ if (nestedIsLink) {
 // Classic mode only: in SEA mode the VFS polyfill answers readlink through
 // realpathSync without ever consulting the provider, so a non-link returns a
 // resolved path instead of throwing (yao-pkg/pkg#299, upstream routing).
+const notALink = path.join(__dirname, 'index.js');
 if (!isSea) {
-  assert.throws(() => fs.readlinkSync(path.join(__dirname, 'index.js')), {
-    code: 'EINVAL',
-  });
+  assert.throws(() => fs.readlinkSync(notALink), { code: 'EINVAL' });
+} else {
+  // Asserted rather than skipped: SEA's current answer is the resolved path,
+  // and pinning it here means the day the provider gains real link semantics
+  // this test says so instead of quietly agreeing with both contracts.
+  assert.strictEqual(fs.readlinkSync(notALink), notALink);
 }
 
 // readdir must return a usable listing in both modes. SEA builds its listing
@@ -85,6 +99,22 @@ if (!isSea) {
 
   // readlink round-trips the directory link too.
   assert.strictEqual(path.basename(fs.readlinkSync(libPath)), 'reallib');
+
+  // The type bits have to agree with the predicate: consumers that sniff
+  // `mode & S_IFMT` (tar, archiver, fs.cp) read those, not isSymbolicLink().
+  const S_IFMT = 0o170000;
+  const S_IFLNK = 0o120000;
+  assert.strictEqual(fs.lstatSync(libPath).mode & S_IFMT, S_IFLNK);
+}
+
+// The manifest records are read with a bracket index, so a key inherited from
+// Object.prototype must not read as a packaged file in either mode.
+for (const inherited of ['constructor', 'toString', '__proto__']) {
+  assert.strictEqual(
+    fs.existsSync(path.join(__dirname, inherited)),
+    false,
+    `${inherited} must not report as an existing snapshot file`,
+  );
 }
 
 log(42);
