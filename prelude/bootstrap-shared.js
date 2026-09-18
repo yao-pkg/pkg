@@ -798,11 +798,15 @@ function makeSymlinkResolver(symlinks, sep) {
   var keys = Object.keys(symlinks || {});
 
   // Nothing to resolve: hand back identity, so no caller needs a guard of its
-  // own and a symlink-free binary pays nothing.
+  // own and a symlink-free binary pays nothing. It still has to carry .parent,
+  // or readlink and lstat break on every binary without symlinks — which is
+  // most of them.
   if (keys.length === 0) {
-    return function (p) {
+    var identity = function (p) {
       return p;
     };
+    identity.parent = identity;
+    return identity;
   }
 
   // Symlink keys sit at a handful of depths — a package manager's links all
