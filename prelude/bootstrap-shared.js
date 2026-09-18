@@ -652,6 +652,67 @@ var ELOOP = process.platform === 'win32' ? 4067 : 40;
 // (/a -> /b -> /a, or /a -> /a/b) is caught instead of recursing forever.
 var RESOLVING = {};
 
+// libuv dirent types, as readdir({ withFileTypes: true }) reports them.
+var UV_DIRENT_FILE = 1;
+var UV_DIRENT_DIR = 2;
+var UV_DIRENT_LINK = 3;
+
+// POSIX file-type bits, for stats that have to agree with the predicate above.
+var S_IFMT = 0o170000;
+var S_IFLNK = 0o120000;
+
+/**
+ * The Dirent both bootstraps hand back from readdir({ withFileTypes: true }).
+ *
+ * fs.Dirent.isSymbolicLink() takes no argument, so link status has to be baked
+ * in at construction — which is why the type is passed rather than derived
+ * from a later lookup.
+ */
+function Dirent(name, type) {
+  this.name = name;
+  this.type = type;
+}
+
+Dirent.prototype.isDirectory = function isDirectory() {
+  return this.type === UV_DIRENT_DIR;
+};
+
+Dirent.prototype.isFile = function isFile() {
+  return this.type === UV_DIRENT_FILE;
+};
+
+Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
+  return this.type === UV_DIRENT_LINK;
+};
+
+function direntNoop() {
+  return false;
+}
+
+Dirent.prototype.isBlockDevice = direntNoop;
+Dirent.prototype.isCharacterDevice = direntNoop;
+Dirent.prototype.isSocket = direntNoop;
+Dirent.prototype.isFIFO = direntNoop;
+
+/**
+ * Give a stat object symlink semantics.
+ *
+ * Both walkers stat *through* the link, so what arrives describes the target.
+ * The mode's type bits are rewritten too: consumers that sniff
+ * `mode & S_IFMT` (tar, archiver, fs.cp) read those rather than the predicate.
+ */
+function asSymlinkStat(s) {
+  s.isSymbolicLink = function () {
+    return true;
+  };
+  s.isFile = direntNoop;
+  s.isDirectory = direntNoop;
+  if (typeof s.mode === 'number') {
+    s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
+  }
+  return s;
+}
+
 /**
  * Build a symlink resolver over a manifest's symlinks record.
  *
@@ -829,4 +890,9 @@ module.exports = {
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
   makeSymlinkResolver: makeSymlinkResolver,
+  Dirent: Dirent,
+  asSymlinkStat: asSymlinkStat,
+  UV_DIRENT_FILE: UV_DIRENT_FILE,
+  UV_DIRENT_DIR: UV_DIRENT_DIR,
+  UV_DIRENT_LINK: UV_DIRENT_LINK,
 };
