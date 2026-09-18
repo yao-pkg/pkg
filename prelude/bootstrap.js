@@ -522,10 +522,9 @@ function payloadFileSync(pointer) {
   const windows = process.platform === 'win32';
 
   const docks = {};
-  const ENOTDIR = windows ? 4052 : 20;
-  const ENOENT = windows ? 4058 : 2;
-  const EISDIR = windows ? 4068 : 21;
-  const EINVAL = windows ? 4071 : 22;
+  // One errno table for both preludes — see bootstrap-shared.js.
+  const makeFsError = REQUIRE_SHARED.makeFsError;
+  const ENOENT = REQUIRE_SHARED.ERRNO.ENOENT;
 
   function assertEncoding(encoding) {
     if (encoding && !Buffer.isEncoding(encoding)) {
@@ -538,47 +537,63 @@ function payloadFileSync(pointer) {
     return typeof cb === 'function' ? cb : rethrow;
   }
 
+  // The messages stay traditional-mode's own — this one carries pkg's
+  // "recompile adding it as asset" guidance and test-50-not-found-wording
+  // asserts it. Only the shape is shared.
+  // Every callback-style snapshot shim needs the same guard: the resolver can
+  // throw ELOOP on a cyclic manifest, and Node's async fs never throws
+  // synchronously. cb2 is rethrow for sync callers, so one helper serves both
+  // and the next shim added cannot forget it.
+  //
+  // MISSED means the error was already delivered: the caller must stop, and
+  // must not also report its own ENOENT.
+  const MISSED = Symbol('eloop-reported');
+
+  function findEntryOr(cb2, path_, syscall) {
+    try {
+      return findVirtualFileSystemEntry(path_, syscall);
+    } catch (error) {
+      cb2(error);
+      return MISSED;
+    }
+  }
+
   function error_ENOENT(fileOrDirectory, path_) {
-    const error = new Error(
+    return makeFsError(
       `${fileOrDirectory} '${stripSnapshot(path_)}' ` +
         `was not included into executable at compilation stage. ` +
         `Please recompile adding it as asset or script.`,
+      'ENOENT',
+      undefined,
+      path_,
     );
-    error.errno = -ENOENT;
-    error.code = 'ENOENT';
-    error.path = path_;
-    error.pkg = true;
-    return error;
   }
 
   function error_EISDIR(path_) {
-    const error = new Error('EISDIR: illegal operation on a directory, read');
-    error.errno = -EISDIR;
-    error.code = 'EISDIR';
-    error.path = path_;
-    error.pkg = true;
-    return error;
+    return makeFsError(
+      'EISDIR: illegal operation on a directory, read',
+      'EISDIR',
+      'read',
+      path_,
+    );
   }
 
   function error_EINVAL(syscall, path_) {
-    const error = new Error(
+    return makeFsError(
       `EINVAL: invalid argument, ${syscall} '${stripSnapshot(path_)}'`,
+      'EINVAL',
+      syscall,
+      path_,
     );
-    error.errno = -EINVAL;
-    error.code = 'EINVAL';
-    error.syscall = syscall;
-    error.path = path_;
-    error.pkg = true;
-    return error;
   }
 
   function error_ENOTDIR(path_) {
-    const error = new Error(`ENOTDIR: not a directory, scandir '${path_}'`);
-    error.errno = -ENOTDIR;
-    error.code = 'ENOTDIR';
-    error.path = path_;
-    error.pkg = true;
-    return error;
+    return makeFsError(
+      `ENOTDIR: not a directory, scandir '${path_}'`,
+      'ENOTDIR',
+      'scandir',
+      path_,
+    );
   }
 
   // ///////////////////////////////////////////////////////////////
@@ -650,15 +665,8 @@ function payloadFileSync(pointer) {
 
   function openFromSnapshot(path_, uncompress, cb) {
     const cb2 = cb || rethrow;
-    // The resolver throws ELOOP on a cyclic manifest, and Node's callback-style
-    // fs never throws synchronously. cb2 is rethrow for sync callers, so this
-    // keeps their behaviour and gives async callers an err argument.
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_, 'open');
-    } catch (error) {
-      return cb2(error);
-    }
+    const entity = findEntryOr(cb2, path_, 'open');
+    if (entity === MISSED) return;
     if (!entity) return cb2(error_ENOENT('File or directory', path_));
     const dock = { path: path_, entity, position: 0 };
 
@@ -949,14 +957,8 @@ function payloadFileSync(pointer) {
   function readFileFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
 
-    // ELOOP out of the resolver must not escape a callback API synchronously
-    // — see openFromSnapshot.
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_, 'open');
-    } catch (error) {
-      return cb2(error);
-    }
+    const entity = findEntryOr(cb2, path_, 'open');
+    if (entity === MISSED) return;
     if (!entity) return cb2(error_ENOENT('File', path_));
 
     const entityLinks = entity[STORE_LINKS];
@@ -1124,6 +1126,21 @@ function payloadFileSync(pointer) {
   const UV_DIRENT_LINK = REQUIRE_SHARED.UV_DIRENT_LINK;
   const noop = () => false;
 
+  // "Is this path a link, and to what?" — SYMLINKS is keyed by the *unresolved*
+  // vfs key the walker walked, so that spelling wins; the resolved one is a
+  // fallback for an entry recorded under an already-followed parent. Mirrors
+  // SEAProvider._linkTarget, so the modes cannot grow different answers.
+  function snapshotLinkTarget(vfsKey, resolvedKey) {
+    // typeof, not truthiness: the record is read with a bracket index.
+    if (typeof SYMLINKS[vfsKey] === 'string') return SYMLINKS[vfsKey];
+    if (resolvedKey !== undefined && resolvedKey !== vfsKey) {
+      if (typeof SYMLINKS[resolvedKey] === 'string') {
+        return SYMLINKS[resolvedKey];
+      }
+    }
+    return undefined;
+  }
+
   function getFileTypes(path_, entries) {
     // Node's Dirent.parentPath is the directory readdir was called on, so it
     // has to stay the caller's path — stripSnapshot() is for error text and
@@ -1139,7 +1156,7 @@ function payloadFileSync(pointer) {
       // typeof, not truthiness: the record is read with a bracket index, so a
       // key like `constructor` would otherwise match an inherited value.
       const vfsKey = findVirtualFileSystemKey(ff, path.sep);
-      if (typeof SYMLINKS[vfsKey] === 'string')
+      if (snapshotLinkTarget(vfsKey, undefined) !== undefined)
         return new Dirent(entry, UV_DIRENT_LINK, parentPath);
       // Same lookup findVirtualFileSystemEntry() does, reusing the key above
       // rather than rebuilding it — in DOCOMPRESS mode that is a full
@@ -1202,14 +1219,8 @@ function payloadFileSync(pointer) {
 
   function readdirFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    // ELOOP out of the resolver must not escape a callback API synchronously
-    // — see openFromSnapshot.
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_, 'scandir');
-    } catch (error) {
-      return cb2(error);
-    }
+    const entity = findEntryOr(cb2, path_, 'scandir');
+    if (entity === MISSED) return;
 
     if (!entity) {
       return cb2(error_ENOENT('Directory', path_));
@@ -1349,17 +1360,12 @@ function payloadFileSync(pointer) {
 
   function readlinkFromSnapshot(path_) {
     const vfsKey = findVirtualFileSystemKey(path_, path.sep);
-    const target = SYMLINKS[vfsKey];
-    // typeof, not truthiness: the record is read with a bracket index.
-    if (typeof target === 'string') return toOriginal(target);
     // POSIX readlink resolves the parents and reads only the final component,
     // so an entry the walker recorded under an already-followed parent is
     // reachable too. Same step the SEA provider takes, from the same helper.
     const viaParent = resolveSymlink.parent(vfsKey, 'readlink', path_);
-    if (viaParent !== vfsKey) {
-      const parentTarget = SYMLINKS[viaParent];
-      if (typeof parentTarget === 'string') return toOriginal(parentTarget);
-    }
+    const target = snapshotLinkTarget(vfsKey, viaParent);
+    if (target !== undefined) return toOriginal(target);
     // Node answers EINVAL for a path that exists but is not a link, and
     // ENOENT for one that does not exist at all.
     // typeof, not truthiness — the record is read with a bracket index, same
@@ -1484,14 +1490,8 @@ function payloadFileSync(pointer) {
 
   function statFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    // ELOOP out of the resolver must not escape a callback API synchronously
-    // — see openFromSnapshot.
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_, 'stat');
-    } catch (error) {
-      return cb2(error);
-    }
+    const entity = findEntryOr(cb2, path_, 'stat');
+    if (entity === MISSED) return;
     if (!entity) return findNativeAddonForStat(path_, cb);
     const entityStat = entity[STORE_STAT];
     if (entityStat) return statFromSnapshotSub(entityStat, cb);
@@ -1533,9 +1533,21 @@ function payloadFileSync(pointer) {
   const asLink = REQUIRE_SHARED.asSymlinkStat;
 
   function lstatFromSnapshot(path_, cb) {
+    const cb2 = cb || rethrow;
     const vfsKey = findVirtualFileSystemKey(path_, path.sep);
-    // typeof, not truthiness: the record is read with a bracket index.
-    if (typeof SYMLINKS[vfsKey] !== 'string') {
+    // Resolve the parents first, so lstat agrees with readdir and readlink
+    // about which entries are links — the same pair of keys all three use.
+    let target = snapshotLinkTarget(vfsKey, undefined);
+    if (target === undefined) {
+      let viaParent;
+      try {
+        viaParent = resolveSymlink.parent(vfsKey, 'lstat', path_);
+      } catch (error) {
+        return cb2(error);
+      }
+      target = snapshotLinkTarget(vfsKey, viaParent);
+    }
+    if (target === undefined) {
       return statFromSnapshot(path_, cb);
     }
     const entity = VIRTUAL_FILESYSTEM[vfsKey];
@@ -1543,13 +1555,14 @@ function payloadFileSync(pointer) {
     // A link the walker recorded without its own stat entry: fall back rather
     // than invent one.
     if (!entityStat) return statFromSnapshot(path_, cb);
+    const linkTarget = toOriginal(target);
     if (cb) {
       return statFromSnapshotSub(entityStat, (error, s) => {
         if (error) return cb(error);
-        cb(null, asLink(s));
+        cb(null, asLink(s, linkTarget));
       });
     }
-    return asLink(statFromSnapshotSub(entityStat));
+    return asLink(statFromSnapshotSub(entityStat), linkTarget);
   }
 
   fs.lstatSync = function lstatSync(path_) {
@@ -1658,14 +1671,8 @@ function payloadFileSync(pointer) {
 
   function accessFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    // ELOOP out of the resolver must not escape a callback API synchronously
-    // — see openFromSnapshot.
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_, 'access');
-    } catch (error) {
-      return cb2(error);
-    }
+    const entity = findEntryOr(cb2, path_, 'access');
+    if (entity === MISSED) return;
     if (!entity) return cb2(error_ENOENT('File or directory', path_));
     return cb2(null, undefined);
   }

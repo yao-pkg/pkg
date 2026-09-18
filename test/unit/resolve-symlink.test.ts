@@ -6,7 +6,9 @@ const shared = createRequire(__filename)('../../prelude/bootstrap-shared.js');
 const makeSymlinkResolver = shared.makeSymlinkResolver as (
   _symlinks: Record<string, string>,
   _sep: string,
-) => (_p: string, _syscall?: string, _forPath?: string) => string;
+) => ((_p: string, _syscall?: string, _forPath?: string) => string) & {
+  parent: (_p: string, _syscall?: string, _forPath?: string) => string;
+};
 
 // makeSymlinkResolver() backs both the classic bootstrap (prelude/bootstrap.js)
 // and the SEA VFS provider (prelude/sea-vfs-setup.js) — see #295/#296. These
@@ -225,6 +227,66 @@ describe('makeSymlinkResolver', () => {
         return true;
       },
     );
+  });
+
+  describe('resolveKey.parent — the readlink/lstat step', () => {
+    // POSIX resolves a path's parents before reading its last component, so an
+    // entry recorded under an already-followed parent stays reachable. Both
+    // bootstraps drive this, which is why it lives on the resolver.
+    it('resolves the parents and keeps the last component', () => {
+      const resolve = makeSymlinkResolver(
+        { '/snapshot/lib': '/snapshot/reallib' },
+        '/',
+      );
+      assert.equal(
+        resolve.parent('/snapshot/lib/inner.js'),
+        '/snapshot/reallib/inner.js',
+      );
+    });
+
+    it('does not follow the last component itself', () => {
+      // The whole point: resolve() would answer /snapshot/reallib here.
+      const resolve = makeSymlinkResolver(
+        { '/snapshot/lib': '/snapshot/reallib' },
+        '/',
+      );
+      assert.equal(resolve.parent('/snapshot/lib'), '/snapshot/lib');
+    });
+
+    it('does not double the separator when the target ends in one', () => {
+      const resolve = makeSymlinkResolver({ '/snapshot/lib': '/real/' }, '/');
+      assert.equal(resolve.parent('/snapshot/lib/x.js'), '/real/x.js');
+    });
+
+    it('leaves a key with no parent alone', () => {
+      const resolve = makeSymlinkResolver({ '/a': '/b' }, '/');
+      assert.equal(resolve.parent('/a'), '/a');
+      assert.equal(resolve.parent('a'), 'a');
+    });
+
+    it('raises ELOOP from the parent walk, naming the caller', () => {
+      const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
+      assert.throws(
+        () => resolve.parent('/a/x/y.js', 'readlink', '/snapshot/a/x/y.js'),
+        (err: NodeJS.ErrnoException) => {
+          assert.equal(err.code, 'ELOOP');
+          assert.equal(err.syscall, 'readlink');
+          assert.equal(err.path, '/snapshot/a/x/y.js');
+          return true;
+        },
+      );
+    });
+
+    it('walks win32 keys on their own separator', () => {
+      const resolve = makeSymlinkResolver(
+        { 'C:\\snapshot\\lib': 'C:\\snapshot\\reallib' },
+        '\\',
+      );
+      assert.equal(
+        resolve.parent('C:\\snapshot\\lib\\inner.js'),
+        'C:\\snapshot\\reallib\\inner.js',
+      );
+    });
   });
 
   it("does not leak the previous call's syscall into the next", () => {

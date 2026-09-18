@@ -220,26 +220,22 @@ function toCallerPath(providerPath) {
 
 function _einval(syscall, filePath) {
   var shown = toCallerPath(filePath);
-  var err = new Error(
+  return shared.makeFsError(
     'EINVAL: invalid argument, ' + syscall + " '" + shown + "'",
+    'EINVAL',
+    syscall,
+    shown,
   );
-  err.code = 'EINVAL';
-  err.errno = process.platform === 'win32' ? -4071 : -22;
-  err.syscall = syscall;
-  err.path = shown;
-  return err;
 }
 
 function _enoent(syscall, filePath) {
   var shown = toCallerPath(filePath);
-  var err = new Error(
+  return shared.makeFsError(
     'ENOENT: no such file or directory, ' + syscall + " '" + shown + "'",
+    'ENOENT',
+    syscall,
+    shown,
   );
-  err.code = 'ENOENT';
-  err.errno = process.platform === 'win32' ? -4058 : -2;
-  err.syscall = syscall;
-  err.path = shown;
-  return err;
 }
 
 // /////////////////////////////////////////////////////////////////
@@ -501,7 +497,7 @@ class SEAProvider extends MemoryProvider {
     throw _enoent('readlink', filePath);
   }
 
-  realpathSync(filePath) {
+  realpathSync(filePath, options) {
     // The base class only knows the directory tree built in the constructor,
     // so without this every archive file resolves to ENOENT — which also
     // breaks fs.readlinkSync, since the VFS answers readlink by way of
@@ -514,8 +510,13 @@ class SEAProvider extends MemoryProvider {
     // (toManifestKey, and producer.ts snapshotifies every manifest key), so a
     // bare inherited name cannot be formed.  Same idiom as the resolver's
     // `typeof === 'string'`.
-    if (typeof this._manifest.stats[p] === 'object') return p;
-    return super.realpathSync(p);
+    // The base signature takes options and the VFS passes them through, so
+    // honour the encoding here the way readlinkSync does.
+    var encoding = shared.readlinkEncoding(options);
+    if (typeof this._manifest.stats[p] === 'object') {
+      return shared.applyReadlinkEncoding(p, encoding);
+    }
+    return shared.applyReadlinkEncoding(super.realpathSync(p), encoding);
   }
 
   statSync(filePath) {
@@ -548,7 +549,7 @@ class SEAProvider extends MemoryProvider {
     if (meta) {
       return meta.isDirectory ? 1 : 0;
     }
-    return -2;
+    return -shared.ERRNO.ENOENT;
   }
 
   readdirSync(dirPath, options) {
@@ -624,10 +625,11 @@ class SEAProvider extends MemoryProvider {
     if (this._linkTarget(key, resolvedKey) === undefined) {
       return this.statSync(filePath);
     }
+    var target = this._linkTarget(key, resolvedKey);
     var p = this._resolveSymlink(key, 'lstat', filePath);
     var meta = this._manifest.stats[p];
     if (typeof meta !== 'object') throw _enoent('lstat', filePath);
-    return shared.asSymlinkStat(_makeStats(meta));
+    return shared.asSymlinkStat(_makeStats(meta), target);
   }
 
   existsSync(filePath) {
@@ -636,9 +638,11 @@ class SEAProvider extends MemoryProvider {
     try {
       p = this._resolveSymlink(toManifestKey(filePath), 'access', filePath);
     } catch (error) {
-      // fs.existsSync never throws, and @roberts_lando/vfs calls this one
-      // outside its try (module_hooks.js findVFSForRealpath), so an ELOOP here
-      // would escape fs.realpathSync and fs.readlinkSync as well.
+      // fs.existsSync never throws — libuv swallows every errno and answers
+      // false. The VFS probes with this method before the real call, so it
+      // keeps the reason and re-raises it there (probeSync in
+      // @roberts_lando/vfs); a cycle still surfaces as ELOOP from stat, open,
+      // readdir and realpath rather than as a bare ENOENT.
       if (error.code === 'ELOOP') return false;
       throw error;
     }

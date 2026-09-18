@@ -644,10 +644,38 @@ function installDiagnostic(snapshotPrefix) {
 // manifest cycle (or a corrupt manifest) cannot hang startup.
 var MAX_SYMLINK_DEPTH = 40;
 
-// libuv gives ELOOP a different number on Windows (uv/errno.h: UV__ELOOP is
-// -4067 there, -40 everywhere else). Same positive-constant, negated-at-use
-// convention as bootstrap.js's own error codes.
-var ELOOP = process.platform === 'win32' ? 4067 : 40;
+// libuv numbers errnos differently on Windows (uv/errno.h). One table for both
+// preludes: they were drifting apart, and sea-vfs-setup.js's ENOENT was not
+// Windows-aware at all. Positive constants, negated at use.
+var ERRNO = (function () {
+  var windows = process.platform === 'win32';
+  return {
+    ENOTDIR: windows ? 4052 : 20,
+    ENOENT: windows ? 4058 : 2,
+    EISDIR: windows ? 4068 : 21,
+    EINVAL: windows ? 4071 : 22,
+    ELOOP: windows ? 4067 : 40,
+  };
+})();
+
+/**
+ * One shape for every error the two preludes raise from a snapshot path.
+ *
+ * The *message* deliberately stays the caller's: traditional mode's ENOENT
+ * carries pkg's "recompile adding it as asset" guidance (asserted by
+ * test-50-not-found-wording), while the SEA provider uses Node's own wording.
+ * What has to match is the shape — code, errno, syscall, path, and the `pkg`
+ * marker bootstrap.js's module wrapper reads.
+ */
+function makeFsError(message, code, syscall, path_) {
+  var err = new Error(message);
+  err.code = code;
+  err.errno = -ERRNO[code];
+  err.syscall = syscall;
+  err.path = path_;
+  err.pkg = true;
+  return err;
+}
 
 // Marks a symlink key whose resolution is still on the stack, so a cycle
 // (/a -> /b -> /a, or /a -> /a/b) is caught instead of recursing forever.
@@ -731,7 +759,7 @@ Dirent.prototype.isFIFO = direntNoop;
  * The mode's type bits are rewritten too: consumers that sniff
  * `mode & S_IFMT` (tar, archiver, fs.cp) read those rather than the predicate.
  */
-function asSymlinkStat(s) {
+function asSymlinkStat(s, target) {
   s.isSymbolicLink = function () {
     return true;
   };
@@ -739,6 +767,14 @@ function asSymlinkStat(s) {
   s.isDirectory = direntNoop;
   if (typeof s.mode === 'number') {
     s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
+  }
+  // POSIX lstat reports a link's size as the length of its target string, and
+  // a link occupies no blocks. Without the target we leave the through-the-link
+  // numbers alone rather than invent one.
+  if (typeof target === 'string') {
+    s.size = Buffer.byteLength(target);
+    s.blocks = 0;
+    s.nlink = 1;
   }
   return s;
 }
@@ -808,21 +844,16 @@ function makeSymlinkResolver(symlinks, sep) {
   var syscall = 'stat';
 
   function eloop(origin) {
-    var err = new Error(
+    return makeFsError(
       'ELOOP: too many symbolic links encountered, ' +
         syscall +
         " '" +
         origin +
         "'",
+      'ELOOP',
+      syscall,
+      origin,
     );
-    err.code = 'ELOOP';
-    err.errno = -ELOOP;
-    err.syscall = syscall;
-    err.path = origin;
-    // Same marker every error factory in bootstrap.js sets, so the module
-    // wrapper there does not re-decorate a path this error already presents.
-    err.pkg = true;
-    return err;
   }
 
   function follow(key, origin, hops) {
@@ -937,6 +968,8 @@ module.exports = {
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
   makeSymlinkResolver: makeSymlinkResolver,
+  ERRNO: ERRNO,
+  makeFsError: makeFsError,
   Dirent: Dirent,
   asSymlinkStat: asSymlinkStat,
   readlinkEncoding: readlinkEncoding,

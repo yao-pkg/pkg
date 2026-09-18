@@ -178,7 +178,7 @@ Each file is stored with one or more store types:
 
 ### Runtime Bootstrap
 
-`prelude/bootstrap.js` (2167 lines) executes before user code. It:
+`prelude/bootstrap.js` (2174 lines) executes before user code. It:
 
 1. **Sets up entrypoint** — Reads `DEFAULT_ENTRYPOINT` from injected parameters, sets `process.argv[1]`
 2. **Initializes VFS** — Builds in-memory lookup from `VIRTUAL_FILESYSTEM` dictionary with optional path compression via `DICT`
@@ -469,7 +469,7 @@ This keeps the VFS setup, shared patches, worker interception, and diagnostics a
 
 ## Shared Runtime Code
 
-`prelude/bootstrap-shared.js` (~936 lines) contains runtime patches used by both bootstraps:
+`prelude/bootstrap-shared.js` (~969 lines) contains runtime patches used by both bootstraps:
 
 ### Injection Mechanisms
 
@@ -528,7 +528,7 @@ Both bootstraps resolve symlinks on parent path components, so `require`, `fs.re
 >
 > Both match unpackaged Node. `fs.readlink` and `fs.lstat` were patched in the same change so that code taking the `isSymbolicLink()` branch is served rather than falling through to the host filesystem.
 
-> **How SEA reports links (since #296).** `@roberts_lando/vfs` used to route `fs.lstat` through `findVFSForFsStat`, which calls `statSync` and therefore follows the link, and `fs.readlink` through `findVFSForRealpath`, which never reached the provider — so neither could report a symlink, and identical application code saw `lstatSync(link).isSymbolicLink() === true` in a traditional binary and `false` in a SEA one. Both now reach `SEAProvider`, which answers from `manifest.symlinks` — the same record the resolver walks, so reporting and resolution cannot disagree. The routing fix is upstream in [robertsLando/vfs#4](https://github.com/robertsLando/vfs/pull/4); **pkg needs a vfs release containing it**.
+> **How SEA reports links (since #296).** `@roberts_lando/vfs` used to route `fs.lstat` through `findVFSForFsStat`, which calls `statSync` and therefore follows the link, and `fs.readlink` through `findVFSForRealpath`, which never reached the provider — so neither could report a symlink, and identical application code saw `lstatSync(link).isSymbolicLink() === true` in a traditional binary and `false` in a SEA one. Both now reach `SEAProvider`, which answers from `manifest.symlinks` — the same record the resolver walks, so reporting and resolution cannot disagree. The routing fix, and the `probeSync` change that stops the module hooks' `existsSync` gate flattening a provider's `ELOOP` into `ENOENT`, are upstream in [robertsLando/vfs#4](https://github.com/robertsLando/vfs/pull/4); **pkg needs a vfs release containing them**.
 
 **`setupProcessPkg(entrypoint)`** — Creates the `process.pkg` compatibility object with `entrypoint`, `defaultEntrypoint`, and `path.resolve()`.
 
@@ -647,11 +647,11 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 
 | File                             | Lines | Purpose                                                                                      |
 | -------------------------------- | ----- | -------------------------------------------------------------------------------------------- |
-| `prelude/bootstrap.js`           | ~2167 | Traditional runtime bootstrap (fs/module/process patching)                                   |
-| `prelude/bootstrap-shared.js`    | ~936  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
+| `prelude/bootstrap.js`           | ~2174 | Traditional runtime bootstrap (fs/module/process patching)                                   |
+| `prelude/bootstrap-shared.js`    | ~969  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
-| `prelude/sea-vfs-setup.js`       | ~750  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
+| `prelude/sea-vfs-setup.js`       | ~754  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
 | `prelude/sea-worker-entry.js`    | ~11   | Worker thread entry: requires sea-vfs-setup.js for VFS in workers                            |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |

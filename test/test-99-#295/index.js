@@ -144,4 +144,84 @@ for (const inherited of ['constructor', 'toString', '__proto__']) {
   );
 }
 
-log(42);
+// The callback and promise forms go through separate patches in both modes,
+// and nothing exercised them before — which is how two ELOOP bugs reached the
+// third review round. Run them before handing back to the harness.
+const pending = [];
+
+if (nestedIsLink) {
+  pending.push(
+    new Promise((resolve, reject) => {
+      fs.readlink(nested, (err, target) => {
+        if (err) return reject(err);
+        try {
+          assert.strictEqual(path.basename(target), 'log.js');
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }),
+    fs.promises
+      .readlink(nested)
+      .then((t) => assert.strictEqual(path.basename(t), 'log.js')),
+  );
+}
+
+pending.push(
+  new Promise((resolve, reject) => {
+    fs.lstat(path.join(__dirname, 'lib'), (err, st) => {
+      if (err) return reject(err);
+      try {
+        assert.strictEqual(st.isSymbolicLink(), true);
+        assert.strictEqual(st.isDirectory(), false);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }),
+  fs.promises
+    .lstat(path.join(__dirname, 'lib'))
+    .then((st) => assert.strictEqual(st.isSymbolicLink(), true)),
+  new Promise((resolve, reject) => {
+    fs.readdir(__dirname, { withFileTypes: true }, (err, list) => {
+      if (err) return reject(err);
+      try {
+        const lib = list.find((e) => e.name === 'lib');
+        assert.ok(lib, 'lib missing from async readdir');
+        assert.strictEqual(lib.isSymbolicLink(), true);
+        assert.strictEqual(typeof lib.parentPath, 'string');
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }),
+  // readlink on a non-link must reach the callback as an error, never throw.
+  new Promise((resolve, reject) => {
+    let threw = false;
+    try {
+      fs.readlink(notALink, (err) => {
+        try {
+          assert.ok(err, 'async readlink on a non-link must report an error');
+          assert.strictEqual(err.code, 'EINVAL');
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      });
+    } catch {
+      threw = true;
+    }
+    if (threw) reject(new Error('fs.readlink threw synchronously'));
+  }),
+);
+
+Promise.all(pending).then(
+  () => log(42),
+  (err) => {
+    console.error(err);
+    process.exit(1);
+  },
+);
