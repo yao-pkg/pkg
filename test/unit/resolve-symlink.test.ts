@@ -258,6 +258,17 @@ describe('makeSymlinkResolver', () => {
       assert.equal(resolve.parent('/snapshot/lib/x.js'), '/real/x.js');
     });
 
+    it('is present on the empty-manifest fast path too', () => {
+      // The identity resolver is what a symlink-free binary gets, which is
+      // most of them — readlink and lstat call .parent unconditionally.
+      const resolve = makeSymlinkResolver({}, '/');
+      assert.equal(typeof resolve.parent, 'function');
+      assert.equal(
+        resolve.parent('/snapshot/app/lib/inner.js'),
+        '/snapshot/app/lib/inner.js',
+      );
+    });
+
     it('leaves a key with no parent alone', () => {
       const resolve = makeSymlinkResolver({ '/a': '/b' }, '/');
       assert.equal(resolve.parent('/a'), '/a');
