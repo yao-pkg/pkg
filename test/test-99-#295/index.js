@@ -16,13 +16,6 @@ require('./lib/inner.js');
 // there, so the parent walk is covered either way.
 const { nestedIsLink } = require('./linkinfo.json');
 
-let isSea = false;
-try {
-  isSea = require('node:sea').isSea();
-} catch {
-  isSea = false;
-}
-
 const nested = path.join(__dirname, 'lib', 'inner.js');
 
 // realpath must follow the chain rather than throwing ENOENT.
@@ -51,19 +44,10 @@ if (nestedIsLink) {
   assert.strictEqual(path.basename(fs.readlinkSync(nested)), 'log.js');
 }
 
-// readlink on a path that exists but is not a link is EINVAL, not ENOENT.
-// Classic mode only: in SEA mode the VFS polyfill answers readlink through
-// realpathSync without ever consulting the provider, so a non-link returns a
-// resolved path instead of throwing (yao-pkg/pkg#299, upstream routing).
+// readlink on a path that exists but is not a link is EINVAL, not ENOENT —
+// in both modes now (#296).
 const notALink = path.join(__dirname, 'index.js');
-if (!isSea) {
-  assert.throws(() => fs.readlinkSync(notALink), { code: 'EINVAL' });
-} else {
-  // Asserted rather than skipped: SEA's current answer is the resolved path,
-  // and pinning it here means the day the provider gains real link semantics
-  // this test says so instead of quietly agreeing with both contracts.
-  assert.strictEqual(fs.readlinkSync(notALink), notALink);
-}
+assert.throws(() => fs.readlinkSync(notALink), { code: 'EINVAL' });
 
 // readdir must return a usable listing in both modes. SEA builds its listing
 // from manifest.directories, which holds only the paths the walker recorded,
@@ -74,12 +58,11 @@ assert.ok(
   'readdir returned nothing',
 );
 
-// Classic-mode readdir is lstat-based, so a link reports as a link rather
-// than as the directory it points at — same as it does outside a packaged
-// binary — and lstat must agree with the dirent. The SEA provider builds its
-// listing from manifest.directories, which holds resolved paths only, so it
-// does not surface link entries at all.
-if (!isSea) {
+// readdir is lstat-based, so a link reports as a link rather than as the
+// directory it points at — same as outside a packaged binary — and lstat must
+// agree with the dirent. Both modes answer from their own symlink record
+// since #296, so this is asserted for both.
+{
   const libEntry = dirents.find((e) => e.name === 'lib');
   assert.ok(libEntry, 'lib missing from readdir');
   assert.strictEqual(libEntry.isSymbolicLink(), true);

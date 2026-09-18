@@ -1101,32 +1101,13 @@ function payloadFileSync(pointer) {
     return null;
   }
 
-  function Dirent(name, type) {
-    this.name = name;
-    this.type = type;
-  }
-
-  Dirent.prototype.isDirectory = function isDirectory() {
-    return this.type === 2;
-  };
-
-  Dirent.prototype.isFile = function isFile() {
-    return this.type === 1;
-  };
-
+  // Shared with the SEA provider so both modes report the same dirent shape —
+  // real readdir lstats, so a link is a link rather than what it points at.
+  const Dirent = REQUIRE_SHARED.Dirent;
+  const UV_DIRENT_FILE = REQUIRE_SHARED.UV_DIRENT_FILE;
+  const UV_DIRENT_DIR = REQUIRE_SHARED.UV_DIRENT_DIR;
+  const UV_DIRENT_LINK = REQUIRE_SHARED.UV_DIRENT_LINK;
   const noop = () => false;
-  Dirent.prototype.isBlockDevice = noop;
-  Dirent.prototype.isCharacterDevice = noop;
-  Dirent.prototype.isSocket = noop;
-  Dirent.prototype.isFIFO = noop;
-
-  // fs.Dirent.isSymbolicLink() takes no argument, so the link status has to be
-  // baked into the dirent at construction. 3 is UV_DIRENT_LINK, matching the
-  // type real readdir({ withFileTypes: true }) reports — it lstats, so a link
-  // is a link rather than the file or directory it points at.
-  Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
-    return this.type === 3;
-  };
 
   function getFileTypes(path_, entries) {
     return entries.map((entry) => {
@@ -1139,15 +1120,16 @@ function payloadFileSync(pointer) {
       // typeof, not truthiness: the record is read with a bracket index, so a
       // key like `constructor` would otherwise match an inherited value.
       const vfsKey = findVirtualFileSystemKey(ff, path.sep);
-      if (typeof SYMLINKS[vfsKey] === 'string') return new Dirent(entry, 3);
+      if (typeof SYMLINKS[vfsKey] === 'string')
+        return new Dirent(entry, UV_DIRENT_LINK);
       // Same lookup findVirtualFileSystemEntry() does, reusing the key above
       // rather than rebuilding it — in DOCOMPRESS mode that is a full
       // normalize+split+map+join per directory entry.
       const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, 'scandir', ff)];
       if (!entity) return undefined;
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
-        return new Dirent(entry, 1);
-      if (entity[STORE_LINKS]) return new Dirent(entry, 2);
+        return new Dirent(entry, UV_DIRENT_FILE);
+      if (entity[STORE_LINKS]) return new Dirent(entry, UV_DIRENT_DIR);
       throw new Error('UNEXPECTED-24');
     });
   }
@@ -1155,7 +1137,7 @@ function payloadFileSync(pointer) {
   function readdirRoot(path_, options, cb) {
     function addSnapshot(entries) {
       if (options && options.withFileTypes) {
-        entries.push(new Dirent('snapshot', 2));
+        entries.push(new Dirent('snapshot', UV_DIRENT_DIR));
       } else {
         entries.push('snapshot');
       }
@@ -1486,21 +1468,7 @@ function payloadFileSync(pointer) {
   // is false even for a link; SYMLINKS — keyed by the *unresolved* vfs key —
   // is the only source of truth, and it is the same one readdir uses, so the
   // two cannot disagree about an entry.
-  // POSIX file-type bits. The walker stats through the link, so a link's mode
-  // arrives describing its target; consumers that sniff `mode & S_IFMT`
-  // (tar, archiver, fs.cp) would then contradict isSymbolicLink().
-  const S_IFMT = 0o170000;
-  const S_IFLNK = 0o120000;
-
-  function asLink(s) {
-    s.isSymbolicLink = () => true;
-    s.isFile = noop;
-    s.isDirectory = noop;
-    if (typeof s.mode === 'number') {
-      s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
-    }
-    return s;
-  }
+  const asLink = REQUIRE_SHARED.asSymlinkStat;
 
   function lstatFromSnapshot(path_, cb) {
     const vfsKey = findVirtualFileSystemKey(path_, path.sep);
