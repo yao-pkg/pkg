@@ -4,7 +4,6 @@
 // Both import this module to avoid duplicating the SEAProvider + mount logic.
 
 var sea = require('node:sea');
-var fs = require('fs');
 var shared = require('./bootstrap-shared');
 
 var COMPRESS_NONE = shared.COMPRESS_NONE;
@@ -210,25 +209,36 @@ var toManifestKey =
         return _stripTrailingSeps(p);
       };
 
+// The VFS strips the mount prefix before calling the provider, so an error
+// built from what arrives here names a path the caller never used. Put the
+// prefix and the platform form back, the way classic mode's stripSnapshot does.
+function toCallerPath(providerPath) {
+  if (typeof providerPath !== 'string') return providerPath;
+  if (providerPath.startsWith(SNAPSHOT_PREFIX)) return providerPath;
+  return toPlatformPath(SNAPSHOT_PREFIX + providerPath);
+}
+
 function _einval(syscall, filePath) {
+  var shown = toCallerPath(filePath);
   var err = new Error(
-    'EINVAL: invalid argument, ' + syscall + " '" + filePath + "'",
+    'EINVAL: invalid argument, ' + syscall + " '" + shown + "'",
   );
   err.code = 'EINVAL';
   err.errno = process.platform === 'win32' ? -4071 : -22;
   err.syscall = syscall;
-  err.path = filePath;
+  err.path = shown;
   return err;
 }
 
 function _enoent(syscall, filePath) {
+  var shown = toCallerPath(filePath);
   var err = new Error(
-    'ENOENT: no such file or directory, ' + syscall + " '" + filePath + "'",
+    'ENOENT: no such file or directory, ' + syscall + " '" + shown + "'",
   );
   err.code = 'ENOENT';
-  err.errno = -2;
+  err.errno = process.platform === 'win32' ? -4058 : -2;
   err.syscall = syscall;
-  err.path = filePath;
+  err.path = shown;
   return err;
 }
 
@@ -360,11 +370,12 @@ class SEAProvider extends MemoryProvider {
   }
 
   _resolveSymlink(p, syscall, forPath) {
+    // forPath is what an ELOOP reports, so it has to be the caller's path.
     // The resolver owns the no-symlink fast path, so there is nothing to guard
     // here. Counting only the calls that actually moved the path keeps the
     // counter meaningful on symlink-free binaries, where it used to be skipped
     // by a separate guard.
-    var resolved = this._resolve(p, syscall, forPath);
+    var resolved = this._resolve(p, syscall, toCallerPath(forPath));
     if (resolved !== p) perf.count('symlink resolutions');
     return resolved;
   }
@@ -453,16 +464,19 @@ class SEAProvider extends MemoryProvider {
     return copy;
   }
 
-  readlinkSync(filePath) {
+  readlinkSync(filePath, options) {
     // Reached through fs.readlinkSync since #296 — sea-vfs-setup.js re-points
     // the patch here, because @roberts_lando/vfs answers readlink by way of
     // realpathSync (findVFSForRealpath) and so can never raise EINVAL.
     // Manifest targets are full realpaths (toNormalizedRealPath in
     // lib/walker.ts), not the raw link body POSIX readlink would return, so
     // what comes back is a resolved path.
+    var encoding = shared.readlinkEncoding(options);
     var p = toManifestKey(filePath);
     var target = this._symlinks[p];
-    if (typeof target === 'string') return target;
+    if (typeof target === 'string') {
+      return shared.applyReadlinkEncoding(target, encoding);
+    }
     // A link keyed under its *resolved* parent instead is only reachable once
     // that parent is followed — POSIX readlink resolves the parent and returns
     // only the final component.  Same gap as #295, which every sibling method
@@ -480,7 +494,9 @@ class SEAProvider extends MemoryProvider {
         parent + (parent.endsWith('/') ? p.slice(slash + 1) : p.slice(slash));
       if (viaParent !== p) {
         target = this._symlinks[viaParent];
-        if (typeof target === 'string') return target;
+        if (typeof target === 'string') {
+          return shared.applyReadlinkEncoding(target, encoding);
+        }
         p = viaParent;
       }
     }
@@ -542,26 +558,42 @@ class SEAProvider extends MemoryProvider {
 
   readdirSync(dirPath, options) {
     perf.count('readdirSync calls');
-    var p = this._resolveSymlink(toManifestKey(dirPath), 'scandir', dirPath);
+    var key = toManifestKey(dirPath);
+    var p = this._resolveSymlink(key, 'scandir', dirPath);
     var entries = this._manifest.directories[p];
     if (!entries) return super.readdirSync(p, options);
     if (!options || !options.withFileTypes) return entries.slice();
-    var base = p.endsWith('/') ? p : p + '/';
+    // Two bases, and both are needed. manifest.symlinks is keyed by the
+    // *unresolved* path the walker walked (appendSymlink in lib/walker.ts), so
+    // a link under a symlinked directory is only found under the caller's key;
+    // stats and directories are keyed by the resolved one.
+    var unresolvedBase = key.endsWith('/') ? key : key + '/';
+    var resolvedBase = p.endsWith('/') ? p : p + '/';
+    var parentPath = toPlatformPath(SNAPSHOT_PREFIX + key);
     var self = this;
     return entries.map(function (name) {
-      return new shared.Dirent(name, self._direntType(base + name));
+      var type = self._direntType(unresolvedBase + name, resolvedBase + name);
+      return new shared.Dirent(name, type, parentPath);
     });
   }
 
   // The type readdir reports for one entry, from the same records classic mode
   // reads: an entry is a link when the manifest keys it as one, and what it
   // points at is deliberately not consulted.
-  _direntType(key) {
-    if (typeof this._symlinks[key] === 'string') return shared.UV_DIRENT_LINK;
-    if (this._manifest.directories[key]) return shared.UV_DIRENT_DIR;
-    var meta = this._manifest.stats[key];
-    if (typeof meta === 'object' && meta.isDirectory)
+  _direntType(unresolvedKey, resolvedKey) {
+    if (typeof this._symlinks[unresolvedKey] === 'string') {
+      return shared.UV_DIRENT_LINK;
+    }
+    if (typeof this._symlinks[resolvedKey] === 'string') {
+      return shared.UV_DIRENT_LINK;
+    }
+    if (Array.isArray(this._manifest.directories[resolvedKey])) {
       return shared.UV_DIRENT_DIR;
+    }
+    var meta = this._manifest.stats[resolvedKey];
+    if (typeof meta === 'object' && meta.isDirectory) {
+      return shared.UV_DIRENT_DIR;
+    }
     return shared.UV_DIRENT_FILE;
   }
 
@@ -640,89 +672,13 @@ if (process.platform === 'win32') {
 
 virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
 
-// @roberts_lando/vfs's own fs patches route lstat through findVFSForFsStat,
-// which calls statSync and therefore follows the link, and readlink through
-// findVFSForRealpath, which never reaches the provider at all. Neither can
-// report a symlink, so SEA binaries disagreed with traditional ones about
-// fs.lstatSync(link).isSymbolicLink() for the same source (#296). Re-point
-// both at the provider, which reads the manifest's own symlinks record.
-//
-// VirtualFileSystem.readlinkSync also hands back a provider-relative path, so
-// the mount prefix goes back on here — the same place realpathSync's platform
-// conversion happens.
-(function repatchLinkAwareFs() {
-  function handled(p) {
-    return typeof p === 'string' && virtualFs.shouldHandle(p);
-  }
-
-  function readlinkThroughProvider(p) {
-    return toPlatformPath(SNAPSHOT_PREFIX + virtualFs.readlinkSync(p));
-  }
-
-  function optionsCallback(args, from) {
-    return typeof args[from] === 'function' ? args[from] : args[from + 1];
-  }
-
-  var origLstatSync = fs.lstatSync;
-  fs.lstatSync = function lstatSync(p, options) {
-    if (handled(p)) return virtualFs.lstatSync(p);
-    return origLstatSync.call(fs, p, options);
-  };
-
-  var origLstat = fs.lstat;
-  fs.lstat = function lstat(p) {
-    if (!handled(p)) return origLstat.apply(fs, arguments);
-    var cb = optionsCallback(arguments, 1);
-    var stats;
-    try {
-      stats = virtualFs.lstatSync(p);
-    } catch (error) {
-      return process.nextTick(cb, error);
-    }
-    process.nextTick(cb, null, stats);
-  };
-
-  var origReadlinkSync = fs.readlinkSync;
-  fs.readlinkSync = function readlinkSync(p, options) {
-    if (handled(p)) return readlinkThroughProvider(p);
-    return origReadlinkSync.call(fs, p, options);
-  };
-
-  var origReadlink = fs.readlink;
-  fs.readlink = function readlink(p) {
-    if (!handled(p)) return origReadlink.apply(fs, arguments);
-    var cb = optionsCallback(arguments, 1);
-    var target;
-    try {
-      target = readlinkThroughProvider(p);
-    } catch (error) {
-      return process.nextTick(cb, error);
-    }
-    process.nextTick(cb, null, target);
-  };
-
-  if (fs.promises) {
-    var origPLstat = fs.promises.lstat;
-    fs.promises.lstat = function lstat(p, options) {
-      if (!handled(p)) return origPLstat.call(fs.promises, p, options);
-      try {
-        return Promise.resolve(virtualFs.lstatSync(p));
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    };
-
-    var origPReadlink = fs.promises.readlink;
-    fs.promises.readlink = function readlink(p, options) {
-      if (!handled(p)) return origPReadlink.call(fs.promises, p, options);
-      try {
-        return Promise.resolve(readlinkThroughProvider(p));
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    };
-  }
-})();
+// fs.lstat and fs.readlink reach SEAProvider through @roberts_lando/vfs's own
+// patches. They did not before: lstat went through findVFSForFsStat, which
+// calls statSync and so follows the link, and readlink through
+// findVFSForRealpath, which never reached the provider — so neither could
+// report a symlink, and a SEA binary disagreed with a traditional one about
+// lstatSync(link).isSymbolicLink() for the same source. Fixed upstream in
+// robertsLando/vfs#4; this file carried a local re-patch until that landed.
 
 perf.end('vfs mount + hooks');
 

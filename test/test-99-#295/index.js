@@ -49,6 +49,29 @@ if (nestedIsLink) {
 const notALink = path.join(__dirname, 'index.js');
 assert.throws(() => fs.readlinkSync(notALink), { code: 'EINVAL' });
 
+// ...and the error names the path the caller asked about, not the internal
+// mount-relative key the SEA provider works in.
+try {
+  fs.readlinkSync(notALink);
+} catch (err) {
+  assert.strictEqual(err.path, notALink, 'EINVAL must name the caller path');
+}
+
+// readlink honours its encoding option in both modes.
+if (nestedIsLink) {
+  const asBuffer = fs.readlinkSync(nested, 'buffer');
+  assert.ok(Buffer.isBuffer(asBuffer), "readlink 'buffer' must give a Buffer");
+  assert.strictEqual(
+    asBuffer.toString(),
+    fs.readlinkSync(nested),
+    'the buffer and string forms must agree',
+  );
+  assert.ok(
+    Buffer.isBuffer(fs.readlinkSync(nested, { encoding: 'buffer' })),
+    'the { encoding } form must work too',
+  );
+}
+
 // readdir must return a usable listing in both modes. SEA builds its listing
 // from manifest.directories, which holds only the paths the walker recorded,
 // so which entries appear there is not asserted — only that it works at all.
@@ -89,6 +112,27 @@ assert.ok(
   const S_IFLNK = 0o120000;
   assert.strictEqual(fs.lstatSync(libPath).mode & S_IFMT, S_IFLNK);
 }
+
+// path.join(d.parentPath, d.name) is the documented way to use withFileTypes,
+// and what `recursive: true` consumers do. Undefined here throws.
+for (const d of dirents) {
+  assert.strictEqual(
+    typeof d.parentPath,
+    'string',
+    `dirent ${d.name} is missing parentPath`,
+  );
+  assert.ok(fs.existsSync(path.join(d.parentPath, d.name)));
+}
+
+// readdir *of the linked directory*: manifest.symlinks is keyed by the
+// unresolved path, so resolving `lib` first and then looking entries up under
+// `reallib` would silently report the nested link as a plain file.
+const libDirents = fs.readdirSync(path.join(__dirname, 'lib'), {
+  withFileTypes: true,
+});
+const innerEntry = libDirents.find((e) => e.name === 'inner.js');
+assert.ok(innerEntry, 'inner.js missing from readdir of the linked directory');
+assert.strictEqual(innerEntry.isSymbolicLink(), nestedIsLink);
 
 // The manifest records are read with a bracket index, so a key inherited from
 // Object.prototype must not read as a packaged file in either mode.

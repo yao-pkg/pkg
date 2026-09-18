@@ -668,9 +668,15 @@ var S_IFLNK = 0o120000;
  * in at construction — which is why the type is passed rather than derived
  * from a later lookup.
  */
-function Dirent(name, type) {
+function Dirent(name, type, parentPath) {
   this.name = name;
   this.type = type;
+  // Node's Dirent has carried parentPath since 20.12, and `path` is its
+  // deprecated alias. path.join(d.parentPath, d.name) is the documented way to
+  // use withFileTypes, so leaving it undefined throws ERR_INVALID_ARG_TYPE
+  // inside a packaged binary.
+  this.parentPath = parentPath;
+  this.path = parentPath;
 }
 
 Dirent.prototype.isDirectory = function isDirectory() {
@@ -687,6 +693,29 @@ Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
 
 function direntNoop() {
   return false;
+}
+
+/**
+ * readlink takes its options as a string encoding or an { encoding } object,
+ * and answers a Buffer for 'buffer'. Shared so the two modes cannot disagree.
+ */
+function readlinkEncoding(options) {
+  var encoding =
+    typeof options === 'string' ? options : options && options.encoding;
+  if (encoding && encoding !== 'buffer' && !Buffer.isEncoding(encoding)) {
+    var err = new TypeError('Unknown encoding: ' + encoding);
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+  return encoding;
+}
+
+function applyReadlinkEncoding(target, encoding) {
+  if (encoding === 'buffer') return Buffer.from(target);
+  if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
+    return Buffer.from(target).toString(encoding);
+  }
+  return target;
 }
 
 Dirent.prototype.isBlockDevice = direntNoop;
@@ -892,6 +921,8 @@ module.exports = {
   makeSymlinkResolver: makeSymlinkResolver,
   Dirent: Dirent,
   asSymlinkStat: asSymlinkStat,
+  readlinkEncoding: readlinkEncoding,
+  applyReadlinkEncoding: applyReadlinkEncoding,
   UV_DIRENT_FILE: UV_DIRENT_FILE,
   UV_DIRENT_DIR: UV_DIRENT_DIR,
   UV_DIRENT_LINK: UV_DIRENT_LINK,
