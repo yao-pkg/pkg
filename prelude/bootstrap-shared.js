@@ -3,8 +3,9 @@
 // Shared runtime utilities used by both the traditional bootstrap and
 // the SEA bootstrap.  Each consumer require()s or inlines this module.
 //
-// Traditional bootstrap: inlined via REQUIRE_COMMON (already has its
-//   own common.ts path helpers) — only calls the functions exported here.
+// Traditional bootstrap: inlined via REQUIRE_SHARED (already has its
+//   own common.ts path helpers via REQUIRE_COMMON) — only calls the
+//   functions exported here.
 // SEA bootstrap: bundled by esbuild via require('./bootstrap-shared').
 
 var childProcess = require('child_process');
@@ -596,6 +597,8 @@ function installDiagnostic(snapshotPrefix) {
     wrap(fs, 'readdir');
     wrap(fs, 'realpathSync');
     wrap(fs, 'realpath');
+    wrap(fs, 'readlinkSync');
+    wrap(fs, 'readlink');
     wrap(fs, 'statSync');
     wrap(fs, 'stat');
     wrap(fs, 'lstatSync');
@@ -614,12 +617,338 @@ function installDiagnostic(snapshotPrefix) {
       wrap(fs.promises, 'write');
       wrap(fs.promises, 'readdir');
       wrap(fs.promises, 'realpath');
+      wrap(fs.promises, 'readlink');
       wrap(fs.promises, 'stat');
       wrap(fs.promises, 'lstat');
       wrap(fs.promises, 'access');
       wrap(fs.promises, 'copyFile');
     }
   }
+}
+
+// /////////////////////////////////////////////////////////////////
+// SYMLINK PROCESSING //////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// Matches the typical Linux SYMLOOP_MAX. Bounds symlink resolution so a
+// manifest cycle (or a corrupt manifest) cannot hang startup.
+var MAX_SYMLINK_DEPTH = 40;
+
+// libuv numbers errnos differently on Windows (uv/errno.h). One table for both
+// preludes: they were drifting apart, and sea-vfs-setup.js's ENOENT was not
+// Windows-aware at all. Positive constants, negated at use.
+var ERRNO = (function () {
+  var windows = process.platform === 'win32';
+  return {
+    ENOTDIR: windows ? 4052 : 20,
+    ENOENT: windows ? 4058 : 2,
+    EISDIR: windows ? 4068 : 21,
+    EINVAL: windows ? 4071 : 22,
+    ELOOP: windows ? 4067 : 40,
+  };
+})();
+
+/**
+ * One shape for every error the two preludes raise from a snapshot path.
+ *
+ * The *message* deliberately stays the caller's: traditional mode's ENOENT
+ * carries pkg's "recompile adding it as asset" guidance (asserted by
+ * test-50-not-found-wording), while the SEA provider uses Node's own wording.
+ * What has to match is the shape — code, errno, syscall, path, and the `pkg`
+ * marker bootstrap.js's module wrapper reads.
+ */
+function makeFsError(message, code, syscall, path_) {
+  var err = new Error(message);
+  err.code = code;
+  err.errno = -ERRNO[code];
+  err.syscall = syscall;
+  err.path = path_;
+  err.pkg = true;
+  return err;
+}
+
+// Marks a symlink key whose resolution is still on the stack, so a cycle
+// (/a -> /b -> /a, or /a -> /a/b) is caught instead of recursing forever.
+var RESOLVING = {};
+
+// libuv dirent types, as readdir({ withFileTypes: true }) reports them.
+var UV_DIRENT_FILE = 1;
+var UV_DIRENT_DIR = 2;
+var UV_DIRENT_LINK = 3;
+
+// POSIX file-type bits, for stats that have to agree with the predicate above.
+var S_IFMT = 0o170000;
+var S_IFLNK = 0o120000;
+
+/**
+ * The Dirent both bootstraps hand back from readdir({ withFileTypes: true }).
+ *
+ * fs.Dirent.isSymbolicLink() takes no argument, so link status has to be baked
+ * in at construction — which is why the type is passed rather than derived
+ * from a later lookup.
+ */
+function Dirent(name, type, parentPath) {
+  this.name = name;
+  this.type = type;
+  // Node's Dirent has carried parentPath since 20.12, and `path` is its
+  // deprecated alias. path.join(d.parentPath, d.name) is the documented way to
+  // use withFileTypes, so leaving it undefined throws ERR_INVALID_ARG_TYPE
+  // inside a packaged binary.
+  this.parentPath = parentPath;
+  this.path = parentPath;
+}
+
+Dirent.prototype.isDirectory = function isDirectory() {
+  return this.type === UV_DIRENT_DIR;
+};
+
+Dirent.prototype.isFile = function isFile() {
+  return this.type === UV_DIRENT_FILE;
+};
+
+Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
+  return this.type === UV_DIRENT_LINK;
+};
+
+function direntNoop() {
+  return false;
+}
+
+/**
+ * readlink takes its options as a string encoding or an { encoding } object,
+ * and answers a Buffer for 'buffer'. Shared so the two modes cannot disagree.
+ */
+function readlinkEncoding(options) {
+  var encoding =
+    typeof options === 'string' ? options : options && options.encoding;
+  if (encoding && encoding !== 'buffer' && !Buffer.isEncoding(encoding)) {
+    var err = new TypeError('Unknown encoding: ' + encoding);
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+  return encoding;
+}
+
+function applyReadlinkEncoding(target, encoding) {
+  if (encoding === 'buffer') return Buffer.from(target);
+  if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
+    return Buffer.from(target).toString(encoding);
+  }
+  return target;
+}
+
+Dirent.prototype.isBlockDevice = direntNoop;
+Dirent.prototype.isCharacterDevice = direntNoop;
+Dirent.prototype.isSocket = direntNoop;
+Dirent.prototype.isFIFO = direntNoop;
+
+/**
+ * Give a stat object symlink semantics.
+ *
+ * Both walkers stat *through* the link, so what arrives describes the target.
+ * The mode's type bits are rewritten too: consumers that sniff
+ * `mode & S_IFMT` (tar, archiver, fs.cp) read those rather than the predicate.
+ */
+function asSymlinkStat(s, target) {
+  s.isSymbolicLink = function () {
+    return true;
+  };
+  s.isFile = direntNoop;
+  s.isDirectory = direntNoop;
+  if (typeof s.mode === 'number') {
+    s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
+  }
+  // POSIX lstat reports a link's size as the length of its target string, and
+  // a link occupies no blocks. Without the target we leave the through-the-link
+  // numbers alone rather than invent one.
+  if (typeof target === 'string') {
+    s.size = Buffer.byteLength(target);
+    s.blocks = 0;
+    s.nlink = 1;
+  }
+  return s;
+}
+
+/**
+ * Build a symlink resolver over a manifest's symlinks record.
+ *
+ * The returned function maps a virtual path onto what its symlinks point at,
+ * following parent components the way POSIX does: `node_modules/@x/y` being a
+ * link makes `node_modules/@x/y/package.json` resolve too (#295).
+ *
+ * This runs before every fs operation inside a packaged binary (~30K times at
+ * startup on a large project). The empty-manifest case is allocation-free; the
+ * no-match case costs one `slice` per depth that actually hosts a key, not one
+ * per path component (see `depthHasKey` below).
+ *
+ * The returned resolver keeps hop-accounting state in its closure, so it is not
+ * reentrant — never call it from inside its own resolution.
+ */
+function makeSymlinkResolver(symlinks, sep) {
+  var keys = Object.keys(symlinks || {});
+
+  // Nothing to resolve: hand back identity, so no caller needs a guard of its
+  // own and a symlink-free binary pays nothing. It still has to carry .parent,
+  // or readlink and lstat break on every binary without symlinks — which is
+  // most of them.
+  if (keys.length === 0) {
+    var identity = function (p) {
+      return p;
+    };
+    identity.parent = identity;
+    return identity;
+  }
+
+  // Symlink keys sit at a handful of depths — a package manager's links all
+  // live at the same level of node_modules. Recording which separator counts
+  // can host a key lets the walk below slice only at those depths and stop
+  // past the deepest one: for a 15-segment path in a tree whose links live at
+  // depth 4, that is one probe instead of fifteen.
+  var depthHasKey = [];
+  var maxDepth = 0;
+  for (var i = 0; i < keys.length; i++) {
+    var depth = 0;
+    var at = keys[i].indexOf(sep, 1);
+    while (at > 0) {
+      depth++;
+      at = keys[i].indexOf(sep, at + 1);
+    }
+    depthHasKey[depth] = true;
+    if (depth > maxDepth) maxDepth = depth;
+  }
+
+  // Symlink key -> { target, cost }: where the key fully resolves to, and how
+  // many hops that took. Keyed by manifest entry rather than by the caller's
+  // path, so the map stays bounded by the manifest no matter how many distinct
+  // paths are looked up — including ones an application derives from untrusted
+  // input. It also amortizes across siblings: every file under one linked
+  // directory reuses a single entry.
+  var resolved = new Map();
+
+  // High-water hop count of the resolution currently in flight. follow() reads
+  // it to record each key's `cost`, so a cache hit can charge the hops the
+  // collapsed chain stands for instead of getting them for free — otherwise
+  // MAX_SYMLINK_DEPTH would depend on which path happened to be looked up
+  // first.
+  var deepest = 0;
+
+  // Syscall reported by any ELOOP raised by the resolution in flight. Held in
+  // the closure rather than threaded through resolve()/follow(), which are on
+  // the startup hot path.
+  var syscall = 'stat';
+
+  function eloop(origin) {
+    return makeFsError(
+      'ELOOP: too many symbolic links encountered, ' +
+        syscall +
+        " '" +
+        origin +
+        "'",
+      'ELOOP',
+      syscall,
+      origin,
+    );
+  }
+
+  function follow(key, origin, hops) {
+    var cached = resolved.get(key);
+    if (cached !== undefined) {
+      if (cached === RESOLVING) throw eloop(origin);
+      var reached = hops + cached.cost;
+      if (reached > MAX_SYMLINK_DEPTH) throw eloop(origin);
+      if (reached > deepest) deepest = reached;
+      return cached.target;
+    }
+    resolved.set(key, RESOLVING);
+    // Restart the high-water mark at this key's depth so `cost` measures this
+    // subtree alone, then fold it back into the caller's mark on the way out.
+    var outer = deepest;
+    deepest = hops;
+    var target;
+    try {
+      target = resolve(symlinks[key], origin, hops + 1);
+    } catch (e) {
+      // Don't leave the sentinel behind, or a caught ELOOP would poison this
+      // key for every later lookup.
+      resolved.delete(key);
+      throw e;
+    }
+    resolved.set(key, { target: target, cost: deepest - hops });
+    if (outer > deepest) deepest = outer;
+    return target;
+  }
+
+  function resolve(p, origin, hops) {
+    if (hops > MAX_SYMLINK_DEPTH) throw eloop(origin);
+    if (hops > deepest) deepest = hops;
+
+    // Longest prefix wins. The walker keys every entry on the *unresolved*
+    // path it walked (`appendSymlink` in lib/walker.ts) and each target is
+    // already fully realpath'd, so the deepest key describes the whole chain
+    // while a shallower one would strand the walk on a path the archive has no
+    // entry for. `<dir>/lib` and `<dir>/lib/sub` can both be keys. An exact
+    // match is just the deepest case, so it short-circuits the scan below.
+    //
+    // Deepest-prefix-first is not POSIX's leftmost-first, and the two agree
+    // only because every target the walker records is already a full realpath
+    // (`toNormalizedRealPath` in lib/walker.ts), so no component of a target
+    // can itself be a key. A hand-written manifest that breaks that invariant
+    // would resolve differently here than on disk.
+    if (typeof symlinks[p] === 'string') return follow(p, origin, hops);
+
+    var bestPos = -1;
+    var bestKey = null;
+    var pos = p.indexOf(sep, 1);
+    var depth = 0;
+    while (pos > 0 && depth <= maxDepth) {
+      if (depthHasKey[depth]) {
+        var prefix = p.slice(0, pos);
+        // typeof, not truthiness: the record is JSON-derived and read with a
+        // bracket index, so `__proto__`/`constructor`/`toString` would
+        // otherwise match on an inherited, non-string value.
+        if (typeof symlinks[prefix] === 'string') {
+          bestPos = pos;
+          bestKey = prefix;
+        }
+      }
+      pos = p.indexOf(sep, pos + 1);
+      depth++;
+    }
+
+    if (bestKey === null) return p;
+
+    var target = follow(bestKey, origin, hops);
+    // Drop the remainder's leading separator when the target already ends in
+    // one, so the join cannot double up.
+    var rest = target.endsWith(sep) ? p.slice(bestPos + 1) : p.slice(bestPos);
+    // The remainder may hold links of its own, so walk the result.
+    return resolve(target + rest, origin, hops + 1);
+  }
+
+  function resolveKey(p, forSyscall, forPath) {
+    deepest = 0;
+    syscall = forSyscall || 'stat';
+    // forPath is what an ELOOP reports. Callers pass the user's path, because
+    // `p` is a vfs key — base36 under DOCOMPRESS, and never what was asked for.
+    return resolve(p, forPath === undefined ? p : forPath, 0);
+  }
+
+  // The key a path has once its *parents* are followed but its own last
+  // component is not — what POSIX resolves before reading a link, so readlink
+  // and lstat can find an entry the walker recorded under a followed parent.
+  // Shared so the two modes cannot grow their own join rules.
+  resolveKey.parent = function (p, forSyscall, forPath) {
+    var slash = p.lastIndexOf(sep);
+    if (slash <= 0) return p;
+    var parent = resolveKey(p.slice(0, slash), forSyscall, forPath);
+    // Drop the remainder's leading separator when the resolved parent already
+    // ends in one, so the join cannot produce `//name` and silently miss.
+    return (
+      parent + (parent.endsWith(sep) ? p.slice(slash + 1) : p.slice(slash))
+    );
+  };
+
+  return resolveKey;
 }
 
 module.exports = {
@@ -631,4 +960,14 @@ module.exports = {
   COMPRESS_NONE: COMPRESS_NONE,
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
+  makeSymlinkResolver: makeSymlinkResolver,
+  ERRNO: ERRNO,
+  makeFsError: makeFsError,
+  Dirent: Dirent,
+  asSymlinkStat: asSymlinkStat,
+  readlinkEncoding: readlinkEncoding,
+  applyReadlinkEncoding: applyReadlinkEncoding,
+  UV_DIRENT_FILE: UV_DIRENT_FILE,
+  UV_DIRENT_DIR: UV_DIRENT_DIR,
+  UV_DIRENT_LINK: UV_DIRENT_LINK,
 };

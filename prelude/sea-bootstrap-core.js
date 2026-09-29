@@ -30,6 +30,7 @@ shared.patchDlopen(insideSnapshot);
 shared.patchChildProcess(entrypoint);
 shared.patchIntlSegmenter();
 shared.setupProcessPkg(entrypoint, manifest.entrypoint);
+process.pkg.vfs = vfs.virtualFs;
 
 // /////////////////////////////////////////////////////////////////
 // DIAGNOSTICS /////////////////////////////////////////////////////

@@ -24,10 +24,6 @@ try {
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
 var MemoryProvider = vfsModule.MemoryProvider;
 
-// Matches the typical Linux SYMLOOP_MAX. Bounds the symlink resolution
-// loop so a manifest cycle (or a corrupt manifest) cannot hang startup.
-var MAX_SYMLINK_DEPTH = 40;
-
 // /////////////////////////////////////////////////////////////////
 // PERFORMANCE INSTRUMENTATION /////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
@@ -151,6 +147,7 @@ var perf = {
       'statSync calls',
       'existsSync calls',
       'readdirSync calls',
+      'symlink resolutions',
     ];
     counterOrder.forEach(function (label) {
       var v = self._counters[label];
@@ -212,15 +209,33 @@ var toManifestKey =
         return _stripTrailingSeps(p);
       };
 
-function _enoent(syscall, filePath) {
-  var err = new Error(
-    'ENOENT: no such file or directory, ' + syscall + " '" + filePath + "'",
+// The VFS strips the mount prefix before calling the provider, so an error
+// built from what arrives here names a path the caller never used. Put the
+// prefix and the platform form back, the way classic mode's stripSnapshot does.
+function toCallerPath(providerPath) {
+  if (typeof providerPath !== 'string') return providerPath;
+  if (providerPath.startsWith(SNAPSHOT_PREFIX)) return providerPath;
+  return toPlatformPath(SNAPSHOT_PREFIX + providerPath);
+}
+
+function _einval(syscall, filePath) {
+  var shown = toCallerPath(filePath);
+  return shared.makeFsError(
+    'EINVAL: invalid argument, ' + syscall + " '" + shown + "'",
+    'EINVAL',
+    syscall,
+    shown,
   );
-  err.code = 'ENOENT';
-  err.errno = -2;
-  err.syscall = syscall;
-  err.path = filePath;
-  return err;
+}
+
+function _enoent(syscall, filePath) {
+  var shown = toCallerPath(filePath);
+  return shared.makeFsError(
+    'ENOENT: no such file or directory, ' + syscall + " '" + shown + "'",
+    'ENOENT',
+    syscall,
+    shown,
+  );
 }
 
 // /////////////////////////////////////////////////////////////////
@@ -283,13 +298,22 @@ function _makeStats(meta) {
  *
  * Performance design:
  *
- *   - internalModuleStat()  O(1) manifest hash lookup (no tree walk).
+ *   - internalModuleStat()  Symlink resolution (no-op O(1) if the manifest has
+ *     no symlinks; O(path depth) for any path that isn't itself symlinked,
+ *     paid on every call — not memoised, since most lookups are one-off
+ *     candidate paths and caching them would grow the cache unboundedly for
+ *     no benefit; O(1) amortized only for paths that actually traverse a
+ *     symlink, via a Map keyed by the manifest entry rather than by the
+ *     caller's path — see makeSymlinkResolver() in bootstrap-shared.js)
+ *     + O(1) manifest lookup.
  *     This is the hottest path (~30K calls for large projects).
  *
- *   - statSync()            O(1) manifest lookup + lightweight stat allocation.
+ *   - statSync()            Same symlink resolution as above + O(1) manifest
+ *     lookup + lightweight stat allocation.
  *     Not on the module resolution hot path.  Returns a fresh object each call.
  *
- *   - existsSync()          O(1) manifest lookup.
+ *   - existsSync()          Same symlink resolution as above + O(1) manifest
+ *     lookup.
  *
  *   - readFileSync()        Zero-copy subarray from the archive with a Map
  *     cache.  Bypasses the MemoryProvider tree entirely.  Returns a Buffer
@@ -306,6 +330,11 @@ class SEAProvider extends MemoryProvider {
     super();
     this._manifest = seaManifest;
     this._fileCache = new Map();
+
+    // One normalised symlinks record for every consumer below, so the
+    // resolver and readlinkSync cannot disagree about whether it may be absent.
+    this._symlinks = seaManifest.symlinks || {};
+    this._resolve = shared.makeSymlinkResolver(this._symlinks, '/');
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
@@ -336,27 +365,27 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p) {
-    // Fast path: the vast majority of lookups (~30K per startup on large
-    // projects) are not symlinks. A single object-has-key check avoids
-    // entering the loop and the i++/target fetch overhead for the common
-    // case.
-    var symlinks = this._manifest.symlinks;
-    if (symlinks[p] === undefined) return p;
-    var original = p;
-    for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
-      var target = symlinks[p];
-      if (!target) return p;
-      p = target;
+  _resolveSymlink(p, syscall, forPath) {
+    // The resolver owns the no-symlink fast path, so there is nothing to guard
+    // here. Counting only the calls that actually moved the path keeps the
+    // counter meaningful on symlink-free binaries, where it used to be skipped
+    // by a separate guard.
+    // toCallerPath() is only ever read by the error, so it is built in the
+    // catch rather than on every call — this is the hot path (~30K calls on a
+    // large project) and a try block costs nothing until something throws.
+    var resolved;
+    try {
+      resolved = this._resolve(p, syscall, forPath);
+    } catch (error) {
+      if (error.code === 'ELOOP' && error.path === forPath) {
+        var shown = toCallerPath(forPath);
+        error.message = error.message.split("'")[0] + "'" + shown + "'";
+        error.path = shown;
+      }
+      throw error;
     }
-    var err = new Error(
-      "ELOOP: too many symbolic links encountered, '" + original + "'",
-    );
-    err.code = 'ELOOP';
-    err.errno = -40;
-    err.syscall = 'stat';
-    err.path = original;
-    throw err;
+    if (resolved !== p) perf.count('symlink resolutions');
+    return resolved;
   }
 
   get fileCacheSize() {
@@ -364,7 +393,7 @@ class SEAProvider extends MemoryProvider {
   }
 
   readFileSync(filePath, options) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(toManifestKey(filePath), 'open', filePath);
     // Fast path: for compressed archives, a per-file decompressed Buffer is
     // memoised in _fileCache (decompression is expensive and most prelude
     // modules are read once during module resolution, twice for the compile
@@ -443,16 +472,56 @@ class SEAProvider extends MemoryProvider {
     return copy;
   }
 
-  readlinkSync(filePath) {
-    var p = toManifestKey(filePath);
-    var target = this._manifest.symlinks[p];
-    if (target) return target;
-    return super.readlinkSync(p);
+  readlinkSync(filePath, options) {
+    // Reached through fs.readlinkSync since #296 — sea-vfs-setup.js re-points
+    // the patch here, because @roberts_lando/vfs answers readlink by way of
+    // realpathSync (findVFSForRealpath) and so can never raise EINVAL.
+    // Manifest targets are full realpaths (toNormalizedRealPath in
+    // lib/walker.ts), not the raw link body POSIX readlink would return, so
+    // what comes back is a resolved path.
+    var encoding = shared.readlinkEncoding(options);
+    var key = toManifestKey(filePath);
+    // POSIX readlink resolves the parents and reads only the final component,
+    // so a link keyed under an already-followed parent is reachable too.
+    var resolvedKey = this._resolveParentKey(key, 'readlink', filePath);
+    var target = this._linkTarget(key, resolvedKey);
+    if (target !== undefined) {
+      return shared.applyReadlinkEncoding(target, encoding);
+    }
+    // Same contract as classic mode: EINVAL for a path that is there but is
+    // not a link, ENOENT for one that is not there at all. The base class
+    // only knows the directory tree, so it cannot tell those apart.
+    if (typeof this._manifest.stats[resolvedKey] === 'object') {
+      throw _einval('readlink', filePath);
+    }
+    throw _enoent('readlink', filePath);
+  }
+
+  realpathSync(filePath, options) {
+    // The base class only knows the directory tree built in the constructor,
+    // so without this every archive file resolves to ENOENT — which also
+    // breaks fs.readlinkSync, since the VFS answers readlink by way of
+    // realpath.  Following the symlink chain here is the whole point.
+    var p = this._resolveSymlink(toManifestKey(filePath), 'realpath', filePath);
+    // typeof, not `in` or truthiness: the manifest is JSON-derived and read
+    // with a bracket index, so both would report `constructor`/`toString` as
+    // existing files.  This does not block `__proto__` — typeof gives 'object'
+    // for that one — but a lookup key can only ever be `/`-prefixed
+    // (toManifestKey, and producer.ts snapshotifies every manifest key), so a
+    // bare inherited name cannot be formed.  Same idiom as the resolver's
+    // `typeof === 'string'`.
+    // The base signature takes options and the VFS passes them through, so
+    // honour the encoding here the way readlinkSync does.
+    var encoding = shared.readlinkEncoding(options);
+    if (typeof this._manifest.stats[p] === 'object') {
+      return shared.applyReadlinkEncoding(p, encoding);
+    }
+    return shared.applyReadlinkEncoding(super.realpathSync(p), encoding);
   }
 
   statSync(filePath) {
     perf.count('statSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(toManifestKey(filePath), 'stat', filePath);
     var meta = this._manifest.stats[p];
     if (meta) {
       // Return a fresh stat object — matches Node.js fs.statSync contract.
@@ -467,26 +536,118 @@ class SEAProvider extends MemoryProvider {
    * startup (~30K calls for large projects) so it must be as lean as possible.
    */
   internalModuleStat(filePath) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p;
+    try {
+      p = this._resolveSymlink(toManifestKey(filePath), 'stat', filePath);
+    } catch (error) {
+      // Negative errno, not a throw: module resolution calls this and a cyclic
+      // manifest must not become an uncaught exception during require().
+      if (error.code === 'ELOOP') return error.errno;
+      throw error;
+    }
     var meta = this._manifest.stats[p];
     if (meta) {
       return meta.isDirectory ? 1 : 0;
     }
-    return -2;
+    return -shared.ERRNO.ENOENT;
   }
 
-  readdirSync(dirPath) {
+  readdirSync(dirPath, options) {
     perf.count('readdirSync calls');
-    var p = this._resolveSymlink(toManifestKey(dirPath));
+    var key = toManifestKey(dirPath);
+    var p = this._resolveSymlink(key, 'scandir', dirPath);
     var entries = this._manifest.directories[p];
-    if (entries) return entries.slice();
-    return super.readdirSync(p);
+    if (!entries) return super.readdirSync(p, options);
+    if (!options || !options.withFileTypes) return entries.slice();
+    // Two bases, and both are needed. manifest.symlinks is keyed by the
+    // *unresolved* path the walker walked (appendSymlink in lib/walker.ts), so
+    // a link under a symlinked directory is only found under the caller's key;
+    // stats and directories are keyed by the resolved one.
+    var unresolvedBase = key.endsWith('/') ? key : key + '/';
+    var resolvedBase = p.endsWith('/') ? p : p + '/';
+    var parentPath = toPlatformPath(SNAPSHOT_PREFIX + key);
+    var self = this;
+    return entries.map(function (name) {
+      var type = self._direntType(unresolvedBase + name, resolvedBase + name);
+      return new shared.Dirent(name, type, parentPath);
+    });
+  }
+
+  // The type readdir reports for one entry, from the same records classic mode
+  // reads: an entry is a link when the manifest keys it as one, and what it
+  // points at is deliberately not consulted.
+  // "Is this path a link, and to what?" — one policy for lstatSync, readdir and
+  // readlinkSync, which otherwise each grew their own. manifest.symlinks is
+  // keyed by the unresolved path the walker walked (appendSymlink in
+  // lib/walker.ts), so that spelling wins; the resolved one is a fallback for a
+  // manifest that keyed it under an already-followed parent.
+  // The key a path has once its *parents* are followed but its own last
+  // component is not — what POSIX resolves before reading a link. Returns the
+  // key unchanged when nothing moved.
+  // Shared with classic mode, so the join rule lives in one place.
+  _resolveParentKey(key, syscall, forPath) {
+    return this._resolve.parent(key, syscall, forPath);
+  }
+
+  _linkTarget(unresolvedKey, resolvedKey) {
+    var target = this._symlinks[unresolvedKey];
+    if (typeof target === 'string') return target;
+    if (resolvedKey !== undefined && resolvedKey !== unresolvedKey) {
+      target = this._symlinks[resolvedKey];
+      if (typeof target === 'string') return target;
+    }
+    return undefined;
+  }
+
+  _direntType(unresolvedKey, resolvedKey) {
+    if (this._linkTarget(unresolvedKey, resolvedKey) !== undefined) {
+      return shared.UV_DIRENT_LINK;
+    }
+    if (Array.isArray(this._manifest.directories[resolvedKey])) {
+      return shared.UV_DIRENT_DIR;
+    }
+    var meta = this._manifest.stats[resolvedKey];
+    if (typeof meta === 'object' && meta.isDirectory) {
+      return shared.UV_DIRENT_DIR;
+    }
+    return shared.UV_DIRENT_FILE;
+  }
+
+  // lstat describes the link itself. The base class has no override, and the
+  // manifest stats are recorded through the link, so the target's stat is
+  // fetched and then given link semantics — same shape classic mode returns.
+  lstatSync(filePath) {
+    var key = toManifestKey(filePath);
+    // Resolve the parents before asking, so lstat agrees with readdir and
+    // readlink about which entries are links — all three go through
+    // _linkTarget with the same pair of keys.
+    var resolvedKey = this._resolveParentKey(key, 'lstat', filePath);
+    if (this._linkTarget(key, resolvedKey) === undefined) {
+      return this.statSync(filePath);
+    }
+    var target = this._linkTarget(key, resolvedKey);
+    var p = this._resolveSymlink(key, 'lstat', filePath);
+    var meta = this._manifest.stats[p];
+    if (typeof meta !== 'object') throw _enoent('lstat', filePath);
+    return shared.asSymlinkStat(_makeStats(meta), target);
   }
 
   existsSync(filePath) {
     perf.count('existsSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
-    return p in this._manifest.stats;
+    var p;
+    try {
+      p = this._resolveSymlink(toManifestKey(filePath), 'access', filePath);
+    } catch (error) {
+      // fs.existsSync never throws — libuv swallows every errno and answers
+      // false. The VFS probes with this method before the real call, so it
+      // keeps the reason and re-raises it there (probeSync in
+      // @roberts_lando/vfs); a cycle still surfaces as ELOOP from stat, open,
+      // readdir and realpath rather than as a bare ENOENT.
+      if (error.code === 'ELOOP') return false;
+      throw error;
+    }
+    // typeof, not truthiness — see realpathSync.
+    return typeof this._manifest.stats[p] === 'object';
   }
 }
 
@@ -524,9 +685,26 @@ if (process.platform === 'win32') {
   VirtualFileSystem.prototype.resolvePath = function (inputPath) {
     return _origResolvePath.call(this, _winToVFS(inputPath));
   };
+  // ...and convert back on the way out. realpathSync is the only method that
+  // returns a path, and it rejoins the POSIX mount prefix, so without this it
+  // answers `/snapshot/app/x.js` where __filename is `C:\snapshot\app\x.js`
+  // — the two stop comparing equal and path.relative() against either breaks.
+  var _origRealpathSync = VirtualFileSystem.prototype.realpathSync;
+  VirtualFileSystem.prototype.realpathSync = function (filePath, options) {
+    return toPlatformPath(_origRealpathSync.call(this, filePath, options));
+  };
 }
 
 virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
+
+// fs.lstat and fs.readlink reach SEAProvider through @roberts_lando/vfs's own
+// patches. They did not before: lstat went through findVFSForFsStat, which
+// calls statSync and so follows the link, and readlink through
+// findVFSForRealpath, which never reached the provider — so neither could
+// report a symlink, and a SEA binary disagreed with a traditional one about
+// lstatSync(link).isSymbolicLink() for the same source. Fixed upstream in
+// robertsLando/vfs#4; this file carried a local re-patch until that landed.
+
 perf.end('vfs mount + hooks');
 
 // /////////////////////////////////////////////////////////////////
