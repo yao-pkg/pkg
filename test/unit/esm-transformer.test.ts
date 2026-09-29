@@ -128,6 +128,21 @@ describe('transformESMtoCJS', () => {
     assert.doesNotMatch(res.code, /async\s*\(\s*\)\s*=>/);
   });
 
+  it('await inside a private class method does NOT trigger IIFE wrap', () => {
+    // `async #m()` is a ClassPrivateMethod, not a ClassMethod — the climber
+    // must treat it as a function boundary too, otherwise any module using
+    // private async methods is reported as TLA + exports and left untransformed.
+    const src = [
+      'export class C {',
+      '  async #m() { await 1; }',
+      '  async #n() { for await (const x of []) {} }',
+      '}',
+    ].join('\n');
+    const res = transformESMtoCJS(src, 'private-method.mjs');
+    assert.equal(res.isTransformed, true);
+    assert.doesNotMatch(res.code, /async\s*\(\s*\)\s*=>/);
+  });
+
   it('import.meta: esbuild emits shim, we inject the real implementation', () => {
     const res = transformESMtoCJS(
       'export const here = import.meta.url;\n',
