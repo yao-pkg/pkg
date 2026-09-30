@@ -138,6 +138,36 @@ CLI (lib/index.ts)
   └─ runPostBuild() — lib/hooks.ts (per-binary, sets PKG_OUTPUT)
 ```
 
+### Bytecode Fabricator IPC
+
+In traditional mode, `lib/fabricator.ts` compiles each JS file to V8 bytecode by
+spawning the target's base binary (`PKG_EXECPATH=PKG_INVOKE_NODEJS`) and exchanging
+length-prefixed frames over stdio:
+
+```
+Request  (parent → child):  [u32 snapLen][snap bytes][u32 bodyLen][body bytes]
+Response (child → parent):  [u32 blobLen][cachedData bytes]
+```
+
+All integers are little-endian. Each frame part is capped at
+`FABRICATOR_MAX_FRAME_PART_SIZE` (256MB). Bodies are per-file source buffers and
+`module.wrap` already caps at Node's 512MB string limit, so this ceiling cannot
+reject a payload that previously worked.
+
+The child's exit code tells the parent how to treat a failure:
+
+| Exit code | Meaning                                                              | Handling                                                                                 |
+| --------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 0         | Bytecode produced                                                    | Blob is delivered to the packer                                                          |
+| 2         | Well-formed request V8 refused to compile                            | Per-file failure: degrade to source with `--fallback-to-source`, otherwise skip the file |
+| 3         | Framing violation / channel desync (`FABRICATOR_PROTOCOL_EXIT_CODE`) | Build fails loudly — a desynced channel must never degrade to source                     |
+
+On the parent side, every response header is validated against the same ceiling by
+`tryParseFabricatorResponse()` (shared with the unit tests), unconsumed remainder
+bytes are carried over to the next request, and each request is guarded by
+`FABRICATOR_RESPONSE_TIMEOUT_MS`. A bounded tail of the child's stderr is attached
+to failure messages so the cause is visible without `--debug`.
+
 ### Binary Format
 
 The traditional executable has this layout:
@@ -632,7 +662,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `lib/producer.ts`                | ~601  | Assembles final binary (payload injection, compression)                                      |
 | `lib/sea.ts`                     | ~672  | SEA orchestrator (seaEnhanced + simple sea, single-bootstrap dispatch)                       |
 | `lib/sea-assets.ts`              | ~188  | Generates single archive blob + manifest with offsets                                        |
-| `lib/fabricator.ts`              | ~173  | V8 bytecode compilation (traditional mode only)                                              |
+| `lib/fabricator.ts`              | ~460  | V8 bytecode compilation + frame IPC (traditional mode only)                                  |
 | `lib/esm-transformer.ts`         | ~434  | ESM to CJS transformation (traditional mode only)                                            |
 | `lib/refiner.ts`                 | ~110  | Path compression, empty directory pruning                                                    |
 | `lib/common.ts`                  | ~375  | Path normalization, snapshot helpers, store constants                                        |

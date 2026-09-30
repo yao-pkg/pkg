@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 
 import { STORE_BLOB, STORE_CONTENT, isDotNODE, snapshotify } from './common';
 import { log, wasReported } from './log';
-import { fabricateTwice } from './fabricator';
+import { fabricateTwice, isFabricatorProtocolError } from './fabricator';
 import { platform, SymLinks, Target } from './types';
 import { Stripe } from './packer';
 import { CompressType, getZstdCompressStream } from './compress_type';
@@ -483,6 +483,13 @@ export default function producer({
                 (error, buffer) => {
                   if (error) {
                     const file = stripe.file ?? snap;
+
+                    if (isFabricatorProtocolError(error)) {
+                      // A desynced fabricator channel must never degrade to
+                      // plain source: fail loudly instead of shipping a
+                      // green build without bytecode.
+                      return cb(error, null);
+                    }
 
                     if (fallbackToSource) {
                       log.warn(
