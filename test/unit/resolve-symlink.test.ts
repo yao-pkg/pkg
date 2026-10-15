@@ -6,15 +6,10 @@ const shared = createRequire(__filename)('../../prelude/bootstrap-shared.js');
 const makeSymlinkResolver = shared.makeSymlinkResolver as (
   _symlinks: Record<string, string>,
   _sep: string,
-) => ((_p: string, _syscall?: string, _forPath?: string) => string) & {
-  parent: (_p: string, _syscall?: string, _forPath?: string) => string;
-};
+) => (_p: string) => string;
 
-// makeSymlinkResolver() backs both the classic bootstrap (prelude/bootstrap.js)
-// and the SEA VFS provider (prelude/sea-vfs-setup.js) — see #295/#296. These
-// are table-driven pure-logic tests against the shared implementation
-// directly, requested during PR review as a complement to the e2e
-// test-99-#295 (which only covers one level of symlink nesting end to end).
+// makeSymlinkResolver() backs both the classic bootstrap and the SEA provider.
+// test-99-#295 covers one level of nesting end to end; these cover the rest.
 describe('makeSymlinkResolver', () => {
   it('returns non-symlinked paths unchanged', () => {
     const resolve = makeSymlinkResolver(
@@ -164,156 +159,6 @@ describe('makeSymlinkResolver', () => {
     );
   });
 
-  it('gives ELOOP the errno shape Node uses for the platform', () => {
-    // libuv numbers ELOOP differently on Windows (uv/errno.h: -4067 vs -40).
-    const expected = process.platform === 'win32' ? -4067 : -40;
-    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
-    assert.throws(
-      () => resolve('/a/x'),
-      (err: NodeJS.ErrnoException) => {
-        assert.equal(err.code, 'ELOOP');
-        assert.equal(err.errno, expected);
-        assert.equal(err.path, '/a/x');
-        return true;
-      },
-    );
-  });
-
-  it("reports the caller's syscall, defaulting to stat", () => {
-    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
-    assert.throws(
-      () => resolve('/a/x'),
-      (err: NodeJS.ErrnoException) => {
-        assert.equal(err.syscall, 'stat');
-        assert.match(err.message, /^ELOOP: .*, stat '\/a\/x'$/);
-        return true;
-      },
-    );
-    assert.throws(
-      () => resolve('/a/x', 'realpath'),
-      (err: NodeJS.ErrnoException) => {
-        assert.equal(err.syscall, 'realpath');
-        assert.match(err.message, /realpath '\/a\/x'$/);
-        return true;
-      },
-    );
-  });
-
-  it("reports the caller's path, not the vfs key, when given one", () => {
-    // Under DOCOMPRESS the key is base36, so the bare key means nothing to the
-    // user reading the error.
-    const resolve = makeSymlinkResolver({ '/1': '/1/2' }, '/');
-    assert.throws(
-      () => resolve('/1/2', 'stat', '/snapshot/app/lib/index.js'),
-      (err: NodeJS.ErrnoException) => {
-        assert.equal(err.code, 'ELOOP');
-        assert.equal(err.path, '/snapshot/app/lib/index.js');
-        assert.match(err.message, /'\/snapshot\/app\/lib\/index\.js'$/);
-        return true;
-      },
-    );
-  });
-
-  it('marks ELOOP as pkg-originated, like the other snapshot errors', () => {
-    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
-    assert.throws(
-      () => resolve('/a/x'),
-      (
-        err: NodeJS.ErrnoException & {
-          pkg?: boolean;
-        },
-      ) => {
-        assert.equal(err.pkg, true);
-        return true;
-      },
-    );
-  });
-
-  describe('resolveKey.parent — the readlink/lstat step', () => {
-    // POSIX resolves a path's parents before reading its last component, so an
-    // entry recorded under an already-followed parent stays reachable. Both
-    // bootstraps drive this, which is why it lives on the resolver.
-    it('resolves the parents and keeps the last component', () => {
-      const resolve = makeSymlinkResolver(
-        { '/snapshot/lib': '/snapshot/reallib' },
-        '/',
-      );
-      assert.equal(
-        resolve.parent('/snapshot/lib/inner.js'),
-        '/snapshot/reallib/inner.js',
-      );
-    });
-
-    it('does not follow the last component itself', () => {
-      // The whole point: resolve() would answer /snapshot/reallib here.
-      const resolve = makeSymlinkResolver(
-        { '/snapshot/lib': '/snapshot/reallib' },
-        '/',
-      );
-      assert.equal(resolve.parent('/snapshot/lib'), '/snapshot/lib');
-    });
-
-    it('does not double the separator when the target ends in one', () => {
-      const resolve = makeSymlinkResolver({ '/snapshot/lib': '/real/' }, '/');
-      assert.equal(resolve.parent('/snapshot/lib/x.js'), '/real/x.js');
-    });
-
-    it('is present on the empty-manifest fast path too', () => {
-      // The identity resolver is what a symlink-free binary gets, which is
-      // most of them — readlink and lstat call .parent unconditionally.
-      const resolve = makeSymlinkResolver({}, '/');
-      assert.equal(typeof resolve.parent, 'function');
-      assert.equal(
-        resolve.parent('/snapshot/app/lib/inner.js'),
-        '/snapshot/app/lib/inner.js',
-      );
-    });
-
-    it('leaves a key with no parent alone', () => {
-      const resolve = makeSymlinkResolver({ '/a': '/b' }, '/');
-      assert.equal(resolve.parent('/a'), '/a');
-      assert.equal(resolve.parent('a'), 'a');
-    });
-
-    it('raises ELOOP from the parent walk, naming the caller', () => {
-      const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
-      assert.throws(
-        () => resolve.parent('/a/x/y.js', 'readlink', '/snapshot/a/x/y.js'),
-        (err: NodeJS.ErrnoException) => {
-          assert.equal(err.code, 'ELOOP');
-          assert.equal(err.syscall, 'readlink');
-          assert.equal(err.path, '/snapshot/a/x/y.js');
-          return true;
-        },
-      );
-    });
-
-    it('walks win32 keys on their own separator', () => {
-      const resolve = makeSymlinkResolver(
-        { 'C:\\snapshot\\lib': 'C:\\snapshot\\reallib' },
-        '\\',
-      );
-      assert.equal(
-        resolve.parent('C:\\snapshot\\lib\\inner.js'),
-        'C:\\snapshot\\reallib\\inner.js',
-      );
-    });
-  });
-
-  it("does not leak the previous call's syscall into the next", () => {
-    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
-    assert.throws(() => resolve('/a/x', 'readlink'), { syscall: 'readlink' });
-    assert.throws(() => resolve('/a/x'), { syscall: 'stat' });
-  });
-
-  it('keeps throwing ELOOP on a repeat lookup', () => {
-    // The in-progress sentinel must not be left behind in the memo, or a
-    // caught ELOOP would poison unrelated later lookups.
-    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
-    assert.throws(() => resolve('/a/x'), { code: 'ELOOP' });
-    assert.throws(() => resolve('/a/y'), { code: 'ELOOP' });
-  });
-
   describe('the MAX_SYMLINK_DEPTH bound', () => {
     // Chain of `n` links ending at '/end': /l0 -> /l1 -> ... -> /ln -> /end.
     const chain = (n: number) => {
@@ -322,6 +167,20 @@ describe('makeSymlinkResolver', () => {
       m[`/l${n}`] = '/end';
       return m;
     };
+
+    it('allows 40 links and rejects 41, like SYMLOOP_MAX', () => {
+      // chain(n) is n + 1 links.
+      assert.equal(makeSymlinkResolver(chain(39), '/')('/l0'), '/end');
+      assert.throws(() => makeSymlinkResolver(chain(40), '/')('/l0'), {
+        code: 'ELOOP',
+      });
+    });
+
+    it('still resolves a short lookup after an over-long one threw', () => {
+      const resolve = makeSymlinkResolver(chain(41), '/');
+      assert.throws(() => resolve('/l0'), { code: 'ELOOP' });
+      assert.equal(resolve('/l30'), '/end');
+    });
 
     it('does not depend on which path was resolved first', () => {
       // A cache hit hands back a target that stands for many hops. Those hops

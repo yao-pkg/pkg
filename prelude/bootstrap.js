@@ -234,30 +234,19 @@ function toOriginal(fShort) {
 // separator for substitution depends on platform;
 const sepsep = DOCOMPRESS ? separator : path.sep;
 
-// The resolver owns the no-symlink fast path and its own memoisation, so
-// there is nothing to guard here.
 const resolveSymlink = REQUIRE_SHARED.makeSymlinkResolver(SYMLINKS, sepsep);
 
-// syscall names the fs call in flight, so an ELOOP out of the resolver says
-// which one hit it rather than always saying `stat`. path_ is passed through as
-// the error's path because the resolver only ever sees the vfs key.
-function findVirtualFileSystemKeyAndFollowLinks(path_, syscall) {
-  return resolveSymlink(
-    findVirtualFileSystemKey(path_, path.sep),
-    syscall,
-    path_,
-  );
+function findVirtualFileSystemKeyAndFollowLinks(path_) {
+  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep));
 }
 
 function realpathFromSnapshot(path_) {
-  const realPath = toOriginal(
-    findVirtualFileSystemKeyAndFollowLinks(path_, 'realpath'),
-  );
+  const realPath = toOriginal(findVirtualFileSystemKeyAndFollowLinks(path_));
   return realPath;
 }
 
-function findVirtualFileSystemEntry(path_, syscall) {
-  const vfsKey = findVirtualFileSystemKeyAndFollowLinks(path_, syscall);
+function findVirtualFileSystemEntry(path_) {
+  const vfsKey = findVirtualFileSystemKeyAndFollowLinks(path_);
   return VIRTUAL_FILESYSTEM[vfsKey];
 }
 
@@ -497,8 +486,6 @@ function payloadFileSync(pointer) {
     readdir: fs.readdir,
     realpathSync: fs.realpathSync,
     realpath: fs.realpath,
-    readlinkSync: fs.readlinkSync,
-    readlink: fs.readlink,
     statSync: fs.statSync,
     stat: fs.stat,
     lstatSync: fs.lstatSync,
@@ -540,24 +527,6 @@ function payloadFileSync(pointer) {
   // The messages stay traditional-mode's own — this one carries pkg's
   // "recompile adding it as asset" guidance and test-50-not-found-wording
   // asserts it. Only the shape is shared.
-  // Every callback-style snapshot shim needs the same guard: the resolver can
-  // throw ELOOP on a cyclic manifest, and Node's async fs never throws
-  // synchronously. cb2 is rethrow for sync callers, so one helper serves both
-  // and the next shim added cannot forget it.
-  //
-  // MISSED means the error was already delivered: the caller must stop, and
-  // must not also report its own ENOENT.
-  const MISSED = Symbol('eloop-reported');
-
-  function findEntryOr(cb2, path_, syscall) {
-    try {
-      return findVirtualFileSystemEntry(path_, syscall);
-    } catch (error) {
-      cb2(error);
-      return MISSED;
-    }
-  }
-
   function error_ENOENT(fileOrDirectory, path_) {
     return makeFsError(
       `${fileOrDirectory} '${stripSnapshot(path_)}' ` +
@@ -574,15 +543,6 @@ function payloadFileSync(pointer) {
       'EISDIR: illegal operation on a directory, read',
       'EISDIR',
       'read',
-      path_,
-    );
-  }
-
-  function error_EINVAL(syscall, path_) {
-    return makeFsError(
-      `EINVAL: invalid argument, ${syscall} '${stripSnapshot(path_)}'`,
-      'EINVAL',
-      syscall,
       path_,
     );
   }
@@ -649,7 +609,7 @@ function payloadFileSync(pointer) {
   };
 
   function uncompressExternallyPath(path_) {
-    const entity = findVirtualFileSystemEntry(path_, 'open');
+    const entity = findVirtualFileSystemEntry(path_);
     const dock = { path: path_, entity, position: 0 };
     return uncompressExternally(dock);
   }
@@ -662,8 +622,7 @@ function payloadFileSync(pointer) {
 
   function openFromSnapshot(path_, uncompress, cb) {
     const cb2 = cb || rethrow;
-    const entity = findEntryOr(cb2, path_, 'open');
-    if (entity === MISSED) return;
+    const entity = findVirtualFileSystemEntry(path_);
     if (!entity) return cb2(error_ENOENT('File or directory', path_));
     const dock = { path: path_, entity, position: 0 };
 
@@ -954,8 +913,7 @@ function payloadFileSync(pointer) {
   function readFileFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
 
-    const entity = findEntryOr(cb2, path_, 'open');
-    if (entity === MISSED) return;
+    const entity = findVirtualFileSystemEntry(path_);
     if (!entity) return cb2(error_ENOENT('File', path_));
 
     const entityLinks = entity[STORE_LINKS];
@@ -1115,67 +1073,36 @@ function payloadFileSync(pointer) {
     return null;
   }
 
-  // Shared with the SEA provider so both modes report the same dirent shape —
-  // real readdir lstats, so a link is a link rather than what it points at.
-  const Dirent = REQUIRE_SHARED.Dirent;
-  const UV_DIRENT_FILE = REQUIRE_SHARED.UV_DIRENT_FILE;
-  const UV_DIRENT_DIR = REQUIRE_SHARED.UV_DIRENT_DIR;
-  const UV_DIRENT_LINK = REQUIRE_SHARED.UV_DIRENT_LINK;
-  const noop = () => false;
-
-  // "Is this path a link, and to what?" — SYMLINKS is keyed by the *unresolved*
-  // vfs key the walker walked, so that spelling wins; the resolved one is a
-  // fallback for an entry recorded under an already-followed parent. Mirrors
-  // SEAProvider._linkTarget, so the modes cannot grow different answers.
-  function snapshotLinkTarget(vfsKey, resolvedKey) {
-    // typeof, not truthiness: the record is read with a bracket index.
-    if (typeof SYMLINKS[vfsKey] === 'string') return SYMLINKS[vfsKey];
-    if (resolvedKey !== undefined && resolvedKey !== vfsKey) {
-      if (typeof SYMLINKS[resolvedKey] === 'string') {
-        return SYMLINKS[resolvedKey];
-      }
-    }
-    return undefined;
+  function Dirent(name, type) {
+    this.name = name;
+    this.type = type;
   }
 
+  Dirent.prototype.isDirectory = function isDirectory() {
+    return this.type === 2;
+  };
+
+  Dirent.prototype.isFile = function isFile() {
+    return this.type === 1;
+  };
+
+  const noop = () => false;
+  Dirent.prototype.isBlockDevice = noop;
+  Dirent.prototype.isCharacterDevice = noop;
+  Dirent.prototype.isSocket = noop;
+  Dirent.prototype.isFIFO = noop;
+
+  Dirent.prototype.isSymbolicLink = (fileOrFolderName) =>
+    Boolean(SYMLINKS[fileOrFolderName]);
+
   function getFileTypes(path_, entries) {
-    // Node's Dirent.parentPath is the directory readdir was called on, so it
-    // has to stay the caller's path — stripSnapshot() is for error text and
-    // yields something path.join() cannot use.
-    const parentPath = path_;
     return entries.map((entry) => {
       const ff = path.join(path_, entry);
-      // SYMLINKS is keyed by the *unresolved* vfs key, so this asks whether
-      // this entry is itself a link — not whether its target is one. It runs
-      // before the entity lookup, which follows links: an entry whose target
-      // is missing from the snapshot is still a link, and answering
-      // `undefined` there would put a hole in the readdir array.
-      // typeof, not truthiness: the record is read with a bracket index, so a
-      // key like `constructor` would otherwise match an inherited value.
-      const vfsKey = findVirtualFileSystemKey(ff, path.sep);
-      if (snapshotLinkTarget(vfsKey, undefined) !== undefined)
-        return new Dirent(entry, UV_DIRENT_LINK, parentPath);
-      // Same lookup findVirtualFileSystemEntry() does, reusing the key above
-      // rather than rebuilding it — in DOCOMPRESS mode that is a full
-      // normalize+split+map+join per directory entry.
-      //
-      // A cycle reachable only through this entry's parents (the entry itself
-      // need not be a key) would otherwise throw from inside fs.readdir's
-      // callback. A dirent that cannot be resolved is a hole, same as a
-      // missing entity.
-      let resolved;
-      try {
-        resolved = resolveSymlink(vfsKey, 'scandir', ff);
-      } catch (error) {
-        if (error.code !== 'ELOOP') throw error;
-        return undefined;
-      }
-      const entity = VIRTUAL_FILESYSTEM[resolved];
+      const entity = findVirtualFileSystemEntry(ff);
       if (!entity) return undefined;
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
-        return new Dirent(entry, UV_DIRENT_FILE, parentPath);
-      if (entity[STORE_LINKS])
-        return new Dirent(entry, UV_DIRENT_DIR, parentPath);
+        return new Dirent(entry, 1);
+      if (entity[STORE_LINKS]) return new Dirent(entry, 2);
       throw new Error('UNEXPECTED-24');
     });
   }
@@ -1183,7 +1110,7 @@ function payloadFileSync(pointer) {
   function readdirRoot(path_, options, cb) {
     function addSnapshot(entries) {
       if (options && options.withFileTypes) {
-        entries.push(new Dirent('snapshot', UV_DIRENT_DIR, path_));
+        entries.push(new Dirent('snapshot', 2));
       } else {
         entries.push('snapshot');
       }
@@ -1216,8 +1143,7 @@ function payloadFileSync(pointer) {
 
   function readdirFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    const entity = findEntryOr(cb2, path_, 'scandir');
-    if (entity === MISSED) return;
+    const entity = findVirtualFileSystemEntry(path_);
 
     if (!entity) {
       return cb2(error_ENOENT('Directory', path_));
@@ -1289,17 +1215,8 @@ function payloadFileSync(pointer) {
 
     readdirFromSnapshot(path_, (error, entries) => {
       if (error) return callback(error);
-      // This runs inside payloadFile's real I/O completion handler, so a throw
-      // from getFileTypes has nothing above it to catch.
-      let dirents;
-      try {
-        dirents = options.withFileTypes
-          ? getFileTypes(path_, entries)
-          : entries;
-      } catch (err) {
-        return callback(err);
-      }
-      callback(null, dirents);
+      if (options.withFileTypes) entries = getFileTypes(path_, entries);
+      callback(null, entries);
     });
   };
 
@@ -1330,84 +1247,11 @@ function payloadFileSync(pointer) {
     }
 
     const callback = dezalgo(maybeCallback(arguments));
-    let realPath;
-    try {
-      realPath = realpathFromSnapshot(path_);
-    } catch (error) {
-      // Async fs never throws synchronously — an ELOOP belongs in the
-      // callback, like every sibling here.
-      return callback(error);
-    }
-    callback(null, realPath);
+    callback(null, realpathFromSnapshot(path_));
   };
 
   fs.realpathSync.native = fs.realpathSync;
   fs.realpath.native = fs.realpath;
-
-  // ///////////////////////////////////////////////////////////////
-  // readlink //////////////////////////////////////////////////////
-  // ///////////////////////////////////////////////////////////////
-
-  // readdir({ withFileTypes: true }) reports snapshot symlinks as links, so
-  // the usual `if (d.isSymbolicLink()) fs.readlinkSync(p)` pairing has to be
-  // answerable here — unpatched it would fall through to the host fs and
-  // ENOENT on a /snapshot path.
-  const readlinkEncoding = REQUIRE_SHARED.readlinkEncoding;
-  const applyReadlinkEncoding = REQUIRE_SHARED.applyReadlinkEncoding;
-
-  function readlinkFromSnapshot(path_) {
-    const vfsKey = findVirtualFileSystemKey(path_, path.sep);
-    // POSIX readlink resolves the parents and reads only the final component,
-    // so an entry the walker recorded under an already-followed parent is
-    // reachable too. Same step the SEA provider takes, from the same helper.
-    const viaParent = resolveSymlink.parent(vfsKey, 'readlink', path_);
-    const target = snapshotLinkTarget(vfsKey, viaParent);
-    if (target !== undefined) return toOriginal(target);
-    // Node answers EINVAL for a path that exists but is not a link, and
-    // ENOENT for one that does not exist at all.
-    // typeof, not truthiness — the record is read with a bracket index, same
-    // as every sibling lookup.
-    if (
-      typeof VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, 'readlink', path_)] ===
-      'object'
-    ) {
-      throw error_EINVAL('readlink', path_);
-    }
-    throw error_ENOENT('File or directory', path_);
-  }
-
-  fs.readlinkSync = function readlinkSync(path_, options) {
-    if (!insideSnapshot(path_)) {
-      return ancestor.readlinkSync.apply(fs, arguments);
-    }
-    if (insideMountpoint(path_)) {
-      return ancestor.readlinkSync.apply(fs, translateNth(arguments, 0, path_));
-    }
-
-    const encoding = readlinkEncoding(options);
-    return applyReadlinkEncoding(readlinkFromSnapshot(path_), encoding);
-  };
-
-  fs.readlink = function readlink(path_, options) {
-    if (!insideSnapshot(path_)) {
-      return ancestor.readlink.apply(fs, arguments);
-    }
-    if (insideMountpoint(path_)) {
-      return ancestor.readlink.apply(fs, translateNth(arguments, 0, path_));
-    }
-
-    const encoding = readlinkEncoding(
-      typeof options === 'function' ? undefined : options,
-    );
-    const callback = dezalgo(maybeCallback(arguments));
-    let target;
-    try {
-      target = readlinkFromSnapshot(path_);
-    } catch (error) {
-      return callback(error);
-    }
-    callback(null, applyReadlinkEncoding(target, encoding));
-  };
 
   // ///////////////////////////////////////////////////////////////
   // stat //////////////////////////////////////////////////////////
@@ -1487,8 +1331,7 @@ function payloadFileSync(pointer) {
 
   function statFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    const entity = findEntryOr(cb2, path_, 'stat');
-    if (entity === MISSED) return;
+    const entity = findVirtualFileSystemEntry(path_);
     if (!entity) return findNativeAddonForStat(path_, cb);
     const entityStat = entity[STORE_STAT];
     if (entityStat) return statFromSnapshotSub(entityStat, cb);
@@ -1522,46 +1365,6 @@ function payloadFileSync(pointer) {
   // lstat /////////////////////////////////////////////////////////
   // ///////////////////////////////////////////////////////////////
 
-  // lstat must describe the link itself rather than what it points at. The
-  // walker records every stat with fs.stat, so the stored isSymbolicLinkValue
-  // is false even for a link; SYMLINKS — keyed by the *unresolved* vfs key —
-  // is the only source of truth, and it is the same one readdir uses, so the
-  // two cannot disagree about an entry.
-  const asLink = REQUIRE_SHARED.asSymlinkStat;
-
-  function lstatFromSnapshot(path_, cb) {
-    const cb2 = cb || rethrow;
-    const vfsKey = findVirtualFileSystemKey(path_, path.sep);
-    // Resolve the parents first, so lstat agrees with readdir and readlink
-    // about which entries are links — the same pair of keys all three use.
-    let target = snapshotLinkTarget(vfsKey, undefined);
-    if (target === undefined) {
-      let viaParent;
-      try {
-        viaParent = resolveSymlink.parent(vfsKey, 'lstat', path_);
-      } catch (error) {
-        return cb2(error);
-      }
-      target = snapshotLinkTarget(vfsKey, viaParent);
-    }
-    if (target === undefined) {
-      return statFromSnapshot(path_, cb);
-    }
-    const entity = VIRTUAL_FILESYSTEM[vfsKey];
-    const entityStat = entity && entity[STORE_STAT];
-    // A link the walker recorded without its own stat entry: fall back rather
-    // than invent one.
-    if (!entityStat) return statFromSnapshot(path_, cb);
-    const linkTarget = toOriginal(target);
-    if (cb) {
-      return statFromSnapshotSub(entityStat, (error, s) => {
-        if (error) return cb(error);
-        cb(null, asLink(s, linkTarget));
-      });
-    }
-    return asLink(statFromSnapshotSub(entityStat), linkTarget);
-  }
-
   fs.lstatSync = function lstatSync(path_) {
     if (!insideSnapshot(path_)) {
       return ancestor.lstatSync.apply(fs, arguments);
@@ -1570,7 +1373,7 @@ function payloadFileSync(pointer) {
       return ancestor.lstatSync.apply(fs, translateNth(arguments, 0, path_));
     }
 
-    return lstatFromSnapshot(path_);
+    return statFromSnapshot(path_);
   };
 
   fs.lstat = function lstat(path_) {
@@ -1582,7 +1385,7 @@ function payloadFileSync(pointer) {
     }
 
     const callback = dezalgo(maybeCallback(arguments));
-    lstatFromSnapshot(path_, callback);
+    statFromSnapshot(path_, callback);
   };
 
   // ///////////////////////////////////////////////////////////////
@@ -1625,16 +1428,7 @@ function payloadFileSync(pointer) {
   }
 
   function existsFromSnapshot(path_) {
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_);
-    } catch (error) {
-      // fs.existsSync never throws — libuv swallows every errno and answers
-      // false — so a symlink cycle in the manifest has to read as "no" here
-      // rather than escaping into a caller that has no catch.
-      if (error.code === 'ELOOP') return false;
-      throw error;
-    }
+    const entity = findVirtualFileSystemEntry(path_);
     if (!entity) return findNativeAddonForExists(path_);
     return true;
   }
@@ -1668,8 +1462,7 @@ function payloadFileSync(pointer) {
 
   function accessFromSnapshot(path_, cb) {
     const cb2 = cb || rethrow;
-    const entity = findEntryOr(cb2, path_, 'access');
-    if (entity === MISSED) return;
+    const entity = findVirtualFileSystemEntry(path_);
     if (!entity) return cb2(error_ENOENT('File or directory', path_));
     return cb2(null, undefined);
   }
@@ -1744,7 +1537,6 @@ function payloadFileSync(pointer) {
       realpath: fs.promises.realpath,
       stat: fs.promises.stat,
       lstat: fs.promises.lstat,
-      readlink: fs.promises.readlink,
       fstat: fs.promises.fstat,
       access: fs.promises.access,
       copyFile: fs.promises.copyFile,
@@ -1800,13 +1592,13 @@ function payloadFileSync(pointer) {
 
     fs.promises.read = util.promisify(fs.read);
     fs.promises.realpath = util.promisify(fs.realpath);
-    fs.promises.readlink = util.promisify(fs.readlink);
     fs.promises.fstat = util.promisify(fs.fstat);
     fs.promises.statfs = util.promisify(fs.statfs);
     fs.promises.access = util.promisify(fs.access);
 
     // TODO: all promises methods that try to edit files in snapshot should throw
     // TODO implement missing methods
+    // fs.promises.readlink ?
     // fs.promises.opendir ?
   }
 
@@ -1846,15 +1638,7 @@ function payloadFileSync(pointer) {
         .internalModuleStat(makeLong(translate(path_)));
     }
 
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_);
-    } catch (error) {
-      // Contract is a negative errno, not a throw: module resolution calls
-      // this and would turn a cyclic manifest into an uncaught exception.
-      if (error.code === 'ELOOP') return error.errno;
-      throw error;
-    }
+    const entity = findVirtualFileSystemEntry(path_);
 
     if (!entity) {
       return findNativeAddonForInternalModuleStat(path_);
@@ -1903,15 +1687,7 @@ function payloadFileSync(pointer) {
       return readFile(makeLong(translate(path_)));
     }
 
-    let entity;
-    try {
-      entity = findVirtualFileSystemEntry(path_, 'open');
-    } catch (error) {
-      // Same reason as internalModuleStat: require() probes package.json
-      // through here, so a cyclic manifest must read as a miss, not a throw.
-      if (error.code !== 'ELOOP') throw error;
-      return returnArray ? [undefined, false] : undefined;
-    }
+    const entity = findVirtualFileSystemEntry(path_);
 
     if (!entity) {
       return returnArray ? [undefined, false] : undefined;
@@ -1993,7 +1769,7 @@ function payloadFileSync(pointer) {
       return ancestor._compile.apply(this, arguments);
     }
 
-    const entity = findVirtualFileSystemEntry(filename_, 'open');
+    const entity = findVirtualFileSystemEntry(filename_);
 
     if (!entity) {
       // let user try to "_compile" a packaged file
