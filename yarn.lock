@@ -636,10 +636,9 @@
     conventional-recommended-bump "^11.2.0"
     semver "^7.7.3"
 
-"@roberts_lando/vfs@^0.3.3":
+"@roberts_lando/vfs@robertsLando/vfs#19a694fc4c8524009aa3e597e456e6e20fe30c31":
   version "0.3.3"
-  resolved "https://registry.yarnpkg.com/@roberts_lando/vfs/-/vfs-0.3.3.tgz#6359feed30e3773041279cb11be82ca60f4ff1f1"
-  integrity sha512-YjkxVSLw5WMZQoARaryRAjcxA+GbBzWMJdwYZX5oLUt9cC/gew9as4Dn7tcLzPp7BPoR221VpTZ+78TRPawnjg==
+  resolved "https://codeload.github.com/robertsLando/vfs/tar.gz/19a694fc4c8524009aa3e597e456e6e20fe30c31"
 
 "@rtsao/scc@^1.1.0":
   version "1.1.0"

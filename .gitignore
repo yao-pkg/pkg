@@ -34,4 +34,5 @@ prelude/sea-bootstrap.bundle.js
 # Built by test-99-#295/main.js at test time, removed again afterwards
 test/test-99-#295/lib
 test/test-99-#295/reallib/inner.js
+test/test-99-#295/reallib/other.js
 test/test-99-#295/linkinfo.json

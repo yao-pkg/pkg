@@ -11,6 +11,10 @@ const log = require('./lib/log');
 // must win over its symlinked parent.
 require('./lib/inner.js');
 
+// `reallib/other.js` links to `log.js` too but is only required through the
+// real directory, so the walker records it under `reallib/` and never `lib/`.
+require('./reallib/other.js');
+
 // Windows can refuse to create the nested *file* link, in which case main.js
 // leaves a plain copy in its place. The directory link is a real junction
 // there, so the parent walk is covered either way.
@@ -37,10 +41,155 @@ assert.strictEqual(
   'realpath must round-trip a non-link in the platform path form',
 );
 
-// readdir *of the linked directory* must list what the link points at.
-assert.ok(
-  fs.readdirSync(path.join(__dirname, 'lib')).includes('log.js'),
-  'log.js missing from readdir of the linked directory',
+const S_IFMT = 0o170000;
+const S_IFLNK = 0o120000;
+const libPath = path.join(__dirname, 'lib');
+const viaParent = path.join(libPath, 'other.js');
+const notALink = path.join(__dirname, 'index.js');
+
+// readlink answers the walker's absolute target, in the platform path form.
+assert.strictEqual(
+  fs.readlinkSync(libPath),
+  path.join(__dirname, 'reallib'),
+  'readlink of the directory link',
+);
+if (nestedIsLink) {
+  const logPath = path.join(__dirname, 'reallib', 'log.js');
+  assert.strictEqual(fs.readlinkSync(nested), logPath, 'readlink nested');
+  assert.strictEqual(
+    fs.readlinkSync(viaParent),
+    logPath,
+    'readlink via parent',
+  );
+
+  const asBuffer = fs.readlinkSync(nested, 'buffer');
+  assert.ok(Buffer.isBuffer(asBuffer), "readlink 'buffer' must give a Buffer");
+  assert.strictEqual(asBuffer.toString(), logPath);
+  assert.ok(Buffer.isBuffer(fs.readlinkSync(nested, { encoding: 'buffer' })));
+}
+
+// EINVAL for a path that exists but is not a link, ENOENT for one that does
+// not exist, and both name the caller's path.
+assert.throws(() => fs.readlinkSync(notALink), {
+  code: 'EINVAL',
+  path: notALink,
+});
+assert.throws(() => fs.readlinkSync(path.join(__dirname, 'reallib')), {
+  code: 'EINVAL',
+});
+assert.throws(() => fs.readlinkSync(path.join(__dirname, 'missing.js')), {
+  code: 'ENOENT',
+});
+
+// lstat describes a link itself, stat follows it, and a non-link is unchanged.
+function assertLink(p, isDir) {
+  const l = fs.lstatSync(p);
+  assert.strictEqual(l.isSymbolicLink(), true, `lstat ${p} isSymbolicLink`);
+  assert.strictEqual(l.isDirectory(), false, `lstat ${p} isDirectory`);
+  assert.strictEqual(l.isFile(), false, `lstat ${p} isFile`);
+  assert.strictEqual(l.mode & S_IFMT, S_IFLNK, `lstat ${p} type bits`);
+  const s = fs.statSync(p);
+  assert.strictEqual(s.isSymbolicLink(), false, `stat ${p} isSymbolicLink`);
+  assert.strictEqual(s.isDirectory(), isDir, `stat ${p} isDirectory`);
+}
+assertLink(libPath, true);
+if (nestedIsLink) {
+  assertLink(nested, false);
+  assertLink(viaParent, false);
+}
+assert.strictEqual(fs.lstatSync(notALink).isSymbolicLink(), false);
+assert.strictEqual(fs.lstatSync(notALink).isFile(), true);
+assert.strictEqual(
+  fs.lstatSync(path.join(__dirname, 'reallib')).isDirectory(),
+  true,
 );
 
-log(42);
+// readdir reports links as links and agrees with lstat.
+function direntOf(dir, name) {
+  const d = fs
+    .readdirSync(dir, { withFileTypes: true })
+    .find((e) => e.name === name);
+  assert.ok(d, `${name} missing from readdir of ${dir}`);
+  assert.strictEqual(typeof d.parentPath, 'string', `${name} parentPath`);
+  assert.ok(fs.existsSync(path.join(d.parentPath, d.name)));
+  return d;
+}
+assert.strictEqual(direntOf(__dirname, 'lib').isSymbolicLink(), true);
+assert.strictEqual(direntOf(__dirname, 'reallib').isDirectory(), true);
+assert.strictEqual(
+  direntOf(libPath, 'inner.js').isSymbolicLink(),
+  nestedIsLink,
+  'readdir of the linked directory',
+);
+assert.strictEqual(
+  direntOf(libPath, 'other.js').isSymbolicLink(),
+  nestedIsLink,
+  'readdir finds a link recorded under the real parent',
+);
+
+// The callback and promise forms go through separate patches.
+function viaCallback(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    fn(...args, (err, value) => (err ? reject(err) : resolve(value)));
+  });
+}
+
+const pending = [
+  viaCallback(fs.lstat, libPath).then((st) =>
+    assert.strictEqual(st.isSymbolicLink(), true, 'fs.lstat'),
+  ),
+  fs.promises
+    .lstat(libPath)
+    .then((st) =>
+      assert.strictEqual(st.isSymbolicLink(), true, 'fs.promises.lstat'),
+    ),
+  viaCallback(fs.readdir, __dirname, { withFileTypes: true }).then((list) =>
+    assert.strictEqual(
+      list.find((e) => e.name === 'lib').isSymbolicLink(),
+      true,
+      'fs.readdir withFileTypes',
+    ),
+  ),
+  fs.promises
+    .readdir(__dirname, { withFileTypes: true })
+    .then((list) =>
+      assert.strictEqual(
+        list.find((e) => e.name === 'lib').isSymbolicLink(),
+        true,
+        'fs.promises.readdir withFileTypes',
+      ),
+    ),
+  viaCallback(fs.readlink, libPath).then((t) =>
+    assert.strictEqual(t, path.join(__dirname, 'reallib'), 'fs.readlink'),
+  ),
+  fs.promises
+    .readlink(libPath)
+    .then((t) =>
+      assert.strictEqual(
+        t,
+        path.join(__dirname, 'reallib'),
+        'fs.promises.readlink',
+      ),
+    ),
+  // An error reaches the callback rather than being thrown.
+  viaCallback(fs.readlink, notALink).then(
+    () => assert.fail('fs.readlink on a non-link must fail'),
+    (err) => assert.strictEqual(err.code, 'EINVAL', 'fs.readlink EINVAL'),
+  ),
+];
+
+const timer = setTimeout(() => {
+  console.error('a callback-style fs call never settled');
+  process.exit(1);
+}, 10000);
+
+Promise.all(pending).then(
+  () => {
+    clearTimeout(timer);
+    log(42);
+  },
+  (err) => {
+    console.error(err);
+    process.exit(1);
+  },
+);
