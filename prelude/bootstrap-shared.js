@@ -156,6 +156,17 @@ function cpRecursive(src, dest) {
 }
 
 /**
+ * The on-disk directory pkg extracts snapshot content into at runtime.
+ * Overridable for hosts whose home directory is read-only.
+ */
+function pkgCacheDir() {
+  return path.join(
+    process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache'),
+    'pkg',
+  );
+}
+
+/**
  * Patch process.dlopen to extract native addons from the snapshot to a
  * cache directory on the real filesystem before loading them.
  *
@@ -163,8 +174,7 @@ function cpRecursive(src, dest) {
  */
 function patchDlopen(insideSnapshot) {
   var ancestor = process.dlopen;
-  var PKG_NATIVE_CACHE_BASE =
-    process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache');
+  var PKG_CACHE_DIR = pkgCacheDir();
 
   function revertMakingLong(f) {
     if (/^\\\\\?\\/.test(f)) return f.slice(4);
@@ -180,7 +190,7 @@ function patchDlopen(insideSnapshot) {
     if (insideSnapshot(modulePath)) {
       var moduleContent = fs.readFileSync(modulePath);
       var hash = createHash('sha256').update(moduleContent).digest('hex');
-      var tmpFolder = path.join(PKG_NATIVE_CACHE_BASE, 'pkg', hash);
+      var tmpFolder = path.join(PKG_CACHE_DIR, hash);
 
       fs.mkdirSync(tmpFolder, { recursive: true });
 
@@ -623,6 +633,7 @@ function installDiagnostic(snapshotPrefix) {
 }
 
 module.exports = {
+  pkgCacheDir: pkgCacheDir,
   patchDlopen: patchDlopen,
   patchChildProcess: patchChildProcess,
   patchIntlSegmenter: patchIntlSegmenter,
