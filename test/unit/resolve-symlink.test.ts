@@ -6,7 +6,9 @@ const shared = createRequire(__filename)('../../prelude/bootstrap-shared.js');
 const makeSymlinkResolver = shared.makeSymlinkResolver as (
   _symlinks: Record<string, string>,
   _sep: string,
-) => (_p: string) => string;
+) => ((_p: string) => string) & {
+  parent: (_p: string) => string;
+};
 
 // makeSymlinkResolver() backs both the classic bootstrap and the SEA provider.
 // test-99-#295 covers one level of nesting end to end; these cover the rest.
@@ -157,6 +159,59 @@ describe('makeSymlinkResolver', () => {
         return true;
       },
     );
+  });
+
+  describe('resolveKey.parent — the readlink/lstat step', () => {
+    // POSIX resolves a path's parents before reading its last component, so an
+    // entry recorded under an already-followed parent stays reachable. Both
+    // bootstraps drive this, which is why it lives on the resolver.
+    it('resolves the parents and keeps the last component', () => {
+      const resolve = makeSymlinkResolver(
+        { '/snapshot/lib': '/snapshot/reallib' },
+        '/',
+      );
+      assert.equal(
+        resolve.parent('/snapshot/lib/inner.js'),
+        '/snapshot/reallib/inner.js',
+      );
+    });
+
+    it('does not follow the last component itself', () => {
+      // The whole point: resolve() would answer /snapshot/reallib here.
+      const resolve = makeSymlinkResolver(
+        { '/snapshot/lib': '/snapshot/reallib' },
+        '/',
+      );
+      assert.equal(resolve.parent('/snapshot/lib'), '/snapshot/lib');
+    });
+
+    it('is present on the empty-manifest fast path too', () => {
+      // The identity resolver is what a symlink-free binary gets, which is
+      // most of them — readlink and lstat call .parent unconditionally.
+      const resolve = makeSymlinkResolver({}, '/');
+      assert.equal(typeof resolve.parent, 'function');
+      assert.equal(
+        resolve.parent('/snapshot/app/lib/inner.js'),
+        '/snapshot/app/lib/inner.js',
+      );
+    });
+
+    it('leaves a key with no parent alone', () => {
+      const resolve = makeSymlinkResolver({ '/a': '/b' }, '/');
+      assert.equal(resolve.parent('/a'), '/a');
+      assert.equal(resolve.parent('a'), 'a');
+    });
+
+    it('walks win32 keys on their own separator', () => {
+      const resolve = makeSymlinkResolver(
+        { 'C:\\snapshot\\lib': 'C:\\snapshot\\reallib' },
+        '\\',
+      );
+      assert.equal(
+        resolve.parent('C:\\snapshot\\lib\\inner.js'),
+        'C:\\snapshot\\reallib\\inner.js',
+      );
+    });
   });
 
   describe('the MAX_SYMLINK_DEPTH bound', () => {

@@ -606,6 +606,8 @@ function installDiagnostic(snapshotPrefix) {
     wrap(fs, 'readdir');
     wrap(fs, 'realpathSync');
     wrap(fs, 'realpath');
+    wrap(fs, 'readlinkSync');
+    wrap(fs, 'readlink');
     wrap(fs, 'statSync');
     wrap(fs, 'stat');
     wrap(fs, 'lstatSync');
@@ -624,6 +626,7 @@ function installDiagnostic(snapshotPrefix) {
       wrap(fs.promises, 'write');
       wrap(fs.promises, 'readdir');
       wrap(fs.promises, 'realpath');
+      wrap(fs.promises, 'readlink');
       wrap(fs.promises, 'stat');
       wrap(fs.promises, 'lstat');
       wrap(fs.promises, 'access');
@@ -646,6 +649,7 @@ var ERRNO = (function () {
     ENOTDIR: windows ? 4052 : 20,
     ENOENT: windows ? 4058 : 2,
     EISDIR: windows ? 4068 : 21,
+    EINVAL: windows ? 4071 : 22,
     ELOOP: windows ? 4067 : 40,
   };
 })();
@@ -669,6 +673,94 @@ function makeFsError(message, code, syscall, path_) {
 // again means a cycle.
 var RESOLVING = {};
 
+// libuv dirent types, as readdir({ withFileTypes: true }) reports them.
+var UV_DIRENT_FILE = 1;
+var UV_DIRENT_DIR = 2;
+var UV_DIRENT_LINK = 3;
+
+// POSIX file-type bits, so `mode & S_IFMT` agrees with isSymbolicLink().
+var S_IFMT = 0o170000;
+var S_IFLNK = 0o120000;
+
+function alwaysFalse() {
+  return false;
+}
+
+/**
+ * The Dirent both bootstraps return from readdir({ withFileTypes: true }).
+ * The type is fixed at construction: fs.Dirent's predicates take no argument.
+ */
+function Dirent(name, type, parentPath) {
+  this.name = name;
+  this.type = type;
+  // path.join(d.parentPath, d.name) is the documented way to use a Dirent;
+  // `path` is its deprecated alias.
+  this.parentPath = parentPath;
+  this.path = parentPath;
+}
+
+Dirent.prototype.isDirectory = function isDirectory() {
+  return this.type === UV_DIRENT_DIR;
+};
+
+Dirent.prototype.isFile = function isFile() {
+  return this.type === UV_DIRENT_FILE;
+};
+
+Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
+  return this.type === UV_DIRENT_LINK;
+};
+
+Dirent.prototype.isBlockDevice = alwaysFalse;
+Dirent.prototype.isCharacterDevice = alwaysFalse;
+Dirent.prototype.isSocket = alwaysFalse;
+Dirent.prototype.isFIFO = alwaysFalse;
+
+/**
+ * Where a snapshot path links to, or undefined when it is not a link.
+ *
+ * The walker keys a link on the unresolved path it walked, so that spelling
+ * wins; `resolvedKey` (the path with its parents followed) finds a link the
+ * walker reached through its real parent instead.
+ */
+function linkTarget(symlinks, key, resolvedKey) {
+  // typeof: the record is read with a bracket index, so inherited keys like
+  // `constructor` must not match.
+  if (typeof symlinks[key] === 'string') return symlinks[key];
+  if (typeof symlinks[resolvedKey] === 'string') return symlinks[resolvedKey];
+  return undefined;
+}
+
+/**
+ * Give a through-the-link stat link semantics, as POSIX lstat reports them:
+ * link type bits, size of the target string, no blocks.
+ */
+function asSymlinkStat(s, target) {
+  s.isSymbolicLink = function () {
+    return true;
+  };
+  s.isFile = alwaysFalse;
+  s.isDirectory = alwaysFalse;
+  s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
+  s.size = Buffer.byteLength(target);
+  s.blocks = 0;
+  s.nlink = 1;
+  return s;
+}
+
+// readlink's options are an encoding string or { encoding }.
+function readlinkEncoding(options) {
+  return typeof options === 'string' ? options : options && options.encoding;
+}
+
+function applyReadlinkEncoding(target, encoding) {
+  if (encoding === 'buffer') return Buffer.from(target);
+  if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
+    return Buffer.from(target).toString(encoding);
+  }
+  return target;
+}
+
 /**
  * Build a symlink resolver over a manifest's symlinks record.
  *
@@ -681,11 +773,14 @@ var RESOLVING = {};
 function makeSymlinkResolver(symlinks, sep) {
   var keys = Object.keys(symlinks || {});
 
-  // A symlink-free binary pays nothing.
+  // A symlink-free binary pays nothing. Still carries .parent for readlink
+  // and lstat.
   if (keys.length === 0) {
-    return function (p) {
+    var identity = function (p) {
       return p;
     };
+    identity.parent = identity;
+    return identity;
   }
 
   // Links sit at a few depths, so the scan below only slices at those.
@@ -780,10 +875,20 @@ function makeSymlinkResolver(symlinks, sep) {
     return resolve(target + rest, origin, hops + 1);
   }
 
-  return function resolveKey(p) {
+  function resolveKey(p) {
     deepest = 0;
     return resolve(p, p, 0);
+  }
+
+  // The key once a path's parents are followed but its last component is not,
+  // which is what POSIX resolves before reading a link.
+  resolveKey.parent = function (p) {
+    var slash = p.lastIndexOf(sep);
+    if (slash <= 0) return p;
+    return resolveKey(p.slice(0, slash)) + p.slice(slash);
   };
+
+  return resolveKey;
 }
 
 module.exports = {
@@ -799,4 +904,12 @@ module.exports = {
   makeSymlinkResolver: makeSymlinkResolver,
   ERRNO: ERRNO,
   makeFsError: makeFsError,
+  Dirent: Dirent,
+  linkTarget: linkTarget,
+  asSymlinkStat: asSymlinkStat,
+  readlinkEncoding: readlinkEncoding,
+  applyReadlinkEncoding: applyReadlinkEncoding,
+  UV_DIRENT_FILE: UV_DIRENT_FILE,
+  UV_DIRENT_DIR: UV_DIRENT_DIR,
+  UV_DIRENT_LINK: UV_DIRENT_LINK,
 };
