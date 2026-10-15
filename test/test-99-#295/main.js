@@ -14,11 +14,8 @@ if (utils.getNodeMajorVersion() < 22) {
 
 assert(__dirname === process.cwd());
 
-// The links are built here instead of being committed: git on Windows checks
-// a committed symlink out as a text file holding its target, which would make
-// pkg bytecode-compile `./log.js` as if it were source and fail the *build*.
-// Building them at test time also lets Windows use a junction — the shape npm
-// actually creates for workspace links, which is what #295 was reported on.
+// Built at test time: git on Windows checks out a committed symlink as a text
+// file, and a junction is what npm creates for workspace links there.
 const libLink = path.join(__dirname, 'lib');
 const innerLink = path.join(__dirname, 'reallib', 'inner.js');
 const linkInfo = path.join(__dirname, 'linkinfo.json');
@@ -30,26 +27,25 @@ function removeGenerated() {
 
 removeGenerated();
 
-fs.symlinkSync(
-  path.join(__dirname, 'reallib'),
-  libLink,
-  process.platform === 'win32' ? 'junction' : 'dir',
-);
-
-// A *file* symlink needs Developer Mode or elevation on Windows. Fall back to
-// a plain copy there: the directory junction still exercises the parent walk,
-// and index.js relaxes the nested assertions to match.
-let nestedIsLink = true;
 try {
-  fs.symlinkSync('log.js', innerLink, 'file');
-} catch (error) {
-  if (process.platform !== 'win32') throw error;
-  fs.copyFileSync(path.join(__dirname, 'reallib', 'log.js'), innerLink);
-  nestedIsLink = false;
-}
-fs.writeFileSync(linkInfo, `${JSON.stringify({ nestedIsLink }, null, 2)}\n`);
+  fs.symlinkSync(
+    path.join(__dirname, 'reallib'),
+    libLink,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
 
-try {
+  // A file symlink needs Developer Mode on Windows; index.js relaxes to match.
+  let nestedIsLink = true;
+  try {
+    fs.symlinkSync('log.js', innerLink, 'file');
+  } catch (error) {
+    if (process.platform !== 'win32') throw error;
+    console.log(`  file symlink unavailable (${error.code}), using a copy`);
+    fs.copyFileSync(path.join(__dirname, 'reallib', 'log.js'), innerLink);
+    nestedIsLink = false;
+  }
+  fs.writeFileSync(linkInfo, `${JSON.stringify({ nestedIsLink }, null, 2)}\n`);
+
   const input = './package.json';
   const testName = 'test-99-#295';
   const standardOutput = 'test-output.exe';
