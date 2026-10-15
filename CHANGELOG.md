@@ -1,5 +1,20 @@
 # Changelog
 
+## [6.23.0](https://github.com/yao-pkg/pkg/compare/v6.22.0...v6.23.0) (2026-09-29)
+
+### Features
+
+- bump fetch 3.6.6 with nodejs 24.20.0, 26.8.1 ([#298](https://github.com/yao-pkg/pkg/issues/298)) ([30924f0](https://github.com/yao-pkg/pkg/commit/30924f0980fbb7440552bed84439402f56cb70cd))
+
+### Bug Fixes
+
+- **sea:** patch process.dlopen in worker threads ([#297](https://github.com/yao-pkg/pkg/issues/297)) ([fd33206](https://github.com/yao-pkg/pkg/commit/fd332066684156c3b2af196ffe455c38e6fbefdc)), closes [#293](https://github.com/yao-pkg/pkg/issues/293)
+- treat private class methods as function boundaries in TLA detection ([#307](https://github.com/yao-pkg/pkg/issues/307)) ([d3e91a9](https://github.com/yao-pkg/pkg/commit/d3e91a91432caaf162fd0aec3c2a0041904630cc))
+
+### Test added
+
+- pin node-opcua to 2.181.0 in test-80 ([#308](https://github.com/yao-pkg/pkg/issues/308)) ([36f18af](https://github.com/yao-pkg/pkg/commit/36f18af161c222baf62d1e1074f1add78ff4e7f3))
+
 ## [6.22.0](https://github.com/yao-pkg/pkg/compare/v6.21.0...v6.22.0) (2026-07-30)
 
 ### Features
