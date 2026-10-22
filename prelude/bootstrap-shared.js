@@ -8,7 +8,7 @@
 // SEA bootstrap: bundled by esbuild via require('./bootstrap-shared').
 
 var childProcess = require('child_process');
-var { createHash } = require('crypto');
+var { createHash, randomBytes } = require('crypto');
 var fs = require('fs');
 var path = require('path');
 var zlib = require('zlib');
@@ -85,6 +85,52 @@ function pickDecompressorAsync(compression) {
 // NATIVE ADDON EXTRACTION /////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
+// Publish a complete file without truncating a cached addon that another
+// process may already have mapped into memory. The sibling temp file keeps
+// rename on the same filesystem; randomness also separates worker threads
+// that share a process.pid.
+function writeFileAtomic(dest, content) {
+  // Do not extend the destination basename: it may already be near NAME_MAX.
+  var temporary = path.join(
+    path.dirname(dest),
+    '.pkg-' + process.pid + '-' + randomBytes(6).toString('hex') + '.tmp',
+  );
+  // Only enter cleanup once we own the file. An EEXIST must not remove
+  // another writer's temporary file.
+  var fd = fs.openSync(temporary, 'wx');
+  var renamed = false;
+  try {
+    try {
+      fs.writeFileSync(fd, content);
+    } finally {
+      fs.closeSync(fd);
+    }
+    try {
+      fs.renameSync(temporary, dest);
+      renamed = true;
+    } catch (error) {
+      // Windows can refuse to replace an addon another process has loaded.
+      // Accept a concurrent winner only if it published the exact same bytes.
+      var identical = false;
+      try {
+        identical = fs.readFileSync(dest).equals(content);
+      } catch (_) {
+        // Keep the original rename error if the destination cannot be read.
+      }
+      if (!identical) throw error;
+    }
+  } finally {
+    // Also remove partial files left by a failed write, not just failed renames.
+    if (!renamed) {
+      try {
+        fs.unlinkSync(temporary);
+      } catch (_) {
+        // Best-effort cleanup must not hide the original write or rename error.
+      }
+    }
+  }
+}
+
 // Recursively copy src -> dest. For existing destination files, compare
 // SHA-256 hashes and skip identical ones to avoid redundant writes.
 //
@@ -152,7 +198,7 @@ function cpRecursive(src, dest) {
       return;
     }
   }
-  fs.writeFileSync(dest, srcContent);
+  writeFileAtomic(dest, srcContent);
 }
 
 /**
@@ -211,10 +257,10 @@ function patchDlopen(insideSnapshot) {
           var dContent = fs.readFileSync(tmpModulePath);
           var dHash = createHash('sha256').update(dContent).digest('hex');
           if (hash !== dHash) {
-            fs.writeFileSync(tmpModulePath, moduleContent);
+            writeFileAtomic(tmpModulePath, moduleContent);
           }
         } else {
-          fs.writeFileSync(tmpModulePath, moduleContent);
+          writeFileAtomic(tmpModulePath, moduleContent);
         }
 
         newPath = tmpModulePath;
