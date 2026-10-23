@@ -231,25 +231,13 @@ function toOriginal(fShort) {
     .join(path.sep);
 }
 
-const symlinksEntries = Object.entries(SYMLINKS);
-
 // separator for substitution depends on platform;
 const sepsep = DOCOMPRESS ? separator : path.sep;
 
+const resolveSymlink = REQUIRE_SHARED.makeSymlinkResolver(SYMLINKS, sepsep);
+
 function findVirtualFileSystemKeyAndFollowLinks(path_) {
-  let vfsKey = findVirtualFileSystemKey(path_, path.sep);
-  let needToSubstitute = true;
-  while (needToSubstitute) {
-    needToSubstitute = false;
-    for (const [k, v] of symlinksEntries) {
-      if (vfsKey.startsWith(`${k}${sepsep}`) || vfsKey === k) {
-        vfsKey = vfsKey.replace(k, v);
-        needToSubstitute = true;
-        break;
-      }
-    }
-  }
-  return vfsKey;
+  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep));
 }
 
 function realpathFromSnapshot(path_) {
@@ -521,9 +509,9 @@ function payloadFileSync(pointer) {
   const windows = process.platform === 'win32';
 
   const docks = {};
-  const ENOTDIR = windows ? 4052 : 20;
-  const ENOENT = windows ? 4058 : 2;
-  const EISDIR = windows ? 4068 : 21;
+  // One errno table for both preludes — see bootstrap-shared.js.
+  const makeFsError = REQUIRE_SHARED.makeFsError;
+  const ENOENT = REQUIRE_SHARED.ERRNO.ENOENT;
 
   function assertEncoding(encoding) {
     if (encoding && !Buffer.isEncoding(encoding)) {
@@ -536,35 +524,36 @@ function payloadFileSync(pointer) {
     return typeof cb === 'function' ? cb : rethrow;
   }
 
+  // The messages stay traditional-mode's own — this one carries pkg's
+  // "recompile adding it as asset" guidance and test-50-not-found-wording
+  // asserts it. Only the shape is shared.
   function error_ENOENT(fileOrDirectory, path_) {
-    const error = new Error(
+    return makeFsError(
       `${fileOrDirectory} '${stripSnapshot(path_)}' ` +
         `was not included into executable at compilation stage. ` +
         `Please recompile adding it as asset or script.`,
+      'ENOENT',
+      undefined,
+      path_,
     );
-    error.errno = -ENOENT;
-    error.code = 'ENOENT';
-    error.path = path_;
-    error.pkg = true;
-    return error;
   }
 
   function error_EISDIR(path_) {
-    const error = new Error('EISDIR: illegal operation on a directory, read');
-    error.errno = -EISDIR;
-    error.code = 'EISDIR';
-    error.path = path_;
-    error.pkg = true;
-    return error;
+    return makeFsError(
+      'EISDIR: illegal operation on a directory, read',
+      'EISDIR',
+      'read',
+      path_,
+    );
   }
 
   function error_ENOTDIR(path_) {
-    const error = new Error(`ENOTDIR: not a directory, scandir '${path_}'`);
-    error.errno = -ENOTDIR;
-    error.code = 'ENOTDIR';
-    error.path = path_;
-    error.pkg = true;
-    return error;
+    return makeFsError(
+      `ENOTDIR: not a directory, scandir '${path_}'`,
+      'ENOTDIR',
+      'scandir',
+      path_,
+    );
   }
 
   // ///////////////////////////////////////////////////////////////

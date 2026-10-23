@@ -24,10 +24,6 @@ try {
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
 var MemoryProvider = vfsModule.MemoryProvider;
 
-// Matches the typical Linux SYMLOOP_MAX. Bounds the symlink resolution
-// loop so a manifest cycle (or a corrupt manifest) cannot hang startup.
-var MAX_SYMLINK_DEPTH = 40;
-
 // /////////////////////////////////////////////////////////////////
 // PERFORMANCE INSTRUMENTATION /////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
@@ -151,6 +147,7 @@ var perf = {
       'statSync calls',
       'existsSync calls',
       'readdirSync calls',
+      'symlink resolutions',
     ];
     counterOrder.forEach(function (label) {
       var v = self._counters[label];
@@ -213,14 +210,12 @@ var toManifestKey =
       };
 
 function _enoent(syscall, filePath) {
-  var err = new Error(
+  return shared.makeFsError(
     'ENOENT: no such file or directory, ' + syscall + " '" + filePath + "'",
+    'ENOENT',
+    syscall,
+    filePath,
   );
-  err.code = 'ENOENT';
-  err.errno = -2;
-  err.syscall = syscall;
-  err.path = filePath;
-  return err;
 }
 
 // /////////////////////////////////////////////////////////////////
@@ -281,7 +276,9 @@ function _makeStats(meta) {
  * at build time; the manifest's `offsets` map provides [byteOffset, byteLength]
  * for each file so readFileSync can extract them via zero-copy Buffer.subarray().
  *
- * Performance design:
+ * Performance design (each lookup first resolves symlinks, which is free
+ * when the manifest has none — see makeSymlinkResolver() in
+ * bootstrap-shared.js):
  *
  *   - internalModuleStat()  O(1) manifest hash lookup (no tree walk).
  *     This is the hottest path (~30K calls for large projects).
@@ -306,6 +303,7 @@ class SEAProvider extends MemoryProvider {
     super();
     this._manifest = seaManifest;
     this._fileCache = new Map();
+    this._resolve = shared.makeSymlinkResolver(seaManifest.symlinks, '/');
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
@@ -337,26 +335,10 @@ class SEAProvider extends MemoryProvider {
   }
 
   _resolveSymlink(p) {
-    // Fast path: the vast majority of lookups (~30K per startup on large
-    // projects) are not symlinks. A single object-has-key check avoids
-    // entering the loop and the i++/target fetch overhead for the common
-    // case.
-    var symlinks = this._manifest.symlinks;
-    if (symlinks[p] === undefined) return p;
-    var original = p;
-    for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
-      var target = symlinks[p];
-      if (!target) return p;
-      p = target;
-    }
-    var err = new Error(
-      "ELOOP: too many symbolic links encountered, '" + original + "'",
-    );
-    err.code = 'ELOOP';
-    err.errno = -40;
-    err.syscall = 'stat';
-    err.path = original;
-    throw err;
+    // Count only lookups a symlink actually moved.
+    var resolved = this._resolve(p);
+    if (resolved !== p) perf.count('symlink resolutions');
+    return resolved;
   }
 
   get fileCacheSize() {
@@ -450,6 +432,16 @@ class SEAProvider extends MemoryProvider {
     return super.readlinkSync(p);
   }
 
+  realpathSync(filePath) {
+    // The base class only knows the directory tree built in the constructor,
+    // so without this every archive file resolves to ENOENT — which also
+    // breaks fs.readlinkSync, since the VFS answers readlink by way of
+    // realpath.  Following the symlink chain here is the whole point.
+    var p = this._resolveSymlink(toManifestKey(filePath));
+    if (p in this._manifest.stats) return p;
+    return super.realpathSync(p);
+  }
+
   statSync(filePath) {
     perf.count('statSync calls');
     var p = this._resolveSymlink(toManifestKey(filePath));
@@ -472,7 +464,7 @@ class SEAProvider extends MemoryProvider {
     if (meta) {
       return meta.isDirectory ? 1 : 0;
     }
-    return -2;
+    return -shared.ERRNO.ENOENT;
   }
 
   readdirSync(dirPath) {
@@ -523,6 +515,12 @@ if (process.platform === 'win32') {
   var _origResolvePath = VirtualFileSystem.prototype.resolvePath;
   VirtualFileSystem.prototype.resolvePath = function (inputPath) {
     return _origResolvePath.call(this, _winToVFS(inputPath));
+  };
+  // ...and convert back on the way out, so realpath agrees with __filename
+  // (`C:\snapshot\...`, not `/snapshot/...`) (#305).
+  var _origRealpathSync = VirtualFileSystem.prototype.realpathSync;
+  VirtualFileSystem.prototype.realpathSync = function (filePath, options) {
+    return toPlatformPath(_origRealpathSync.call(this, filePath, options));
   };
 }
 
