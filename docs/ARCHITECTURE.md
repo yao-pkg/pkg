@@ -600,16 +600,7 @@ For users who require code protection with SEA mode:
 | ---------- | --------------------------------- | ----------------------------------------------------------------------------------- |
 | `node:vfs` | Native VFS module in Node.js core | Open PR [nodejs/node#61478](https://github.com/nodejs/node/pull/61478), 8 approvals |
 
-When `node:vfs` lands in Node.js core, `@roberts_lando/vfs` will be deprecated. `sea-vfs-setup.js` already includes a migration path:
-
-```javascript
-var vfsModule;
-try {
-  vfsModule = require('node:vfs'); // native, when available
-} catch (_) {
-  vfsModule = require('@roberts_lando/vfs'); // polyfill fallback
-}
-```
+When `node:vfs` lands in Node.js core, `@roberts_lando/vfs` will be deprecated. Until then `sea-vfs-setup.js` always loads the polyfill, even when `node:vfs` is available: core's `mount()` ignores the requested prefix and mounts at `/dev/null/vfs/<n>`, so every `/snapshot/...` path would fail ([#317](https://github.com/yao-pkg/pkg/issues/317)).
 
 With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-mounted and the bootstrap will simplify significantly — the VFS provider and manual mounting will no longer be needed.
 
