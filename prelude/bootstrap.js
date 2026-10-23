@@ -16,6 +16,7 @@ const { createHash } = require('crypto');
 const fs = require('fs');
 const { isRegExp } = require('util').types;
 const Module = require('module');
+const { homedir } = require('os');
 const path = require('path');
 const { promisify } = require('util');
 const { Script } = require('vm');
@@ -594,7 +595,10 @@ function payloadFileSync(pointer) {
   });
   function deflateSync(snapshotFilename) {
     if (!tmpFolder) {
-      tmpFolder = fs.mkdtempSync(path.join(homedir(), '.pkg-cache', 'tmp-'));
+      const tmpBase = path.join(homedir(), '.pkg-cache');
+      // mkdtempSync does not create missing parents; end-user machines rarely have ~/.pkg-cache.
+      fs.mkdirSync(tmpBase, { recursive: true });
+      tmpFolder = fs.mkdtempSync(path.join(tmpBase, 'tmp-'));
     }
     const content = fs.readFileSync(snapshotFilename, { encoding: 'binary' });
     // content is already unzipped !
