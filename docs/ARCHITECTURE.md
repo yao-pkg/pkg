@@ -529,7 +529,7 @@ Both bootstraps resolve symlinks on parent path components, so `require`, `fs.re
 >
 > `readlink` returns the walker's **absolute, fully resolved** target (`/snapshot/app/node_modules/.pnpm/...`, in the platform path form), not the raw link body on disk. Tools that re-create links from it (`fs.cp` with `verbatimSymlinks`, tar) write absolute links.
 
-> **How SEA reports links.** `@roberts_lando/vfs` used to route `fs.lstat` through `statSync`, which follows the link, and `fs.readlink` through `realpathSync`, which never reached the provider. [robertsLando/vfs#4](https://github.com/robertsLando/vfs/pull/4) routes both to `SEAProvider`, which answers from `manifest.symlinks`, the same record the resolver walks. **pkg needs a vfs release containing it.**
+> **How SEA reports links.** `@roberts_lando/vfs` used to route `fs.lstat` through `statSync`, which follows the link, and `fs.readlink` through `realpathSync`, which never reached the provider. [robertsLando/vfs#4](https://github.com/robertsLando/vfs/pull/4) routes both to `SEAProvider`, which answers from `manifest.symlinks`, the same record the resolver walks. Released in `@roberts_lando/vfs` 0.4.0.
 
 **`setupProcessPkg(entrypoint)`** — Creates the `process.pkg` compatibility object with `entrypoint`, `defaultEntrypoint`, and `path.resolve()`.
 
