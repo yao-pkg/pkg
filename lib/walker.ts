@@ -26,7 +26,11 @@ import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
-import { transformESMtoCJS, rewriteMjsRequirePaths } from './esm-transformer';
+import {
+  transformESMtoCJS,
+  rewriteMjsRequirePaths,
+  normalizeExportsForCJS,
+} from './esm-transformer';
 import {
   ConfigDictionary,
   FileRecord,
@@ -1088,6 +1092,24 @@ class Walker {
                   }
                 }
               }
+            }
+          }
+
+          // If package has an "exports" field, rewrite it so the snapshot is
+          // resolvable through CommonJS require(). pkg transforms ESM to CJS and
+          // renames .mjs files to .js, but Node's CJS resolver always prefers
+          // "exports" over "main"; without this, import-only or .mjs-targeted
+          // exports fail at runtime (ERR_PACKAGE_PATH_NOT_EXPORTED / MODULE_NOT_FOUND).
+          if (pkgContent.exports && !this.params.seaMode) {
+            const normalizedExports = normalizeExportsForCJS(
+              pkgContent.exports,
+            );
+            if (
+              JSON.stringify(normalizedExports) !==
+              JSON.stringify(pkgContent.exports)
+            ) {
+              pkgContent.exports = normalizedExports;
+              modified = true;
             }
           }
 
