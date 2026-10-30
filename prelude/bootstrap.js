@@ -237,7 +237,7 @@ const sepsep = DOCOMPRESS ? separator : path.sep;
 const resolveSymlink = REQUIRE_SHARED.makeSymlinkResolver(SYMLINKS, sepsep);
 
 function findVirtualFileSystemKeyAndFollowLinks(path_) {
-  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep));
+  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep), path_);
 }
 
 function realpathFromSnapshot(path_) {
@@ -1096,7 +1096,7 @@ function payloadFileSync(pointer) {
   Dirent.prototype.isFIFO = noop;
 
   Dirent.prototype.isSymbolicLink = (fileOrFolderName) =>
-    Boolean(SYMLINKS[fileOrFolderName]);
+    typeof SYMLINKS[fileOrFolderName] === 'string';
 
   function getFileTypes(path_, entries) {
     return entries.map((entry) => {
@@ -1431,7 +1431,13 @@ function payloadFileSync(pointer) {
   }
 
   function existsFromSnapshot(path_) {
-    const entity = findVirtualFileSystemEntry(path_);
+    let entity;
+    try {
+      entity = findVirtualFileSystemEntry(path_);
+    } catch {
+      // Like fs.existsSync: a symlink loop is just "not there".
+      return false;
+    }
     if (!entity) return findNativeAddonForExists(path_);
     return true;
   }
@@ -1641,7 +1647,13 @@ function payloadFileSync(pointer) {
         .internalModuleStat(makeLong(translate(path_)));
     }
 
-    const entity = findVirtualFileSystemEntry(path_);
+    let entity;
+    try {
+      entity = findVirtualFileSystemEntry(path_);
+    } catch (error) {
+      if (error.code !== 'ELOOP') throw error;
+      return -REQUIRE_SHARED.ERRNO.ELOOP;
+    }
 
     if (!entity) {
       return findNativeAddonForInternalModuleStat(path_);

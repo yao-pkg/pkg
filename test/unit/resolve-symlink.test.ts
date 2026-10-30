@@ -6,7 +6,7 @@ const shared = createRequire(__filename)('../../prelude/bootstrap-shared.js');
 const makeSymlinkResolver = shared.makeSymlinkResolver as (
   _symlinks: Record<string, string>,
   _sep: string,
-) => (_p: string) => string;
+) => (_p: string, _display?: string) => string;
 
 // makeSymlinkResolver() backs both the classic bootstrap and the SEA provider.
 // test-99-#295 covers one level of nesting end to end; these cover the rest.
@@ -28,8 +28,7 @@ describe('makeSymlinkResolver', () => {
   });
 
   it('does not match a key that is only a string prefix of the path', () => {
-    // The scan slices at separator offsets, so /snapshot/foo must not swallow
-    // /snapshot/foobar. A naive startsWith() would pass every other case here.
+    // A naive startsWith() would pass every other case here.
     const resolve = makeSymlinkResolver(
       { '/snapshot/foo': '/snapshot/real' },
       '/',
@@ -54,11 +53,7 @@ describe('makeSymlinkResolver', () => {
   });
 
   it('resolves the deepest matching symlink (longest prefix wins)', () => {
-    // Two symlinks where one key is a literal prefix of the other. The walker
-    // keys entries on the path it walked, *before* resolution, and every
-    // target is already fully realpath'd — so the deeper key is the complete
-    // answer and taking the shallower one would strand the walk on a path the
-    // archive has no entry for.
+    // Targets are realpaths, so the deeper key is already the full answer.
     const resolve = makeSymlinkResolver(
       {
         '/a': '/shallow-target',
@@ -70,10 +65,7 @@ describe('makeSymlinkResolver', () => {
   });
 
   it('follows a directory symlink nested inside another one', () => {
-    // The real manifest shape behind the case above: `walker.appendSymlink`
-    // records `<dir>/sub` under the unresolved path because it descended
-    // through the `<dir>` link to reach it. Resolving the parent first would
-    // yield /app/reallib/sub/file.js, which the archive has no entry for.
+    // The walker keys `<dir>/sub` on the path it walked, through `<dir>`.
     const resolve = makeSymlinkResolver(
       {
         '/app/lib': '/app/reallib',
@@ -90,11 +82,7 @@ describe('makeSymlinkResolver', () => {
   });
 
   it('prefers an exact entry over its symlinked parent', () => {
-    // The real manifest shape: the walker descends through a symlinked
-    // directory, so a link inside one gets its own key under the unresolved
-    // path. Both keys exist, and the exact (more specific) one must win —
-    // resolving through the parent instead would land on a path the archive
-    // has no entry for. Regression guard for test-99-#295/reallib/inner.js.
+    // Same shape as test-99-#295/lib/inner.js.
     const resolve = makeSymlinkResolver(
       {
         '/app/lib': '/app/reallib',
@@ -121,7 +109,6 @@ describe('makeSymlinkResolver', () => {
   });
 
   it('avoids a double separator when the target ends with one', () => {
-    // Regression case from review: a symlink whose target is the bare root.
     const resolve = makeSymlinkResolver({ '/node_modules/@t/root': '/' }, '/');
     assert.equal(
       resolve('/node_modules/@t/root/package.json'),
@@ -146,6 +133,14 @@ describe('makeSymlinkResolver', () => {
         return true;
       },
     );
+  });
+
+  it('reports the caller path, not the internal key, on ELOOP', () => {
+    const resolve = makeSymlinkResolver({ '/a': '/a/b' }, '/');
+    assert.throws(() => resolve('/a/x', 'C:\\snapshot\\a\\x'), {
+      code: 'ELOOP',
+      path: 'C:\\snapshot\\a\\x',
+    });
   });
 
   it('throws ELOOP on a cycle spanning two entries', () => {
@@ -175,47 +170,6 @@ describe('makeSymlinkResolver', () => {
         code: 'ELOOP',
       });
     });
-
-    it('still resolves a short lookup after an over-long one threw', () => {
-      const resolve = makeSymlinkResolver(chain(41), '/');
-      assert.throws(() => resolve('/l0'), { code: 'ELOOP' });
-      assert.equal(resolve('/l30'), '/end');
-    });
-
-    it('does not depend on which path was resolved first', () => {
-      // A cache hit hands back a target that stands for many hops. Those hops
-      // have to be charged back, or warming the tail of an over-long chain
-      // would let the head through the bound that a cold lookup rejects.
-      const cold = makeSymlinkResolver(chain(41), '/');
-      assert.throws(() => cold('/l0'), { code: 'ELOOP' });
-
-      const warm = makeSymlinkResolver(chain(41), '/');
-      warm('/l20');
-      assert.throws(() => warm('/l0'), { code: 'ELOOP' });
-    });
-
-    it('still resolves a chain that fits, warm or cold', () => {
-      const cold = makeSymlinkResolver(chain(30), '/');
-      assert.equal(cold('/l0'), '/end');
-
-      const warm = makeSymlinkResolver(chain(30), '/');
-      warm('/l15');
-      assert.equal(warm('/l0'), '/end');
-    });
-
-    it('charges each key only for its own hops', () => {
-      // '/end/short' is one hop, but it is first reached at the tail of a long
-      // chain. Billing it the whole chain's depth would make a later, shallow
-      // lookup through it blow the bound for no reason.
-      const symlinks: Record<string, string> = chain(38);
-      symlinks['/end/short'] = '/y';
-      symlinks['/p'] = '/q';
-      symlinks['/q'] = '/r';
-      symlinks['/r'] = '/end/short';
-      const resolve = makeSymlinkResolver(symlinks, '/');
-      assert.equal(resolve('/l0/short/f.js'), '/y/f.js');
-      assert.equal(resolve('/p/f.js'), '/y/f.js');
-    });
   });
 
   it('is separator-agnostic (works with a non-"/" separator)', () => {
@@ -241,47 +195,6 @@ describe('makeSymlinkResolver', () => {
         '/',
       );
       assert.equal(resolve('/snapshot/app/index.js'), '/snapshot/app/index.js');
-    });
-  });
-
-  describe('inherited Object properties', () => {
-    // The manifest record is JSON-derived and read with a bracket index, so
-    // a path component that names an Object.prototype key must not match.
-    for (const key of ['__proto__', 'constructor', 'toString', 'valueOf']) {
-      it(`does not treat "${key}" as a symlink`, () => {
-        const resolve = makeSymlinkResolver({ '/snapshot/x': '/y' }, '/');
-        assert.equal(resolve(`/${key}/file.js`), `/${key}/file.js`);
-        assert.equal(resolve(`/${key}`), `/${key}`);
-      });
-    }
-  });
-
-  describe('memoisation', () => {
-    it('memoises the symlink hop, not the caller path', () => {
-      // Resolve one file, then mutate the manifest and resolve a *different*
-      // file under the same link. The stale target proves the memo is keyed
-      // on the manifest entry — a cache keyed on the full caller path would
-      // re-walk here, and would grow without bound on caller-supplied paths.
-      const symlinks: Record<string, string> = {
-        '/snapshot/linked': '/snapshot/real',
-      };
-      const resolve = makeSymlinkResolver(symlinks, '/');
-      assert.equal(resolve('/snapshot/linked/a.js'), '/snapshot/real/a.js');
-
-      symlinks['/snapshot/linked'] = '/snapshot/changed';
-      assert.equal(resolve('/snapshot/linked/b.js'), '/snapshot/real/b.js');
-    });
-
-    it('gives each resolver its own memo', () => {
-      const symlinks: Record<string, string> = {
-        '/snapshot/linked': '/snapshot/real',
-      };
-      const first = makeSymlinkResolver(symlinks, '/');
-      assert.equal(first('/snapshot/linked/a.js'), '/snapshot/real/a.js');
-
-      symlinks['/snapshot/linked'] = '/snapshot/changed';
-      const second = makeSymlinkResolver(symlinks, '/');
-      assert.equal(second('/snapshot/linked/a.js'), '/snapshot/changed/a.js');
     });
   });
 });

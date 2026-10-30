@@ -650,11 +650,7 @@ var ERRNO = (function () {
   };
 })();
 
-/**
- * Error shape for a snapshot path: code, platform errno, syscall, path and the
- * `pkg` marker. Callers keep their own message — classic mode's ENOENT carries
- * pkg's "recompile adding it as asset" guidance.
- */
+// Callers keep their own message: classic ENOENT carries pkg's asset hint.
 function makeFsError(message, code, syscall, path_) {
   var err = new Error(message);
   err.code = code;
@@ -665,19 +661,10 @@ function makeFsError(message, code, syscall, path_) {
   return err;
 }
 
-// Memo value for a key whose resolution is still on the stack: hitting it
-// again means a cycle.
-var RESOLVING = {};
-
-/**
- * Build a symlink resolver over a manifest's symlinks record.
- *
- * Maps a virtual path onto what its symlinks point at, following parent
- * components the way POSIX does: a link at `node_modules/@x/y` also resolves
- * `node_modules/@x/y/package.json` (#295). Runs before every snapshot fs call
- * (~30K at startup on a large project). Not reentrant: hop accounting lives in
- * the closure.
- */
+// Maps a snapshot key through its symlinks, parent components included:
+// a link at `node_modules/@x/y` also resolves `.../@x/y/package.json` (#295).
+// Runs before every snapshot fs call. `display` is the caller's path, shown in
+// errors instead of the internal key.
 function makeSymlinkResolver(symlinks, sep) {
   var keys = Object.keys(symlinks || {});
 
@@ -702,59 +689,23 @@ function makeSymlinkResolver(symlinks, sep) {
     if (depth > maxDepth) maxDepth = depth;
   }
 
-  // Symlink key -> { target, cost }. Keyed by manifest entry, not caller path,
-  // so it stays bounded by the manifest.
-  var resolved = new Map();
-
-  // High-water hop count of the resolution in flight. A memo hit charges the
-  // hops its chain took, so the depth bound does not depend on lookup order.
-  var deepest = 0;
-
-  function eloop(origin) {
-    return makeFsError(
-      "ELOOP: too many symbolic links encountered, stat '" + origin + "'",
-      'ELOOP',
-      'stat',
-      origin,
-    );
-  }
-
-  function follow(key, origin, hops) {
-    var cached = resolved.get(key);
-    if (cached !== undefined) {
-      if (cached === RESOLVING) throw eloop(origin);
-      var reached = hops + cached.cost;
-      if (reached > MAX_SYMLINK_DEPTH) throw eloop(origin);
-      if (reached > deepest) deepest = reached;
-      return cached.target;
+  function resolve(p, display, hops) {
+    // The walker stores realpaths as targets, so only a hand-edited manifest
+    // chains or loops; the hop bound turns a loop into ELOOP.
+    if (hops > MAX_SYMLINK_DEPTH) {
+      throw makeFsError(
+        "ELOOP: too many symbolic links encountered, '" + display + "'",
+        'ELOOP',
+        undefined,
+        display,
+      );
     }
-    resolved.set(key, RESOLVING);
-    // Measure this key's subtree alone, then fold it back into the caller's.
-    var outer = deepest;
-    deepest = hops;
-    var target;
-    try {
-      target = resolve(symlinks[key], origin, hops + 1);
-    } catch (e) {
-      // A leftover sentinel would fail later lookups that fit the bound.
-      resolved.delete(key);
-      throw e;
+
+    if (typeof symlinks[p] === 'string') {
+      return resolve(symlinks[p], display, hops + 1);
     }
-    resolved.set(key, { target: target, cost: deepest - hops });
-    if (outer > deepest) deepest = outer;
-    return target;
-  }
 
-  function resolve(p, origin, hops) {
-    if (hops > MAX_SYMLINK_DEPTH) throw eloop(origin);
-    if (hops > deepest) deepest = hops;
-
-    // Longest prefix wins: `<dir>/lib` and `<dir>/lib/sub` can both be keys,
-    // and only the deeper one describes the whole chain. This matches POSIX
-    // because the walker records full realpaths as targets
-    // (`toNormalizedRealPath` in lib/walker.ts).
-    if (typeof symlinks[p] === 'string') return follow(p, origin, hops);
-
+    // Longest prefix wins: `<dir>/lib` and `<dir>/lib/sub` can both be keys.
     var bestPos = -1;
     var bestKey = null;
     var pos = p.indexOf(sep, 1);
@@ -774,15 +725,13 @@ function makeSymlinkResolver(symlinks, sep) {
 
     if (bestKey === null) return p;
 
-    var target = follow(bestKey, origin, hops);
+    var target = symlinks[bestKey];
     var rest = target.endsWith(sep) ? p.slice(bestPos + 1) : p.slice(bestPos);
-    // The remainder may hold links of its own.
-    return resolve(target + rest, origin, hops + 1);
+    return resolve(target + rest, display, hops + 1);
   }
 
-  return function resolveKey(p) {
-    deepest = 0;
-    return resolve(p, p, 0);
+  return function resolveKey(p, display) {
+    return resolve(p, display === undefined ? p : display, 0);
   };
 }
 
