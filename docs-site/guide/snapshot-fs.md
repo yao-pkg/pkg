@@ -49,6 +49,24 @@ const configPath = path.join(path.dirname(process.execPath), 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 ```
 
+## Symlinks
+
+Symlinks collected into the snapshot (pnpm and workspace `node_modules`, `node_modules/.bin`, links among your assets) behave as they do outside the binary:
+
+```js
+fs.lstatSync(link).isSymbolicLink(); // true
+fs.readdirSync(dir, { withFileTypes: true }); // links report isSymbolicLink()
+fs.readlinkSync(link); // '/snapshot/app/node_modules/.pnpm/x/node_modules/x'
+```
+
+`readlink` returns the absolute target inside the snapshot, not the relative link body on disk.
+
+::: warning Changed in the next major
+Before, links looked like the file or directory they point at. Code that finds entries with `d.isDirectory()` or `d.isFile()` now skips linked ones, the same as plain Node. Check `d.isSymbolicLink()` and `fs.statSync()` the entry, or pass `follow: true` to `glob`. fast-glob and readdirp follow links by default.
+:::
+
+See [symlink semantics](https://github.com/yao-pkg/pkg/blob/main/docs/ARCHITECTURE.md#symlink-semantics-in-packaged-binaries) for the details.
+
 ## Detecting that you're packaged
 
 Check for `process.pkg`:

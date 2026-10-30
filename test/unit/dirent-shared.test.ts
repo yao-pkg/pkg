@@ -18,7 +18,6 @@ const {
   Dirent,
   asSymlinkStat,
   linkTarget,
-  readlinkEncoding,
   applyReadlinkEncoding,
   UV_DIRENT_FILE,
   UV_DIRENT_DIR,
@@ -31,7 +30,7 @@ const {
   ) => {
     name: string;
     parentPath: string;
-    path: string;
+    path?: string;
     isFile(): boolean;
     isDirectory(): boolean;
     isSymbolicLink(): boolean;
@@ -46,10 +45,9 @@ const {
     _key: string,
     _resolvedKey: string,
   ) => string | undefined;
-  readlinkEncoding: (_options: unknown) => string | undefined;
   applyReadlinkEncoding: (
     _target: string,
-    _encoding: string | undefined,
+    _options: unknown,
   ) => string | Buffer;
   UV_DIRENT_FILE: number;
   UV_DIRENT_DIR: number;
@@ -98,10 +96,11 @@ describe('shared Dirent', () => {
     assert.equal(d.isFIFO(), false);
   });
 
-  it('carries parentPath and its deprecated `path` alias', () => {
+  it('carries parentPath, and `path` only where Node still has it', () => {
     const d = new Dirent('lib', UV_DIRENT_LINK, '/snapshot/app');
     assert.equal(d.parentPath, '/snapshot/app');
-    assert.equal(d.path, '/snapshot/app');
+    const major = Number(process.versions.node.split('.')[0]);
+    assert.equal('path' in d, major < 24);
   });
 });
 
@@ -153,14 +152,8 @@ describe('asSymlinkStat', () => {
 });
 
 describe('readlink encoding', () => {
-  it('reads a string or an { encoding } option', () => {
-    assert.equal(readlinkEncoding('buffer'), 'buffer');
-    assert.equal(readlinkEncoding({ encoding: 'hex' }), 'hex');
-    assert.equal(readlinkEncoding(undefined), undefined);
-  });
-
   it('answers a Buffer for buffer, re-encodes others, passes utf8 through', () => {
-    const b = applyReadlinkEncoding('/a', 'buffer');
+    const b = applyReadlinkEncoding('/a', { encoding: 'buffer' });
     assert.ok(Buffer.isBuffer(b));
     assert.equal(b.toString(), '/a');
     assert.equal(

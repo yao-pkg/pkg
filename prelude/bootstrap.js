@@ -1278,7 +1278,6 @@ function payloadFileSync(pointer) {
   // the usual `if (d.isSymbolicLink()) fs.readlinkSync(p)` pairing has to be
   // answerable here — unpatched it would fall through to the host fs and
   // ENOENT on a /snapshot path.
-  const readlinkEncoding = REQUIRE_SHARED.readlinkEncoding;
   const applyReadlinkEncoding = REQUIRE_SHARED.applyReadlinkEncoding;
 
   function readlinkFromSnapshot(path_) {
@@ -1300,8 +1299,7 @@ function payloadFileSync(pointer) {
       return ancestor.readlinkSync.apply(fs, translateNth(arguments, 0, path_));
     }
 
-    const encoding = readlinkEncoding(options);
-    return applyReadlinkEncoding(readlinkFromSnapshot(path_), encoding);
+    return applyReadlinkEncoding(readlinkFromSnapshot(path_), options);
   };
 
   fs.readlink = function readlink(path_, options) {
@@ -1312,9 +1310,6 @@ function payloadFileSync(pointer) {
       return ancestor.readlink.apply(fs, translateNth(arguments, 0, path_));
     }
 
-    const encoding = readlinkEncoding(
-      typeof options === 'function' ? undefined : options,
-    );
     const callback = dezalgo(maybeCallback(arguments));
     let target;
     try {
@@ -1322,7 +1317,7 @@ function payloadFileSync(pointer) {
     } catch (error) {
       return callback(error);
     }
-    callback(null, applyReadlinkEncoding(target, encoding));
+    callback(null, applyReadlinkEncoding(target, options));
   };
 
   // ///////////////////////////////////////////////////////////////

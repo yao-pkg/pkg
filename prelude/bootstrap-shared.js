@@ -690,13 +690,14 @@ function alwaysFalse() {
  * The Dirent both bootstraps return from readdir({ withFileTypes: true }).
  * The type is fixed at construction: fs.Dirent's predicates take no argument.
  */
+// Node 24 removed the deprecated `path` alias (DEP0178).
+var DIRENT_HAS_PATH = Number(process.versions.node.split('.')[0]) < 24;
+
 function Dirent(name, type, parentPath) {
   this.name = name;
   this.type = type;
-  // path.join(d.parentPath, d.name) is the documented way to use a Dirent;
-  // `path` is its deprecated alias.
   this.parentPath = parentPath;
-  this.path = parentPath;
+  if (DIRENT_HAS_PATH) this.path = parentPath;
 }
 
 Dirent.prototype.isDirectory = function isDirectory() {
@@ -749,11 +750,9 @@ function asSymlinkStat(s, target) {
 }
 
 // readlink's options are an encoding string or { encoding }.
-function readlinkEncoding(options) {
-  return typeof options === 'string' ? options : options && options.encoding;
-}
-
-function applyReadlinkEncoding(target, encoding) {
+function applyReadlinkEncoding(target, options) {
+  var encoding =
+    typeof options === 'string' ? options : options && options.encoding;
   if (encoding === 'buffer') return Buffer.from(target);
   if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
     return Buffer.from(target).toString(encoding);
@@ -907,7 +906,6 @@ module.exports = {
   Dirent: Dirent,
   linkTarget: linkTarget,
   asSymlinkStat: asSymlinkStat,
-  readlinkEncoding: readlinkEncoding,
   applyReadlinkEncoding: applyReadlinkEncoding,
   UV_DIRENT_FILE: UV_DIRENT_FILE,
   UV_DIRENT_DIR: UV_DIRENT_DIR,

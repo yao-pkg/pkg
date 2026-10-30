@@ -44,14 +44,25 @@ assert.strictEqual(
 const S_IFMT = 0o170000;
 const S_IFLNK = 0o120000;
 const libPath = path.join(__dirname, 'lib');
+const realLib = path.join(__dirname, 'reallib');
 const viaParent = path.join(libPath, 'other.js');
 const notALink = path.join(__dirname, 'index.js');
 
 // readlink answers the walker's absolute target, in the platform path form.
 assert.strictEqual(
   fs.readlinkSync(libPath),
-  path.join(__dirname, 'reallib'),
+  realLib,
   'readlink of the directory link',
+);
+const asBuffer = fs.readlinkSync(libPath, 'buffer');
+assert.ok(Buffer.isBuffer(asBuffer), "readlink 'buffer' must give a Buffer");
+assert.strictEqual(asBuffer.toString(), realLib);
+assert.ok(Buffer.isBuffer(fs.readlinkSync(libPath, { encoding: 'buffer' })));
+// Encoded after the mount prefix is added, so it decodes to the full path.
+assert.strictEqual(
+  Buffer.from(fs.readlinkSync(libPath, 'hex'), 'hex').toString(),
+  realLib,
+  "readlink 'hex'",
 );
 if (nestedIsLink) {
   const logPath = path.join(__dirname, 'reallib', 'log.js');
@@ -61,11 +72,6 @@ if (nestedIsLink) {
     logPath,
     'readlink via parent',
   );
-
-  const asBuffer = fs.readlinkSync(nested, 'buffer');
-  assert.ok(Buffer.isBuffer(asBuffer), "readlink 'buffer' must give a Buffer");
-  assert.strictEqual(asBuffer.toString(), logPath);
-  assert.ok(Buffer.isBuffer(fs.readlinkSync(nested, { encoding: 'buffer' })));
 }
 
 // EINVAL for a path that exists but is not a link, ENOENT for one that does
@@ -74,12 +80,16 @@ assert.throws(() => fs.readlinkSync(notALink), {
   code: 'EINVAL',
   path: notALink,
 });
-assert.throws(() => fs.readlinkSync(path.join(__dirname, 'reallib')), {
+assert.throws(() => fs.readlinkSync(realLib), {
   code: 'EINVAL',
+  path: realLib,
 });
-assert.throws(() => fs.readlinkSync(path.join(__dirname, 'missing.js')), {
+const missing = path.join(__dirname, 'missing.js');
+assert.throws(() => fs.readlinkSync(missing), {
   code: 'ENOENT',
+  path: missing,
 });
+assert.throws(() => fs.lstatSync(missing), { code: 'ENOENT', path: missing });
 
 // lstat describes a link itself, stat follows it, and a non-link is unchanged.
 function assertLink(p, isDir) {
@@ -99,10 +109,7 @@ if (nestedIsLink) {
 }
 assert.strictEqual(fs.lstatSync(notALink).isSymbolicLink(), false);
 assert.strictEqual(fs.lstatSync(notALink).isFile(), true);
-assert.strictEqual(
-  fs.lstatSync(path.join(__dirname, 'reallib')).isDirectory(),
-  true,
-);
+assert.strictEqual(fs.lstatSync(realLib).isDirectory(), true);
 
 // readdir reports links as links and agrees with lstat.
 function direntOf(dir, name) {
@@ -110,8 +117,7 @@ function direntOf(dir, name) {
     .readdirSync(dir, { withFileTypes: true })
     .find((e) => e.name === name);
   assert.ok(d, `${name} missing from readdir of ${dir}`);
-  assert.strictEqual(typeof d.parentPath, 'string', `${name} parentPath`);
-  assert.ok(fs.existsSync(path.join(d.parentPath, d.name)));
+  assert.strictEqual(d.parentPath, dir, `${name} parentPath`);
   return d;
 }
 assert.strictEqual(direntOf(__dirname, 'lib').isSymbolicLink(), true);
@@ -160,17 +166,11 @@ const pending = [
       ),
     ),
   viaCallback(fs.readlink, libPath).then((t) =>
-    assert.strictEqual(t, path.join(__dirname, 'reallib'), 'fs.readlink'),
+    assert.strictEqual(t, realLib, 'fs.readlink'),
   ),
   fs.promises
     .readlink(libPath)
-    .then((t) =>
-      assert.strictEqual(
-        t,
-        path.join(__dirname, 'reallib'),
-        'fs.promises.readlink',
-      ),
-    ),
+    .then((t) => assert.strictEqual(t, realLib, 'fs.promises.readlink')),
   // An error reaches the callback rather than being thrown.
   viaCallback(fs.readlink, notALink).then(
     () => assert.fail('fs.readlink on a non-link must fail'),
@@ -178,16 +178,9 @@ const pending = [
   ),
 ];
 
-const timer = setTimeout(() => {
-  console.error('a callback-style fs call never settled');
-  process.exit(1);
-}, 10000);
-
+// A call that never settles leaves log(42) unrun, which main.js reports.
 Promise.all(pending).then(
-  () => {
-    clearTimeout(timer);
-    log(42);
-  },
+  () => log(42),
   (err) => {
     console.error(err);
     process.exit(1);

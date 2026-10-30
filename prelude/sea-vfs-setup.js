@@ -210,8 +210,6 @@ var toManifestKey =
 // built from what arrives here names a path the caller never used. Put the
 // prefix and the platform form back, the way classic mode's stripSnapshot does.
 function toCallerPath(providerPath) {
-  if (typeof providerPath !== 'string') return providerPath;
-  if (providerPath.startsWith(SNAPSHOT_PREFIX)) return providerPath;
   return toPlatformPath(SNAPSHOT_PREFIX + providerPath);
 }
 
@@ -446,19 +444,13 @@ class SEAProvider extends MemoryProvider {
     return copy;
   }
 
-  readlinkSync(filePath, options) {
-    // Reached through @roberts_lando/vfs's fs.readlink patches
-    // (robertsLando/vfs#4). Targets are the walker's full realpaths, not the
-    // raw link body.
+  // A plain string: the VFS maps it into the mount, then the
+  // VirtualFileSystem patch below applies the caller's encoding.
+  readlinkSync(filePath) {
     var key = toManifestKey(filePath);
     var resolvedKey = this._resolve.parent(key);
     var target = shared.linkTarget(this._symlinks, key, resolvedKey);
-    if (target !== undefined) {
-      return shared.applyReadlinkEncoding(
-        target,
-        shared.readlinkEncoding(options),
-      );
-    }
+    if (target !== undefined) return target;
     // EINVAL for a path that exists but is not a link, as classic mode does.
     if (
       resolvedKey in this._manifest.stats ||
@@ -514,7 +506,7 @@ class SEAProvider extends MemoryProvider {
     // shared.linkTarget); stats and directories by the resolved one.
     var unresolvedBase = key.endsWith('/') ? key : key + '/';
     var resolvedBase = p.endsWith('/') ? p : p + '/';
-    var parentPath = toPlatformPath(SNAPSHOT_PREFIX + key);
+    var parentPath = toCallerPath(key);
     var self = this;
     return entries.map(function (name) {
       var type = self._direntType(unresolvedBase + name, resolvedBase + name);
@@ -602,16 +594,17 @@ if (process.platform === 'win32') {
   VirtualFileSystem.prototype.realpathSync = function (filePath, options) {
     return toPlatformPath(_origRealpathSync.call(this, filePath, options));
   };
-  // readlink returns a path too. Every fs.readlink form comes through here;
-  // convert the string, then apply the caller's encoding.
-  var _origReadlinkSync = VirtualFileSystem.prototype.readlinkSync;
-  VirtualFileSystem.prototype.readlinkSync = function (linkPath, options) {
-    return shared.applyReadlinkEncoding(
-      toPlatformPath(_origReadlinkSync.call(this, linkPath)),
-      shared.readlinkEncoding(options),
-    );
-  };
 }
+
+// Every fs.readlink form comes through here. Encode only after the VFS has
+// added the mount prefix, or hex/base64 targets would lose it.
+var _origReadlinkSync = VirtualFileSystem.prototype.readlinkSync;
+VirtualFileSystem.prototype.readlinkSync = function (linkPath, options) {
+  return shared.applyReadlinkEncoding(
+    toPlatformPath(_origReadlinkSync.call(this, linkPath)),
+    options,
+  );
+};
 
 virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
 
