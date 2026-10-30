@@ -447,6 +447,15 @@ class Walker {
     file = a.file;
     realFile = a.realFile;
 
+    // A link inside a linked directory lives in the real one: key it there so
+    // its real path resolves too, and record the directory link it came through.
+    const dir = path.dirname(file);
+    const realDir = toNormalizedRealPath(dir);
+    if (realDir !== dir) {
+      await this.appendSymlink(dir, realDir);
+      file = path.join(realDir, path.basename(file));
+    }
+
     if (!this.symLinks[file]) {
       const dn = path.dirname(file);
       this.appendFileInFolder({

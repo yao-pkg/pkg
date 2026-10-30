@@ -7,8 +7,8 @@ const path = require('path');
 const log = require('./lib/log');
 
 // `lib` links to `reallib`, and `reallib/inner.js` links to `log.js` inside
-// it. The walker records both, so this path has its own manifest entry that
-// must win over its symlinked parent.
+// it. Required only through `lib`, so the walker must still record the link
+// under `reallib/`, where it lives.
 require('./lib/inner.js');
 
 // `reallib/other.js` links to `log.js` too but is only required through the
@@ -68,6 +68,11 @@ if (nestedIsLink) {
   const logPath = path.join(__dirname, 'reallib', 'log.js');
   assert.strictEqual(fs.readlinkSync(nested), logPath, 'readlink nested');
   assert.strictEqual(
+    fs.readlinkSync(path.join(realLib, 'inner.js')),
+    logPath,
+    'readlink nested by its real path',
+  );
+  assert.strictEqual(
     fs.readlinkSync(viaParent),
     logPath,
     'readlink via parent',
@@ -113,6 +118,7 @@ function assertLink(p, isDir) {
 assertLink(libPath, true);
 if (nestedIsLink) {
   assertLink(nested, false);
+  assertLink(path.join(realLib, 'inner.js'), false);
   assertLink(viaParent, false);
 }
 assert.strictEqual(fs.lstatSync(notALink).isSymbolicLink(), false);
@@ -134,6 +140,11 @@ assert.strictEqual(
   direntOf(libPath, 'inner.js').isSymbolicLink(),
   nestedIsLink,
   'readdir of the linked directory',
+);
+assert.strictEqual(
+  direntOf(realLib, 'inner.js').isSymbolicLink(),
+  nestedIsLink,
+  'readdir of the real directory',
 );
 assert.strictEqual(
   direntOf(libPath, 'other.js').isSymbolicLink(),
