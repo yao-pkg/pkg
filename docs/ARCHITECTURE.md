@@ -178,7 +178,7 @@ Each file is stored with one or more store types:
 
 ### Runtime Bootstrap
 
-`prelude/bootstrap.js` (1964 lines) executes before user code. It:
+`prelude/bootstrap.js` (~2049 lines) executes before user code. It:
 
 1. **Sets up entrypoint** — Reads `DEFAULT_ENTRYPOINT` from injected parameters, sets `process.argv[1]`
 2. **Initializes VFS** — Builds in-memory lookup from `VIRTUAL_FILESYSTEM` dictionary with optional path compression via `DICT`
@@ -394,15 +394,16 @@ ASCII version:
 
 The `SEAProvider` (in `prelude/sea-vfs-setup.js`) implements lazy loading from a single archive blob:
 
-| Method                     | Behavior                                                                      |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `readFileSync(path)`       | Resolve symlinks, `subarray()` from archive via `offsets` map, cache in `Map` |
-| `statSync(path)`           | Return metadata from manifest `stats`                                         |
-| `internalModuleStat(path)` | Fast path for module resolution: 0 (file), 1 (dir), or a negative errno       |
-| `readdirSync(path)`        | Return directory entries from manifest `directories`                          |
-| `existsSync(path)`         | O(1) check against manifest `stats`                                           |
-| `readlinkSync(path)`       | Unused by `fs.readlinkSync`, which vfs answers via `realpathSync` (#310)      |
-| `realpathSync(path)`       | Follow symlinks, return the path if the manifest has it                       |
+| Method                     | Behavior                                                                                                                                                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `readFileSync(path)`       | Resolve symlinks, `subarray()` from archive via `offsets` map, cache in `Map`                                                                                                                                                                                                                |
+| `statSync(path)`           | Return metadata from manifest `stats`                                                                                                                                                                                                                                                        |
+| `internalModuleStat(path)` | Fast path for module resolution: returns 0 (file), 1 (dir), or a negative errno (not found)                                                                                                                                                                                                  |
+| `readdirSync(path)`        | Return manifest directory entries directly; with `withFileTypes` builds shared `Dirent`s, marking links from `manifest.symlinks`                                                                                                                                                             |
+| `existsSync(path)`         | O(1) check against manifest `stats`                                                                                                                                                                                                                                                          |
+| `readlinkSync(path)`       | Return the symlink target from `manifest.symlinks`, resolving a symlinked parent first; `EINVAL` for a path that is present but not a link, `ENOENT` otherwise. Reached through `fs.readlinkSync` by the VFS's own patch (robertsLando/vfs#4)                                                |
+| `lstatSync(path)`          | Describe the link itself: the target's stat with link semantics and `S_IFLNK` type bits. Reached through `fs.lstatSync` the same way as `readlinkSync` above                                                                                                                                 |
+| `realpathSync(path)`       | Follow the symlink chain, then return the path if the manifest has it. Load-bearing: without it every archive path raises `ENOENT`. The VFS mounts under a POSIX `/snapshot` prefix, so on Windows the result is converted back to `C:\snapshot\...` before it leaves `fs` (yao-pkg/pkg#305) |
 
 The entire archive is loaded once via `sea.getRawAsset('__pkg_archive__')` which returns a zero-copy `ArrayBuffer` reference to the executable's memory-mapped region. Individual files are extracted via `Buffer.subarray(offset, offset + length)` using the manifest's `offsets` map, then cached in a `Map` on first access. String results (when `encoding` is specified) are derived directly from the archive view; Buffer results are copied to prevent callers from corrupting the shared archive memory.
 
@@ -468,7 +469,7 @@ This keeps the VFS setup, shared patches, worker interception, and diagnostics a
 
 ## Shared Runtime Code
 
-`prelude/bootstrap-shared.js` (~751 lines) contains runtime patches used by both bootstraps:
+`prelude/bootstrap-shared.js` (~859 lines) contains runtime patches used by both bootstraps:
 
 ### Injection Mechanisms
 
@@ -504,6 +505,27 @@ This keeps the VFS setup, shared patches, worker interception, and diagnostics a
 - Replace references to `node`, `process.argv[0]`, or the entrypoint with `process.execPath` (the actual executable)
 
 **`makeSymlinkResolver(symlinks, sep)`** — The symlink resolver for **both** modes (`findVirtualFileSystemKeyAndFollowLinks` in classic, `SEAProvider._resolveSymlink` in SEA). It follows parent components like POSIX, so a link at `node_modules/@scope/lib` also resolves `node_modules/@scope/lib/package.json` (#295). The longest matching key wins; that agrees with POSIX because the walker stores realpaths as targets (`toNormalizedRealPath`). More than `MAX_SYMLINK_DEPTH` hops, possible only in a hand-edited manifest, raises `ELOOP`.
+
+### Symlink semantics in packaged binaries
+
+Both bootstraps resolve symlinks on parent path components, so `require`, `fs.readFile` and friends reach files under a linked directory. The walker keys a link that sits inside a linked directory under the real directory (`reallib/inner.js`, not `lib/inner.js`) and records the directory link too, so both spellings resolve. Where they differ:
+
+|                                    | Traditional                                                                                                               | Enhanced SEA                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `readdir({ withFileTypes: true })` | Reports a snapshot symlink as a link (`isSymbolicLink()` true, `isDirectory()`/`isFile()` false), matching real `readdir` | Same — the provider builds `Dirent`s from `manifest.symlinks`, using the shared `Dirent` in `bootstrap-shared.js` |
+| `lstat`                            | Describes the link itself, agreeing with the dirent above                                                                 | Same — `SEAProvider.lstatSync` gives the target's stat link semantics                                             |
+| `readlink`                         | Returns the absolute target from `SYMLINKS`; `EINVAL` for a path that exists but is not a link                            | Same, from `manifest.symlinks`, including the shared parent-resolution step                                       |
+| `realpath`                         | Follows the chain                                                                                                         | Follows the chain                                                                                                 |
+
+> **Breaking change (both modes).** Snapshot symlinks used to look like what they point at. In traditional mode `readdir({ withFileTypes: true })` reported every entry as a plain file or directory (`Dirent.isSymbolicLink()` took an argument it is never called with, so it always returned `false`); in SEA mode it returned entries without the `Dirent` methods. `lstat` returned the target's stat in both. Both now report links as links, which is what Node does outside a packaged binary. For packaged apps whose snapshot contains symlinks (pnpm and workspace trees most of all, plus `node_modules/.bin`):
+>
+> - Recursive walkers that gate descent on `isDirectory()` and skip links by default (`glob` without `follow: true`, hand-written `isDirectory()` recursions) no longer descend into a symlinked directory. fast-glob and readdirp follow links by default and are unaffected.
+> - A filter like `entries.filter((e) => e.isFile())` no longer matches a symlinked **file**.
+> - `lstatSync(link).isDirectory()` / `.isFile()` are now `false`, `mode & S_IFMT` is `S_IFLNK`, and `size` is the byte length of the target path.
+>
+> `readlink` returns the walker's **absolute, fully resolved** target (`/snapshot/app/node_modules/.pnpm/...`, in the platform path form), not the raw link body on disk. Tools that re-create links from it (tar, archiver, a hand-written copy) write absolute `/snapshot/...` links. (`fs.cp` cannot copy out of the snapshot in either mode.)
+
+> **How SEA reports links.** `@roberts_lando/vfs` used to route `fs.lstat` through `statSync`, which follows the link, and `fs.readlink` through `realpathSync`, which never reached the provider. [robertsLando/vfs#4](https://github.com/robertsLando/vfs/pull/4) routes both to `SEAProvider`, which answers from `manifest.symlinks`, the same record the resolver walks. Released in `@roberts_lando/vfs` 0.4.0.
 
 **`setupProcessPkg(entrypoint)`** — Creates the `process.pkg` compatibility object with `entrypoint`, `defaultEntrypoint`, and `path.resolve()`.
 
@@ -613,11 +635,11 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 
 | File                             | Lines | Purpose                                                                                      |
 | -------------------------------- | ----- | -------------------------------------------------------------------------------------------- |
-| `prelude/bootstrap.js`           | ~1964 | Traditional runtime bootstrap (fs/module/process patching)                                   |
-| `prelude/bootstrap-shared.js`    | ~751  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
+| `prelude/bootstrap.js`           | ~2049 | Traditional runtime bootstrap (fs/module/process patching)                                   |
+| `prelude/bootstrap-shared.js`    | ~859  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
-| `prelude/sea-vfs-setup.js`       | ~577  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
+| `prelude/sea-vfs-setup.js`       | ~648  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
 | `prelude/sea-worker-entry.js`    | ~11   | Worker thread entry: requires sea-vfs-setup.js for VFS in workers                            |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |

@@ -206,12 +206,30 @@ var toManifestKey =
         return _stripTrailingSeps(p);
       };
 
-function _enoent(syscall, filePath) {
+// The VFS strips the mount prefix before calling the provider, so an error
+// built from what arrives here names a path the caller never used. Put the
+// prefix and the platform form back, so err.path matches classic mode.
+function toCallerPath(providerPath) {
+  return toPlatformPath(SNAPSHOT_PREFIX + providerPath);
+}
+
+function _einval(syscall, filePath) {
+  var shown = toCallerPath(filePath);
   return shared.makeFsError(
-    'ENOENT: no such file or directory, ' + syscall + " '" + filePath + "'",
+    'EINVAL: invalid argument, ' + syscall + " '" + shown + "'",
+    'EINVAL',
+    syscall,
+    shown,
+  );
+}
+
+function _enoent(syscall, filePath) {
+  var shown = toCallerPath(filePath);
+  return shared.makeFsError(
+    'ENOENT: no such file or directory, ' + syscall + " '" + shown + "'",
     'ENOENT',
     syscall,
-    filePath,
+    shown,
   );
 }
 
@@ -300,7 +318,8 @@ class SEAProvider extends MemoryProvider {
     super();
     this._manifest = seaManifest;
     this._fileCache = new Map();
-    this._resolve = shared.makeSymlinkResolver(seaManifest.symlinks, '/');
+    this._symlinks = seaManifest.symlinks;
+    this._resolve = shared.makeSymlinkResolver(this._symlinks, '/');
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
@@ -423,11 +442,21 @@ class SEAProvider extends MemoryProvider {
     return copy;
   }
 
+  // A plain string: the VFS maps it into the mount, then the
+  // VirtualFileSystem patch below applies the caller's encoding.
   readlinkSync(filePath) {
-    var p = toManifestKey(filePath);
-    var target = this._manifest.symlinks[p];
-    if (typeof target === 'string') return target;
-    return super.readlinkSync(p);
+    var key = toManifestKey(filePath);
+    var resolvedKey = this._resolve.parent(key, filePath);
+    var target = shared.linkTarget(this._symlinks, resolvedKey);
+    if (target !== undefined) return target;
+    // EINVAL for a path that exists but is not a link, as classic mode does.
+    if (
+      resolvedKey in this._manifest.stats ||
+      resolvedKey in this._manifest.directories
+    ) {
+      throw _einval('readlink', filePath);
+    }
+    throw _enoent('readlink', filePath);
   }
 
   realpathSync(filePath) {
@@ -462,12 +491,51 @@ class SEAProvider extends MemoryProvider {
     return -shared.ERRNO.ENOENT;
   }
 
-  readdirSync(dirPath) {
+  readdirSync(dirPath, options) {
     perf.count('readdirSync calls');
+    var key = toManifestKey(dirPath);
     var p = this._resolveSymlink(dirPath);
     var entries = this._manifest.directories[p];
-    if (entries) return entries.slice();
-    return super.readdirSync(p);
+    if (!entries) return super.readdirSync(p, options);
+    if (!options || !options.withFileTypes) return entries.slice();
+    var resolvedBase = p.endsWith('/') ? p : p + '/';
+    var parentPath = toCallerPath(key);
+    var self = this;
+    return entries.map(function (name) {
+      var type = self._direntType(resolvedBase + name);
+      return new shared.Dirent(name, type, parentPath);
+    });
+  }
+
+  // A link when the manifest keys it as one; what it points at is not asked.
+  // An entry with no manifest record of its own reports as a file.
+  _direntType(resolvedKey) {
+    if (shared.linkTarget(this._symlinks, resolvedKey) !== undefined) {
+      return shared.UV_DIRENT_LINK;
+    }
+    if (Array.isArray(this._manifest.directories[resolvedKey])) {
+      return shared.UV_DIRENT_DIR;
+    }
+    var meta = this._manifest.stats[resolvedKey];
+    if (typeof meta === 'object' && meta.isDirectory) {
+      return shared.UV_DIRENT_DIR;
+    }
+    return shared.UV_DIRENT_FILE;
+  }
+
+  // The target's stat given link semantics — what classic mode returns.
+  lstatSync(filePath) {
+    var key = toManifestKey(filePath);
+    var target = shared.linkTarget(
+      this._symlinks,
+      this._resolve.parent(key, filePath),
+    );
+    var meta = this._manifest.stats[this._resolveSymlink(filePath)];
+    if (!meta) throw _enoent('lstat', filePath);
+    var s = _makeStats(meta);
+    return target === undefined
+      ? s
+      : shared.asSymlinkStat(s, toCallerPath(target));
   }
 
   existsSync(filePath) {
@@ -519,7 +587,18 @@ if (process.platform === 'win32') {
   };
 }
 
+// Every fs.readlink form comes through here. Encode only after the VFS has
+// added the mount prefix, or hex/base64 targets would lose it.
+var _origReadlinkSync = VirtualFileSystem.prototype.readlinkSync;
+VirtualFileSystem.prototype.readlinkSync = function (linkPath, options) {
+  return shared.applyReadlinkEncoding(
+    toPlatformPath(_origReadlinkSync.call(this, linkPath)),
+    options,
+  );
+};
+
 virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
+
 perf.end('vfs mount + hooks');
 
 // /////////////////////////////////////////////////////////////////
