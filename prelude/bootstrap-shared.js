@@ -632,6 +632,109 @@ function installDiagnostic(snapshotPrefix) {
   }
 }
 
+// /////////////////////////////////////////////////////////////////
+// SYMLINK PROCESSING //////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// Matches the typical Linux SYMLOOP_MAX.
+var MAX_SYMLINK_DEPTH = 40;
+
+// libuv's errno numbers differ on Windows (uv/errno.h). Negated at use.
+var ERRNO = (function () {
+  var windows = process.platform === 'win32';
+  return {
+    ENOTDIR: windows ? 4052 : 20,
+    ENOENT: windows ? 4058 : 2,
+    EISDIR: windows ? 4068 : 21,
+    ELOOP: windows ? 4067 : 40,
+  };
+})();
+
+// Callers keep their own message: classic ENOENT carries pkg's asset hint.
+function makeFsError(message, code, syscall, path_) {
+  var err = new Error(message);
+  err.code = code;
+  err.errno = -ERRNO[code];
+  if (syscall !== undefined) err.syscall = syscall;
+  err.path = path_;
+  err.pkg = true;
+  return err;
+}
+
+// Maps a snapshot key through its symlinks, parent components included:
+// a link at `node_modules/@x/y` also resolves `.../@x/y/package.json` (#295).
+// Runs before every snapshot fs call. `display` is the caller's path, shown in
+// errors instead of the internal key.
+function makeSymlinkResolver(symlinks, sep) {
+  var keys = Object.keys(symlinks);
+
+  // A symlink-free binary pays nothing.
+  if (keys.length === 0) {
+    return function (p) {
+      return p;
+    };
+  }
+
+  // Links sit at a few depths, so the scan below only slices at those.
+  var depthHasKey = [];
+  var maxDepth = 0;
+  for (var i = 0; i < keys.length; i++) {
+    var depth = 0;
+    var at = keys[i].indexOf(sep, 1);
+    while (at > 0) {
+      depth++;
+      at = keys[i].indexOf(sep, at + 1);
+    }
+    depthHasKey[depth] = true;
+    if (depth > maxDepth) maxDepth = depth;
+  }
+
+  function resolve(p, display, hops) {
+    // The walker stores realpaths as targets, so only a hand-edited manifest
+    // chains or loops; the hop bound turns a loop into ELOOP.
+    if (hops > MAX_SYMLINK_DEPTH) {
+      throw makeFsError(
+        "ELOOP: too many symbolic links encountered, '" + display + "'",
+        'ELOOP',
+        undefined,
+        display,
+      );
+    }
+
+    if (typeof symlinks[p] === 'string') {
+      return resolve(symlinks[p], display, hops + 1);
+    }
+
+    // Longest prefix wins: `<dir>/lib` and `<dir>/lib/sub` can both be keys.
+    var bestPos = -1;
+    var bestKey = null;
+    var pos = p.indexOf(sep, 1);
+    var depth = 0;
+    while (pos > 0 && depth <= maxDepth) {
+      if (depthHasKey[depth]) {
+        var prefix = p.slice(0, pos);
+        // typeof: `constructor` and friends are inherited, non-string values.
+        if (typeof symlinks[prefix] === 'string') {
+          bestPos = pos;
+          bestKey = prefix;
+        }
+      }
+      pos = p.indexOf(sep, pos + 1);
+      depth++;
+    }
+
+    if (bestKey === null) return p;
+
+    var target = symlinks[bestKey];
+    var rest = target.endsWith(sep) ? p.slice(bestPos + 1) : p.slice(bestPos);
+    return resolve(target + rest, display, hops + 1);
+  }
+
+  return function resolveKey(p, display) {
+    return resolve(p, display === undefined ? p : display, 0);
+  };
+}
+
 module.exports = {
   pkgCacheDir: pkgCacheDir,
   patchDlopen: patchDlopen,
@@ -642,4 +745,7 @@ module.exports = {
   COMPRESS_NONE: COMPRESS_NONE,
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
+  makeSymlinkResolver: makeSymlinkResolver,
+  ERRNO: ERRNO,
+  makeFsError: makeFsError,
 };
