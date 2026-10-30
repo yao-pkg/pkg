@@ -1274,10 +1274,7 @@ function payloadFileSync(pointer) {
   // readlink //////////////////////////////////////////////////////
   // ///////////////////////////////////////////////////////////////
 
-  // readdir({ withFileTypes: true }) reports snapshot symlinks as links, so
-  // the usual `if (d.isSymbolicLink()) fs.readlinkSync(p)` pairing has to be
-  // answerable here — unpatched it would fall through to the host fs and
-  // ENOENT on a /snapshot path.
+  // Unpatched, readlink on a /snapshot path reaches the host fs and ENOENTs.
   const applyReadlinkEncoding = REQUIRE_SHARED.applyReadlinkEncoding;
 
   function readlinkFromSnapshot(path_) {

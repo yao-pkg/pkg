@@ -84,6 +84,14 @@ assert.throws(() => fs.readlinkSync(realLib), {
   code: 'EINVAL',
   path: realLib,
 });
+// A plain file reached through the linked directory is not a link.
+const logViaLink = path.join(libPath, 'log.js');
+assert.throws(() => fs.readlinkSync(logViaLink), {
+  code: 'EINVAL',
+  path: logViaLink,
+});
+assert.strictEqual(fs.lstatSync(logViaLink).isSymbolicLink(), false);
+assert.strictEqual(fs.lstatSync(logViaLink).isFile(), true);
 const missing = path.join(__dirname, 'missing.js');
 assert.throws(() => fs.readlinkSync(missing), {
   code: 'ENOENT',

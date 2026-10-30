@@ -61,7 +61,7 @@ fs.readlinkSync(link); // '/snapshot/app/node_modules/.pnpm/x/node_modules/x'
 
 `readlink` returns the absolute target inside the snapshot, not the relative link body on disk.
 
-::: warning Changed in the next major
+::: warning Changed in 7.0.0
 Before, links looked like the file or directory they point at. Code that finds entries with `d.isDirectory()` or `d.isFile()` now skips linked ones, the same as plain Node. Check `d.isSymbolicLink()` and `fs.statSync()` the entry, or pass `follow: true` to `glob`. fast-glob and readdirp follow links by default.
 :::
 

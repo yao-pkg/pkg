@@ -686,13 +686,13 @@ function alwaysFalse() {
   return false;
 }
 
+// Node 24 removed the deprecated `path` alias (DEP0178).
+var DIRENT_HAS_PATH = Number(process.versions.node.split('.')[0]) < 24;
+
 /**
  * The Dirent both bootstraps return from readdir({ withFileTypes: true }).
  * The type is fixed at construction: fs.Dirent's predicates take no argument.
  */
-// Node 24 removed the deprecated `path` alias (DEP0178).
-var DIRENT_HAS_PATH = Number(process.versions.node.split('.')[0]) < 24;
-
 function Dirent(name, type, parentPath) {
   this.name = name;
   this.type = type;

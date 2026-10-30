@@ -156,11 +156,15 @@ describe('readlink encoding', () => {
     const b = applyReadlinkEncoding('/a', { encoding: 'buffer' });
     assert.ok(Buffer.isBuffer(b));
     assert.equal(b.toString(), '/a');
+    assert.ok(Buffer.isBuffer(applyReadlinkEncoding('/a', 'buffer')));
     assert.equal(
       applyReadlinkEncoding('/a', 'hex'),
       Buffer.from('/a').toString('hex'),
     );
     assert.equal(applyReadlinkEncoding('/a', 'utf8'), '/a');
+    assert.equal(applyReadlinkEncoding('/a', 'utf-8'), '/a');
     assert.equal(applyReadlinkEncoding('/a', undefined), '/a');
+    assert.equal(applyReadlinkEncoding('/a', null), '/a');
+    assert.equal(applyReadlinkEncoding('/a', {}), '/a');
   });
 });

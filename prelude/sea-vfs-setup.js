@@ -208,7 +208,7 @@ var toManifestKey =
 
 // The VFS strips the mount prefix before calling the provider, so an error
 // built from what arrives here names a path the caller never used. Put the
-// prefix and the platform form back, the way classic mode's stripSnapshot does.
+// prefix and the platform form back, so err.path matches classic mode.
 function toCallerPath(providerPath) {
   return toPlatformPath(SNAPSHOT_PREFIX + providerPath);
 }
@@ -318,10 +318,7 @@ class SEAProvider extends MemoryProvider {
     super();
     this._manifest = seaManifest;
     this._fileCache = new Map();
-
-    // One normalised symlinks record for every consumer below, so the
-    // resolver and readlinkSync cannot disagree about whether it may be absent.
-    this._symlinks = seaManifest.symlinks || {};
+    this._symlinks = seaManifest.symlinks;
     this._resolve = shared.makeSymlinkResolver(this._symlinks, '/');
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
@@ -541,10 +538,12 @@ class SEAProvider extends MemoryProvider {
       key,
       this._resolve.parent(key),
     );
-    if (target === undefined) return this.statSync(filePath);
     var meta = this._manifest.stats[this._resolveSymlink(key)];
     if (!meta) throw _enoent('lstat', filePath);
-    return shared.asSymlinkStat(_makeStats(meta), toCallerPath(target));
+    var s = _makeStats(meta);
+    return target === undefined
+      ? s
+      : shared.asSymlinkStat(s, toCallerPath(target));
   }
 
   existsSync(filePath) {

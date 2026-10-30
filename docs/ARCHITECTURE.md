@@ -178,7 +178,7 @@ Each file is stored with one or more store types:
 
 ### Runtime Bootstrap
 
-`prelude/bootstrap.js` (2043 lines) executes before user code. It:
+`prelude/bootstrap.js` (~2038 lines) executes before user code. It:
 
 1. **Sets up entrypoint** — Reads `DEFAULT_ENTRYPOINT` from injected parameters, sets `process.argv[1]`
 2. **Initializes VFS** — Builds in-memory lookup from `VIRTUAL_FILESYSTEM` dictionary with optional path compression via `DICT`
@@ -394,16 +394,16 @@ ASCII version:
 
 The `SEAProvider` (in `prelude/sea-vfs-setup.js`) implements lazy loading from a single archive blob:
 
-| Method                     | Behavior                                                                                                                                                                                                                                                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `readFileSync(path)`       | Resolve symlinks, `subarray()` from archive via `offsets` map, cache in `Map`                                                                                                                                                                                                                                                     |
-| `statSync(path)`           | Return metadata from manifest `stats`                                                                                                                                                                                                                                                                                             |
-| `internalModuleStat(path)` | Fast path for module resolution: returns 0 (file), 1 (dir), or a negative errno (not found)                                                                                                                                                                                                                                       |
-| `readdirSync(path)`        | Return manifest directory entries directly; with `withFileTypes` builds shared `Dirent`s, marking links from `manifest.symlinks`                                                                                                                                                                                                  |
-| `existsSync(path)`         | O(1) check against manifest `stats`                                                                                                                                                                                                                                                                                               |
-| `readlinkSync(path)`       | Return the symlink target from `manifest.symlinks`, resolving a symlinked parent first; `EINVAL` for a path that is present but not a link, `ENOENT` otherwise. Reached through `fs.readlinkSync` by the VFS's own patch (robertsLando/vfs#4)                                                                                     |
-| `lstatSync(path)`          | Describe the link itself: the target's stat with link semantics and `S_IFLNK` type bits. Reached through `fs.lstatSync` the same way as `readlinkSync` above                                                                                                                                                                      |
-| `realpathSync(path)`       | Follow the symlink chain, then return the path if the manifest has it. Load-bearing: without it every archive path raises `ENOENT`, which also breaks `fs.readlinkSync`. The VFS mounts under a POSIX `/snapshot` prefix, so on Windows the result is converted back to `C:\snapshot\...` before it leaves `fs` (yao-pkg/pkg#305) |
+| Method                     | Behavior                                                                                                                                                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `readFileSync(path)`       | Resolve symlinks, `subarray()` from archive via `offsets` map, cache in `Map`                                                                                                                                                                                                                |
+| `statSync(path)`           | Return metadata from manifest `stats`                                                                                                                                                                                                                                                        |
+| `internalModuleStat(path)` | Fast path for module resolution: returns 0 (file), 1 (dir), or a negative errno (not found)                                                                                                                                                                                                  |
+| `readdirSync(path)`        | Return manifest directory entries directly; with `withFileTypes` builds shared `Dirent`s, marking links from `manifest.symlinks`                                                                                                                                                             |
+| `existsSync(path)`         | O(1) check against manifest `stats`                                                                                                                                                                                                                                                          |
+| `readlinkSync(path)`       | Return the symlink target from `manifest.symlinks`, resolving a symlinked parent first; `EINVAL` for a path that is present but not a link, `ENOENT` otherwise. Reached through `fs.readlinkSync` by the VFS's own patch (robertsLando/vfs#4)                                                |
+| `lstatSync(path)`          | Describe the link itself: the target's stat with link semantics and `S_IFLNK` type bits. Reached through `fs.lstatSync` the same way as `readlinkSync` above                                                                                                                                 |
+| `realpathSync(path)`       | Follow the symlink chain, then return the path if the manifest has it. Load-bearing: without it every archive path raises `ENOENT`. The VFS mounts under a POSIX `/snapshot` prefix, so on Windows the result is converted back to `C:\snapshot\...` before it leaves `fs` (yao-pkg/pkg#305) |
 
 The entire archive is loaded once via `sea.getRawAsset('__pkg_archive__')` which returns a zero-copy `ArrayBuffer` reference to the executable's memory-mapped region. Individual files are extracted via `Buffer.subarray(offset, offset + length)` using the manifest's `offsets` map, then cached in a `Map` on first access. String results (when `encoding` is specified) are derived directly from the archive view; Buffer results are copied to prevent callers from corrupting the shared archive memory.
 
@@ -469,7 +469,7 @@ This keeps the VFS setup, shared patches, worker interception, and diagnostics a
 
 ## Shared Runtime Code
 
-`prelude/bootstrap-shared.js` (~904 lines) contains runtime patches used by both bootstraps:
+`prelude/bootstrap-shared.js` (~913 lines) contains runtime patches used by both bootstraps:
 
 ### Injection Mechanisms
 
@@ -639,11 +639,11 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 
 | File                             | Lines | Purpose                                                                                      |
 | -------------------------------- | ----- | -------------------------------------------------------------------------------------------- |
-| `prelude/bootstrap.js`           | ~2043 | Traditional runtime bootstrap (fs/module/process patching)                                   |
-| `prelude/bootstrap-shared.js`    | ~904  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
+| `prelude/bootstrap.js`           | ~2038 | Traditional runtime bootstrap (fs/module/process patching)                                   |
+| `prelude/bootstrap-shared.js`    | ~913  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
-| `prelude/sea-vfs-setup.js`       | ~667  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
+| `prelude/sea-vfs-setup.js`       | ~656  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
 | `prelude/sea-worker-entry.js`    | ~11   | Worker thread entry: requires sea-vfs-setup.js for VFS in workers                            |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |
