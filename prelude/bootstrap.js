@@ -237,7 +237,7 @@ const sepsep = DOCOMPRESS ? separator : path.sep;
 const resolveSymlink = REQUIRE_SHARED.makeSymlinkResolver(SYMLINKS, sepsep);
 
 function findVirtualFileSystemKeyAndFollowLinks(path_) {
-  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep));
+  return resolveSymlink(findVirtualFileSystemKey(path_, path.sep), path_);
 }
 
 function realpathFromSnapshot(path_) {
@@ -1095,8 +1095,11 @@ function payloadFileSync(pointer) {
   const noop = () => false;
 
   // Where a snapshot path links to — the same decision the SEA provider makes.
-  function snapshotLinkTarget(vfsKey) {
-    return REQUIRE_SHARED.linkTarget(SYMLINKS, resolveSymlink.parent(vfsKey));
+  function snapshotLinkTarget(vfsKey, display) {
+    return REQUIRE_SHARED.linkTarget(
+      SYMLINKS,
+      resolveSymlink.parent(vfsKey, display),
+    );
   }
 
   function getFileTypes(path_, entries) {
@@ -1107,10 +1110,10 @@ function payloadFileSync(pointer) {
       // Asked before the entity lookup, which follows links: a link whose
       // target is missing from the snapshot is still a link.
       const vfsKey = findVirtualFileSystemKey(ff, path.sep);
-      if (snapshotLinkTarget(vfsKey) !== undefined)
+      if (snapshotLinkTarget(vfsKey, ff) !== undefined)
         return new Dirent(entry, UV_DIRENT_LINK, parentPath);
       // Reuses the key above; under DOCOMPRESS building it is not cheap.
-      const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey)];
+      const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, ff)];
       if (!entity) return undefined;
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
         return new Dirent(entry, UV_DIRENT_FILE, parentPath);
@@ -1275,10 +1278,10 @@ function payloadFileSync(pointer) {
 
   function readlinkFromSnapshot(path_) {
     const vfsKey = findVirtualFileSystemKey(path_, path.sep);
-    const target = snapshotLinkTarget(vfsKey);
+    const target = snapshotLinkTarget(vfsKey, path_);
     if (target !== undefined) return toOriginal(target);
     // EINVAL for a path that exists but is not a link, as Node answers.
-    if (typeof VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey)] === 'object') {
+    if (typeof VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, path_)] === 'object') {
       throw error_EINVAL('readlink', path_);
     }
     throw error_ENOENT('File or directory', path_);
@@ -1431,10 +1434,10 @@ function payloadFileSync(pointer) {
 
   function lstatFromSnapshot(path_, cb) {
     const vfsKey = findVirtualFileSystemKey(path_, path.sep);
-    const target = snapshotLinkTarget(vfsKey);
+    const target = snapshotLinkTarget(vfsKey, path_);
     if (target === undefined) return statFromSnapshot(path_, cb);
     // The target's stat, given link semantics — what the SEA provider does.
-    const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey)];
+    const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, path_)];
     const entityStat = entity && entity[STORE_STAT];
     if (!entityStat) {
       return (cb || rethrow)(error_ENOENT('File or directory', path_));
@@ -1512,7 +1515,13 @@ function payloadFileSync(pointer) {
   }
 
   function existsFromSnapshot(path_) {
-    const entity = findVirtualFileSystemEntry(path_);
+    let entity;
+    try {
+      entity = findVirtualFileSystemEntry(path_);
+    } catch {
+      // Like fs.existsSync: a symlink loop is just "not there".
+      return false;
+    }
     if (!entity) return findNativeAddonForExists(path_);
     return true;
   }
@@ -1723,7 +1732,13 @@ function payloadFileSync(pointer) {
         .internalModuleStat(makeLong(translate(path_)));
     }
 
-    const entity = findVirtualFileSystemEntry(path_);
+    let entity;
+    try {
+      entity = findVirtualFileSystemEntry(path_);
+    } catch (error) {
+      if (error.code !== 'ELOOP') throw error;
+      return -REQUIRE_SHARED.ERRNO.ELOOP;
+    }
 
     if (!entity) {
       return findNativeAddonForInternalModuleStat(path_);

@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { isSea } = require('node:sea');
 
 const log = require('./lib/log');
 
@@ -34,11 +35,32 @@ assert.strictEqual(
   'realpath through the linked directory',
 );
 
-// ...in the platform's path form, `C:\snapshot\...` on Windows (#305).
+// ...in the platform's path form, `C:\snapshot\...` on Windows (#305). Only
+// Windows can tell the two forms apart; elsewhere this passes trivially.
 assert.strictEqual(
   fs.realpathSync(__filename),
   __filename,
   'realpath must round-trip a non-link in the platform path form',
+);
+
+// readdir *of the linked directory* must list what the link points at.
+assert.deepStrictEqual(
+  fs.readdirSync(path.join(__dirname, 'lib')).sort(),
+  ['inner.js', 'log.js', 'other.js', 'package.json'],
+  'readdir of the linked directory',
+);
+
+// A miss through the linked directory is a proper ENOENT. SEA errors come
+// from vfs; standard mode builds its own.
+assert.throws(
+  () => fs.statSync(path.join(__dirname, 'lib', 'missing.js')),
+  (error) => {
+    assert.strictEqual(error.code, 'ENOENT');
+    assert.strictEqual(path.basename(error.path), 'missing.js');
+    if (isSea()) assert.strictEqual(error.syscall, 'stat');
+    else assert.strictEqual(error.pkg, true);
+    return true;
+  },
 );
 
 const S_IFMT = 0o170000;

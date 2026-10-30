@@ -350,9 +350,10 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p) {
+  _resolveSymlink(filePath) {
+    var p = toManifestKey(filePath);
+    var resolved = this._resolve(p, filePath);
     // Count only lookups a symlink actually moved.
-    var resolved = this._resolve(p);
     if (resolved !== p) perf.count('symlink resolutions');
     return resolved;
   }
@@ -362,7 +363,7 @@ class SEAProvider extends MemoryProvider {
   }
 
   readFileSync(filePath, options) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     // Fast path: for compressed archives, a per-file decompressed Buffer is
     // memoised in _fileCache (decompression is expensive and most prelude
     // modules are read once during module resolution, twice for the compile
@@ -445,7 +446,7 @@ class SEAProvider extends MemoryProvider {
   // VirtualFileSystem patch below applies the caller's encoding.
   readlinkSync(filePath) {
     var key = toManifestKey(filePath);
-    var resolvedKey = this._resolve.parent(key);
+    var resolvedKey = this._resolve.parent(key, filePath);
     var target = shared.linkTarget(this._symlinks, resolvedKey);
     if (target !== undefined) return target;
     // EINVAL for a path that exists but is not a link, as classic mode does.
@@ -459,17 +460,15 @@ class SEAProvider extends MemoryProvider {
   }
 
   realpathSync(filePath) {
-    // The base class only knows the directory tree built in the constructor,
-    // so without this every archive file resolves to ENOENT.  Following the
-    // symlink chain here is the whole point.
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    // The base class only knows directories, not archive files.
+    var p = this._resolveSymlink(filePath);
     if (p in this._manifest.stats) return p;
     return super.realpathSync(p);
   }
 
   statSync(filePath) {
     perf.count('statSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     var meta = this._manifest.stats[p];
     if (meta) {
       // Return a fresh stat object — matches Node.js fs.statSync contract.
@@ -484,7 +483,7 @@ class SEAProvider extends MemoryProvider {
    * startup (~30K calls for large projects) so it must be as lean as possible.
    */
   internalModuleStat(filePath) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     var meta = this._manifest.stats[p];
     if (meta) {
       return meta.isDirectory ? 1 : 0;
@@ -495,7 +494,7 @@ class SEAProvider extends MemoryProvider {
   readdirSync(dirPath, options) {
     perf.count('readdirSync calls');
     var key = toManifestKey(dirPath);
-    var p = this._resolveSymlink(key);
+    var p = this._resolveSymlink(dirPath);
     var entries = this._manifest.directories[p];
     if (!entries) return super.readdirSync(p, options);
     if (!options || !options.withFileTypes) return entries.slice();
@@ -527,8 +526,11 @@ class SEAProvider extends MemoryProvider {
   // The target's stat given link semantics — what classic mode returns.
   lstatSync(filePath) {
     var key = toManifestKey(filePath);
-    var target = shared.linkTarget(this._symlinks, this._resolve.parent(key));
-    var meta = this._manifest.stats[this._resolveSymlink(key)];
+    var target = shared.linkTarget(
+      this._symlinks,
+      this._resolve.parent(key, filePath),
+    );
+    var meta = this._manifest.stats[this._resolveSymlink(filePath)];
     if (!meta) throw _enoent('lstat', filePath);
     var s = _makeStats(meta);
     return target === undefined
@@ -538,7 +540,7 @@ class SEAProvider extends MemoryProvider {
 
   existsSync(filePath) {
     perf.count('existsSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     return p in this._manifest.stats;
   }
 }
