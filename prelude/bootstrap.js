@@ -1096,11 +1096,7 @@ function payloadFileSync(pointer) {
 
   // Where a snapshot path links to — the same decision the SEA provider makes.
   function snapshotLinkTarget(vfsKey) {
-    return REQUIRE_SHARED.linkTarget(
-      SYMLINKS,
-      vfsKey,
-      resolveSymlink.parent(vfsKey),
-    );
+    return REQUIRE_SHARED.linkTarget(SYMLINKS, resolveSymlink.parent(vfsKey));
   }
 
   function getFileTypes(path_, entries) {

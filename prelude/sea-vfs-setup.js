@@ -446,7 +446,7 @@ class SEAProvider extends MemoryProvider {
   readlinkSync(filePath) {
     var key = toManifestKey(filePath);
     var resolvedKey = this._resolve.parent(key);
-    var target = shared.linkTarget(this._symlinks, key, resolvedKey);
+    var target = shared.linkTarget(this._symlinks, resolvedKey);
     if (target !== undefined) return target;
     // EINVAL for a path that exists but is not a link, as classic mode does.
     if (
@@ -499,25 +499,19 @@ class SEAProvider extends MemoryProvider {
     var entries = this._manifest.directories[p];
     if (!entries) return super.readdirSync(p, options);
     if (!options || !options.withFileTypes) return entries.slice();
-    // Links are keyed by the caller's spelling or the resolved one (see
-    // shared.linkTarget); stats and directories by the resolved one.
-    var unresolvedBase = key.endsWith('/') ? key : key + '/';
     var resolvedBase = p.endsWith('/') ? p : p + '/';
     var parentPath = toCallerPath(key);
     var self = this;
     return entries.map(function (name) {
-      var type = self._direntType(unresolvedBase + name, resolvedBase + name);
+      var type = self._direntType(resolvedBase + name);
       return new shared.Dirent(name, type, parentPath);
     });
   }
 
   // A link when the manifest keys it as one; what it points at is not asked.
   // An entry with no manifest record of its own reports as a file.
-  _direntType(unresolvedKey, resolvedKey) {
-    if (
-      shared.linkTarget(this._symlinks, unresolvedKey, resolvedKey) !==
-      undefined
-    ) {
+  _direntType(resolvedKey) {
+    if (shared.linkTarget(this._symlinks, resolvedKey) !== undefined) {
       return shared.UV_DIRENT_LINK;
     }
     if (Array.isArray(this._manifest.directories[resolvedKey])) {
@@ -533,11 +527,7 @@ class SEAProvider extends MemoryProvider {
   // The target's stat given link semantics — what classic mode returns.
   lstatSync(filePath) {
     var key = toManifestKey(filePath);
-    var target = shared.linkTarget(
-      this._symlinks,
-      key,
-      this._resolve.parent(key),
-    );
+    var target = shared.linkTarget(this._symlinks, this._resolve.parent(key));
     var meta = this._manifest.stats[this._resolveSymlink(key)];
     if (!meta) throw _enoent('lstat', filePath);
     var s = _makeStats(meta);

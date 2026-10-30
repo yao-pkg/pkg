@@ -42,7 +42,6 @@ const {
   asSymlinkStat: (_s: Stat, _target: string) => Stat;
   linkTarget: (
     _symlinks: Record<string, string>,
-    _key: string,
     _resolvedKey: string,
   ) => string | undefined;
   applyReadlinkEncoding: (
@@ -110,20 +109,17 @@ describe('linkTarget', () => {
     '/app/reallib/other.js': '/app/reallib/log.js',
   };
 
-  it('prefers the spelling the caller used', () => {
-    assert.equal(linkTarget(symlinks, '/app/lib', '/app/lib'), '/app/reallib');
-  });
-
-  it('finds a link recorded under its real parent', () => {
+  it('finds a link by its parent-resolved key', () => {
+    assert.equal(linkTarget(symlinks, '/app/lib'), '/app/reallib');
     assert.equal(
-      linkTarget(symlinks, '/app/lib/other.js', '/app/reallib/other.js'),
+      linkTarget(symlinks, '/app/reallib/other.js'),
       '/app/reallib/log.js',
     );
   });
 
   it('answers undefined for a non-link and for inherited keys', () => {
-    assert.equal(linkTarget(symlinks, '/app/x.js', '/app/x.js'), undefined);
-    assert.equal(linkTarget(symlinks, 'constructor', 'toString'), undefined);
+    assert.equal(linkTarget(symlinks, '/app/x.js'), undefined);
+    assert.equal(linkTarget(symlinks, 'constructor'), undefined);
   });
 });
 

@@ -719,15 +719,12 @@ Dirent.prototype.isFIFO = alwaysFalse;
 
 /**
  * Where a snapshot path links to, or undefined when it is not a link.
- *
- * The walker keys a link on the unresolved path it walked, so that spelling
- * wins; `resolvedKey` (the path with its parents followed) finds a link the
- * walker reached through its real parent instead.
+ * The walker keys every link under its parent's real path, so callers pass
+ * the path with its parents resolved.
  */
-function linkTarget(symlinks, key, resolvedKey) {
+function linkTarget(symlinks, resolvedKey) {
   // typeof: the record is read with a bracket index, so inherited keys like
   // `constructor` must not match.
-  if (typeof symlinks[key] === 'string') return symlinks[key];
   if (typeof symlinks[resolvedKey] === 'string') return symlinks[resolvedKey];
   return undefined;
 }

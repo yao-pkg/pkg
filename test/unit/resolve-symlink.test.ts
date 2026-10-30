@@ -72,10 +72,7 @@ describe('makeSymlinkResolver', () => {
   });
 
   it('follows a directory symlink nested inside another one', () => {
-    // The real manifest shape behind the case above: `walker.appendSymlink`
-    // records `<dir>/sub` under the unresolved path because it descended
-    // through the `<dir>` link to reach it. Resolving the parent first would
-    // yield /app/reallib/sub/file.js, which the archive has no entry for.
+    // An exact key beats its symlinked parent.
     const resolve = makeSymlinkResolver(
       {
         '/app/lib': '/app/reallib',
@@ -91,12 +88,27 @@ describe('makeSymlinkResolver', () => {
     assert.equal(resolve('/app/lib/other.js'), '/app/reallib/other.js');
   });
 
+  it('follows a nested link keyed under the real directory', () => {
+    // The shape the walker emits: the inner link is keyed under reallib/.
+    const resolve = makeSymlinkResolver(
+      {
+        '/app/lib': '/app/reallib',
+        '/app/reallib/sub': '/app/reallib/realsub',
+      },
+      '/',
+    );
+    assert.equal(
+      resolve('/app/lib/sub/file.js'),
+      '/app/reallib/realsub/file.js',
+    );
+    assert.equal(
+      resolve('/app/reallib/sub/file.js'),
+      '/app/reallib/realsub/file.js',
+    );
+  });
+
   it('prefers an exact entry over its symlinked parent', () => {
-    // The real manifest shape: the walker descends through a symlinked
-    // directory, so a link inside one gets its own key under the unresolved
-    // path. Both keys exist, and the exact (more specific) one must win —
-    // resolving through the parent instead would land on a path the archive
-    // has no entry for. Regression guard for test-99-#295/reallib/inner.js.
+    // Both keys exist; the exact (more specific) one must win.
     const resolve = makeSymlinkResolver(
       {
         '/app/lib': '/app/reallib',
