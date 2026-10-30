@@ -666,7 +666,7 @@ function makeFsError(message, code, syscall, path_) {
 // Runs before every snapshot fs call. `display` is the caller's path, shown in
 // errors instead of the internal key.
 function makeSymlinkResolver(symlinks, sep) {
-  var keys = Object.keys(symlinks || {});
+  var keys = Object.keys(symlinks);
 
   // A symlink-free binary pays nothing.
   if (keys.length === 0) {

@@ -183,17 +183,27 @@ describe('makeSymlinkResolver', () => {
     );
   });
 
+  it('walks win32 keys that carry a drive letter', () => {
+    const resolve = makeSymlinkResolver(
+      {
+        'C:\\snapshot\\lib': 'C:\\snapshot\\reallib',
+        'C:\\snapshot\\lib\\sub': 'C:\\snapshot\\reallib\\realsub',
+      },
+      '\\',
+    );
+    assert.equal(
+      resolve('C:\\snapshot\\lib\\sub\\file.js'),
+      'C:\\snapshot\\reallib\\realsub\\file.js',
+    );
+    assert.equal(
+      resolve('C:\\snapshot\\lib\\other.js'),
+      'C:\\snapshot\\reallib\\other.js',
+    );
+  });
+
   describe('empty manifest', () => {
     it('returns every path unchanged', () => {
       const resolve = makeSymlinkResolver({}, '/');
-      assert.equal(resolve('/snapshot/app/index.js'), '/snapshot/app/index.js');
-    });
-
-    it('tolerates an absent symlinks record', () => {
-      const resolve = makeSymlinkResolver(
-        undefined as unknown as Record<string, string>,
-        '/',
-      );
       assert.equal(resolve('/snapshot/app/index.js'), '/snapshot/app/index.js');
     });
   });
