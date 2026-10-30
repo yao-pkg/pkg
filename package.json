@@ -1,6 +1,6 @@
 {
   "name": "@yao-pkg/pkg",
-  "version": "6.23.0",
+  "version": "6.24.0",
   "description": "Package your Node.js project into an executable",
   "main": "lib-es5/index.js",
   "license": "MIT",
@@ -27,7 +27,7 @@
     "@babel/traverse": "^7.23.0",
     "@babel/types": "^7.23.0",
     "@roberts_lando/vfs": "^0.3.3",
-    "@yao-pkg/pkg-fetch": "3.6.6",
+    "@yao-pkg/pkg-fetch": "3.6.7",
     "esbuild": "^0.28.1",
     "into-stream": "^9.1.0",
     "multistream": "^4.1.0",

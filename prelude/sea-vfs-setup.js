@@ -8,17 +8,14 @@ var shared = require('./bootstrap-shared');
 
 var COMPRESS_NONE = shared.COMPRESS_NONE;
 
+// Always use the polyfill: core node:vfs ignores the mount prefix (#317).
 var vfsModule;
 try {
-  vfsModule = require('node:vfs');
-} catch (_) {
-  try {
-    vfsModule = require('@roberts_lando/vfs');
-  } catch (e) {
-    throw new Error(
-      'pkg: VFS polyfill (@roberts_lando/vfs) is not available: ' + e.message,
-    );
-  }
+  vfsModule = require('@roberts_lando/vfs');
+} catch (e) {
+  throw new Error(
+    'pkg: VFS polyfill (@roberts_lando/vfs) is not available: ' + e.message,
+  );
 }
 
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
