@@ -311,7 +311,8 @@ function spawnFabricator(
   }
 
   proc.on('error', onError);
-  proc.stdin?.on('error', onError);
+  // EPIPE here means the child exited; `close` reports why (e.g. exit 65).
+  proc.stdin?.on('error', () => {});
   response.on('error', onError);
   response.on('data', (data: Buffer) => onResponseData(state, data));
 

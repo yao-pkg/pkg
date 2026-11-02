@@ -501,7 +501,7 @@ export default function producer({
                       // green build without bytecode.
                       return cb(
                         wasReported(error.message, [
-                          'This is a pkg bug or a corrupted fabricator binary. Re-run with --debug and report it at https://github.com/yao-pkg/pkg/issues',
+                          'This is likely a pkg bug. Re-run with --debug and report it at https://github.com/yao-pkg/pkg/issues',
                           'Use --no-bytecode to build without the fabricator.',
                         ]),
                         null,

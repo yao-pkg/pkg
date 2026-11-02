@@ -273,12 +273,16 @@ describe('fabricator framing', () => {
     const snapBuf = Buffer.from(snap);
     const h1 = Buffer.alloc(4);
     h1.writeInt32LE(snapBuf.length, 0);
-    const hBad = Buffer.alloc(4);
-    hBad.writeInt32LE(-1, 0);
+    for (const size of [-1, FABRICATOR_MAX_FRAME_PART_SIZE + 1]) {
+      const hBad = Buffer.alloc(4);
+      hBad.writeInt32LE(size, 0);
 
-    const run = await runFabricatorScript([Buffer.concat([h1, snapBuf, hBad])]);
+      const run = await runFabricatorScript([
+        Buffer.concat([h1, snapBuf, hBad]),
+      ]);
 
-    assert.equal(run.code, FABRICATOR_PROTOCOL_EXIT_CODE);
+      assert.equal(run.code, FABRICATOR_PROTOCOL_EXIT_CODE, String(size));
+    }
   });
 
   it('child script compiles zero-length snap and body payloads', async () => {
@@ -295,11 +299,15 @@ describe('fabricator framing', () => {
 
   describe('fabricate()', () => {
     it('covers both halves end to end and reuses the child', async () => {
+      const { bakes, spawns } = countedBakes('reuse', '', false);
+
       for (const source of ['module.exports = 1;', 'module.exports = 2;']) {
-        const { error, buffer } = await runFabricate([], source);
+        const { error, buffer } = await runFabricate(bakes, source);
         assert.ifError(error);
         assert.ok(buffer && buffer.length > 0);
       }
+
+      assert.equal(spawns(), 1);
     });
 
     it('ignores V8 trace output on stdout', async () => {
@@ -382,7 +390,12 @@ describe('fabricator framing', () => {
         'exit-65',
         `process.stdin.on('data', function () { process.exit(${FABRICATOR_PROTOCOL_EXIT_CODE}); });`,
       );
-      const { error } = await runFabricate(bakes, 'module.exports = 7;');
+      // Larger than a pipe buffer, so the parent is still writing when the
+      // child exits and stdin fails with EPIPE first.
+      const { error } = await runFabricate(
+        bakes,
+        `module.exports = '${'x'.repeat(1024 * 1024)}';`,
+      );
       assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
     });
 
@@ -405,16 +418,24 @@ describe('fabricator framing', () => {
     });
 
     it('restarts a child that writes with no request pending', async () => {
+      const written = path.join(preloadDir, 'unsolicited.written');
       const { bakes, spawns } = countedBakes(
         'unsolicited',
         `process.stdin.once('data', function () {
-          setTimeout(function () { require('fs').writeSync(3, 'late'); }, 20);
+          setTimeout(function () {
+            // Marker first: the parent kills this child on the stray bytes.
+            require('fs').writeFileSync(${JSON.stringify(written)}, '');
+            require('fs').writeSync(3, 'late');
+          }, 20);
         });`,
         true,
       );
       const first = await runFabricate(bakes, 'module.exports = 9;');
       assert.ifError(first.error);
-      await delay(200);
+
+      // Wait for the child to have written, then for the parent to read it.
+      while (!existsSync(written)) await delay(10);
+      await delay(100);
 
       const second = await runFabricate(bakes, 'module.exports = 9;');
       assert.ifError(second.error);
