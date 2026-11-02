@@ -18,9 +18,10 @@ assert(__dirname === process.cwd());
 // file, and a junction is what npm creates for workspace links there.
 const libLink = path.join(__dirname, 'lib');
 const innerLink = path.join(__dirname, 'reallib', 'inner.js');
+const otherLink = path.join(__dirname, 'reallib', 'other.js');
 const linkInfo = path.join(__dirname, 'linkinfo.json');
 const esmModules = path.join(__dirname, 'esm', 'node_modules');
-const generated = [libLink, innerLink, linkInfo, esmModules];
+const generated = [libLink, innerLink, otherLink, linkInfo, esmModules];
 
 function removeGenerated() {
   for (const p of generated) utils.vacuum.sync(p);
@@ -45,10 +46,14 @@ try {
   let nestedIsLink = true;
   try {
     fs.symlinkSync('log.js', innerLink, 'file');
+    fs.symlinkSync('log.js', otherLink, 'file');
   } catch (error) {
     if (process.platform !== 'win32') throw error;
     console.log(`  file symlink unavailable (${error.code}), using a copy`);
-    fs.copyFileSync(path.join(__dirname, 'reallib', 'log.js'), innerLink);
+    for (const link of [innerLink, otherLink]) {
+      utils.vacuum.sync(link);
+      fs.copyFileSync(path.join(__dirname, 'reallib', 'log.js'), link);
+    }
     nestedIsLink = false;
   }
   fs.writeFileSync(linkInfo, `${JSON.stringify({ nestedIsLink }, null, 2)}\n`);

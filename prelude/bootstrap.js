@@ -486,6 +486,8 @@ function payloadFileSync(pointer) {
     readdir: fs.readdir,
     realpathSync: fs.realpathSync,
     realpath: fs.realpath,
+    readlinkSync: fs.readlinkSync,
+    readlink: fs.readlink,
     statSync: fs.statSync,
     stat: fs.stat,
     lstatSync: fs.lstatSync,
@@ -543,6 +545,15 @@ function payloadFileSync(pointer) {
       'EISDIR: illegal operation on a directory, read',
       'EISDIR',
       'read',
+      path_,
+    );
+  }
+
+  function error_EINVAL(syscall, path_) {
+    return makeFsError(
+      `EINVAL: invalid argument, ${syscall} '${stripSnapshot(path_)}'`,
+      'EINVAL',
+      syscall,
       path_,
     );
   }
@@ -1076,36 +1087,38 @@ function payloadFileSync(pointer) {
     return null;
   }
 
-  function Dirent(name, type) {
-    this.name = name;
-    this.type = type;
+  // Shared with the SEA provider so both modes report the same dirent shape.
+  const Dirent = REQUIRE_SHARED.Dirent;
+  const UV_DIRENT_FILE = REQUIRE_SHARED.UV_DIRENT_FILE;
+  const UV_DIRENT_DIR = REQUIRE_SHARED.UV_DIRENT_DIR;
+  const UV_DIRENT_LINK = REQUIRE_SHARED.UV_DIRENT_LINK;
+  const noop = () => false;
+
+  // Where a snapshot path links to — the same decision the SEA provider makes.
+  function snapshotLinkTarget(vfsKey, display) {
+    return REQUIRE_SHARED.linkTarget(
+      SYMLINKS,
+      resolveSymlink.parent(vfsKey, display),
+    );
   }
 
-  Dirent.prototype.isDirectory = function isDirectory() {
-    return this.type === 2;
-  };
-
-  Dirent.prototype.isFile = function isFile() {
-    return this.type === 1;
-  };
-
-  const noop = () => false;
-  Dirent.prototype.isBlockDevice = noop;
-  Dirent.prototype.isCharacterDevice = noop;
-  Dirent.prototype.isSocket = noop;
-  Dirent.prototype.isFIFO = noop;
-
-  Dirent.prototype.isSymbolicLink = (fileOrFolderName) =>
-    typeof SYMLINKS[fileOrFolderName] === 'string';
-
   function getFileTypes(path_, entries) {
+    // parentPath is the caller's path, as Node reports it.
+    const parentPath = path_;
     return entries.map((entry) => {
       const ff = path.join(path_, entry);
-      const entity = findVirtualFileSystemEntry(ff);
+      // Asked before the entity lookup, which follows links: a link whose
+      // target is missing from the snapshot is still a link.
+      const vfsKey = findVirtualFileSystemKey(ff, path.sep);
+      if (snapshotLinkTarget(vfsKey, ff) !== undefined)
+        return new Dirent(entry, UV_DIRENT_LINK, parentPath);
+      // Reuses the key above; under DOCOMPRESS building it is not cheap.
+      const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, ff)];
       if (!entity) return undefined;
       if (entity[STORE_BLOB] || entity[STORE_CONTENT])
-        return new Dirent(entry, 1);
-      if (entity[STORE_LINKS]) return new Dirent(entry, 2);
+        return new Dirent(entry, UV_DIRENT_FILE, parentPath);
+      if (entity[STORE_LINKS])
+        return new Dirent(entry, UV_DIRENT_DIR, parentPath);
       throw new Error('UNEXPECTED-24');
     });
   }
@@ -1113,7 +1126,7 @@ function payloadFileSync(pointer) {
   function readdirRoot(path_, options, cb) {
     function addSnapshot(entries) {
       if (options && options.withFileTypes) {
-        entries.push(new Dirent('snapshot', 2));
+        entries.push(new Dirent('snapshot', UV_DIRENT_DIR, path_));
       } else {
         entries.push('snapshot');
       }
@@ -1257,6 +1270,53 @@ function payloadFileSync(pointer) {
   fs.realpath.native = fs.realpath;
 
   // ///////////////////////////////////////////////////////////////
+  // readlink //////////////////////////////////////////////////////
+  // ///////////////////////////////////////////////////////////////
+
+  // Unpatched, readlink on a /snapshot path reaches the host fs and ENOENTs.
+  const applyReadlinkEncoding = REQUIRE_SHARED.applyReadlinkEncoding;
+
+  function readlinkFromSnapshot(path_) {
+    const vfsKey = findVirtualFileSystemKey(path_, path.sep);
+    const target = snapshotLinkTarget(vfsKey, path_);
+    if (target !== undefined) return toOriginal(target);
+    // EINVAL for a path that exists but is not a link, as Node answers.
+    if (typeof VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, path_)] === 'object') {
+      throw error_EINVAL('readlink', path_);
+    }
+    throw error_ENOENT('File or directory', path_);
+  }
+
+  fs.readlinkSync = function readlinkSync(path_, options) {
+    if (!insideSnapshot(path_)) {
+      return ancestor.readlinkSync.apply(fs, arguments);
+    }
+    if (insideMountpoint(path_)) {
+      return ancestor.readlinkSync.apply(fs, translateNth(arguments, 0, path_));
+    }
+
+    return applyReadlinkEncoding(readlinkFromSnapshot(path_), options);
+  };
+
+  fs.readlink = function readlink(path_, options) {
+    if (!insideSnapshot(path_)) {
+      return ancestor.readlink.apply(fs, arguments);
+    }
+    if (insideMountpoint(path_)) {
+      return ancestor.readlink.apply(fs, translateNth(arguments, 0, path_));
+    }
+
+    const callback = dezalgo(maybeCallback(arguments));
+    let target;
+    try {
+      target = readlinkFromSnapshot(path_);
+    } catch (error) {
+      return callback(error);
+    }
+    callback(null, applyReadlinkEncoding(target, options));
+  };
+
+  // ///////////////////////////////////////////////////////////////
   // stat //////////////////////////////////////////////////////////
   // ///////////////////////////////////////////////////////////////
 
@@ -1368,6 +1428,30 @@ function payloadFileSync(pointer) {
   // lstat /////////////////////////////////////////////////////////
   // ///////////////////////////////////////////////////////////////
 
+  // The walker stats through links, so a link's stored stat describes its
+  // target; SYMLINKS is what says it is a link at all.
+  const asSymlinkStat = REQUIRE_SHARED.asSymlinkStat;
+
+  function lstatFromSnapshot(path_, cb) {
+    const vfsKey = findVirtualFileSystemKey(path_, path.sep);
+    const target = snapshotLinkTarget(vfsKey, path_);
+    if (target === undefined) return statFromSnapshot(path_, cb);
+    // The target's stat, given link semantics — what the SEA provider does.
+    const entity = VIRTUAL_FILESYSTEM[resolveSymlink(vfsKey, path_)];
+    const entityStat = entity && entity[STORE_STAT];
+    if (!entityStat) {
+      return (cb || rethrow)(error_ENOENT('File or directory', path_));
+    }
+    const shown = toOriginal(target);
+    if (cb) {
+      return statFromSnapshotSub(entityStat, (error, s) => {
+        if (error) return cb(error);
+        cb(null, asSymlinkStat(s, shown));
+      });
+    }
+    return asSymlinkStat(statFromSnapshotSub(entityStat), shown);
+  }
+
   fs.lstatSync = function lstatSync(path_) {
     if (!insideSnapshot(path_)) {
       return ancestor.lstatSync.apply(fs, arguments);
@@ -1376,7 +1460,7 @@ function payloadFileSync(pointer) {
       return ancestor.lstatSync.apply(fs, translateNth(arguments, 0, path_));
     }
 
-    return statFromSnapshot(path_);
+    return lstatFromSnapshot(path_);
   };
 
   fs.lstat = function lstat(path_) {
@@ -1388,7 +1472,7 @@ function payloadFileSync(pointer) {
     }
 
     const callback = dezalgo(maybeCallback(arguments));
-    statFromSnapshot(path_, callback);
+    lstatFromSnapshot(path_, callback);
   };
 
   // ///////////////////////////////////////////////////////////////
@@ -1546,6 +1630,7 @@ function payloadFileSync(pointer) {
       realpath: fs.promises.realpath,
       stat: fs.promises.stat,
       lstat: fs.promises.lstat,
+      readlink: fs.promises.readlink,
       fstat: fs.promises.fstat,
       access: fs.promises.access,
       copyFile: fs.promises.copyFile,
@@ -1601,13 +1686,13 @@ function payloadFileSync(pointer) {
 
     fs.promises.read = util.promisify(fs.read);
     fs.promises.realpath = util.promisify(fs.realpath);
+    fs.promises.readlink = util.promisify(fs.readlink);
     fs.promises.fstat = util.promisify(fs.fstat);
     fs.promises.statfs = util.promisify(fs.statfs);
     fs.promises.access = util.promisify(fs.access);
 
     // TODO: all promises methods that try to edit files in snapshot should throw
     // TODO implement missing methods
-    // fs.promises.readlink ?
     // fs.promises.opendir ?
   }
 
