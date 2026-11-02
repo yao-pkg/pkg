@@ -13,13 +13,16 @@ const sharedSource = fs.readFileSync(sharedPath, 'utf8');
 const requireBuiltin = createRequire(__filename);
 // Synthetic bytes only: the fake dlopen below never loads a native library.
 const fresh = Buffer.from([0, 1, 2, 3, 4, 5, 255, 0]);
-const stale = Buffer.from([8, 7, 6, 5, 4, 3, 2, 1]);
+// A cache file truncated by the old in-place write.
+const stale = fresh.subarray(0, 3);
 const raced = Buffer.from([0, 1, 2, 3, 4, 6, 255, 0]);
 type Layout = 'node_modules' | 'standalone';
 // diskFull: the temp write stops after 3 bytes with ENOSPC.
 // renameRefused: Windows-style EPERM on rename, optionally after a concurrent
 // writer published `winner` at the destination.
-type Failure = 'diskFull' | 'renameRefused';
+// renameBusyOnce: the first rename fails with EBUSY, as when antivirus holds
+// the just-written temp file.
+type Failure = 'diskFull' | 'renameRefused' | 'renameBusyOnce';
 
 // The fs the prelude sees inside the VM: records renames, injects one failure.
 function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
@@ -39,6 +42,7 @@ function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
         if (winner) fs.writeFileSync(to, winner);
         throw error;
       }
+      if (failure === 'renameBusyOnce' && renames.length === 1) throw error;
       fs.renameSync(from, to);
     },
   };
@@ -48,7 +52,7 @@ function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
 function fixture(
   t: TestContext,
   layout: Layout,
-  options: { failure?: Failure; winner?: Buffer } = {},
+  options: { failure?: Failure; winner?: Buffer; platform?: string } = {},
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-native-cache-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -70,13 +74,18 @@ function fixture(
   fs.writeFileSync(path.join(sourceRoot, relative), fresh);
 
   const error = Object.assign(new Error('injected cache failure'), {
-    code: options.failure === 'diskFull' ? 'ENOSPC' : 'EPERM',
+    code: {
+      diskFull: 'ENOSPC',
+      renameRefused: 'EPERM',
+      renameBusyOnce: 'EBUSY',
+    }[options.failure ?? 'renameRefused'],
   });
   const { renames, vmFs } = faultyFs(options.failure, error, options.winner);
   const loads: { file: string; bytes: Buffer }[] = [];
   const fakeProcess = {
     env: { PKG_NATIVE_CACHE_PATH: cacheRoot },
     pid: process.pid,
+    platform: options.platform ?? 'linux',
     versions: process.versions,
     dlopen(_module: object, file: string) {
       loads.push({ file, bytes: fs.readFileSync(file) });
@@ -208,6 +217,26 @@ describe('native addon cache failures', () => {
     assert.throws(f.load, (err) => err === f.error);
     assert.deepEqual(f.loads, []);
     assert.deepEqual(fs.readFileSync(f.destination), raced);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('retries a rename refused by a briefly held file on Windows', (t) => {
+    const f = fixture(t, 'standalone', {
+      failure: 'renameBusyOnce',
+      platform: 'win32',
+    });
+
+    assert.equal(f.load(), 'loaded');
+    assert.deepEqual(f.loads, [{ file: f.destination, bytes: fresh }]);
+    assert.equal(f.renames.length, 2);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('does not retry a refused rename outside Windows', (t) => {
+    const f = fixture(t, 'standalone', { failure: 'renameBusyOnce' });
+
+    assert.throws(f.load, (err) => err === f.error);
+    assert.equal(f.renames.length, 1);
     assert.deepEqual(f.tempFiles(), []);
   });
 

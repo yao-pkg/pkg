@@ -97,6 +97,34 @@ function hasSameContent(file, content) {
   }
 }
 
+// Windows antivirus can hold a just-written file open for a moment, so a
+// refused rename is retried there for up to ~1s, as graceful-fs does.
+var RENAME_RETRY_CODES = ['EPERM', 'EACCES', 'EBUSY'];
+
+function renameSyncRetry(from, to, content) {
+  for (var attempt = 1; ; attempt++) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (error) {
+      if (
+        process.platform !== 'win32' ||
+        attempt === 5 ||
+        RENAME_RETRY_CODES.indexOf(error.code) === -1 ||
+        hasSameContent(to, content)
+      ) {
+        throw error;
+      }
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        attempt * 100,
+      );
+    }
+  }
+}
+
 // Write `content` to `dest` unless it is already there. Publishes through a
 // sibling temp file + rename, so a process that has the old addon mapped never
 // sees it truncated. A crash before the rename can leave a `.pkg-*.tmp` behind.
@@ -110,7 +138,7 @@ function syncCacheFile(dest, content) {
   try {
     // 'wx' refuses to follow a symlink planted at the temp path.
     fs.writeFileSync(temporary, content, { flag: 'wx' });
-    fs.renameSync(temporary, dest);
+    renameSyncRetry(temporary, dest, content);
   } catch (error) {
     try {
       fs.unlinkSync(temporary);
