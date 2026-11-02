@@ -6,6 +6,10 @@
  * A test with a large number of modules with symlinks
  * (installed with npm) and compress
  *
+ * node-opcua is pinned to 2.181.0 in package.json: 2.184.0 made the packages
+ * ESM ("type": "module", import.meta.dirname), which esbuild's CJS bundle
+ * resolves to undefined — node-opcua-nodesets then calls path.join(undefined).
+ * Unpin only together with an esbuild config that emits ESM.
  */
 
 const fs = require('fs');

@@ -636,10 +636,10 @@
     conventional-recommended-bump "^11.2.0"
     semver "^7.7.3"
 
-"@roberts_lando/vfs@^0.3.3":
-  version "0.3.3"
-  resolved "https://registry.yarnpkg.com/@roberts_lando/vfs/-/vfs-0.3.3.tgz#6359feed30e3773041279cb11be82ca60f4ff1f1"
-  integrity sha512-YjkxVSLw5WMZQoARaryRAjcxA+GbBzWMJdwYZX5oLUt9cC/gew9as4Dn7tcLzPp7BPoR221VpTZ+78TRPawnjg==
+"@roberts_lando/vfs@^0.4.0":
+  version "0.4.0"
+  resolved "https://registry.yarnpkg.com/@roberts_lando/vfs/-/vfs-0.4.0.tgz#70b33766cded298650282e4ef18743490599c3c5"
+  integrity sha512-8gk53fJyCgTHEqJcMnwcuSyJA12w42uP2LWBL8Zfnzu7s/A7how1HBN+xbU5d6Hwqa5al16++TcnZ1lIYd+ImQ==
 
 "@rtsao/scc@^1.1.0":
   version "1.1.0"
@@ -861,10 +861,10 @@
     "@typescript-eslint/types" "8.55.0"
     eslint-visitor-keys "^4.2.1"
 
-"@yao-pkg/pkg-fetch@3.6.6":
-  version "3.6.6"
-  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.6.6.tgz#033dea51030273c8565bc77e8d38b7d0a81033e8"
-  integrity sha512-Nu9ytHewcV6FuH4WvdpYZxz2XwiP2p30jlPBzbvwsS3OPYN7RRTyGrXhcmhS59O3AdXz/LW+4bozhV3alN+MEA==
+"@yao-pkg/pkg-fetch@3.6.7":
+  version "3.6.7"
+  resolved "https://registry.yarnpkg.com/@yao-pkg/pkg-fetch/-/pkg-fetch-3.6.7.tgz#5fb8a55031846ef105efeaf4beae0d4f4ed47540"
+  integrity sha512-uEeU5druVgHffruTAXzW6nf0wHfREWlCq5LBtQ4hCdLBDbwTteuym5NrxREur3EgNcqFRenEi6Rivwo723PkHg==
   dependencies:
     picocolors "^1.1.0"
     progress "^2.0.3"

@@ -1,0 +1,7 @@
+{
+  "name": "test-99-295-esm",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "bin": "index.mjs"
+}

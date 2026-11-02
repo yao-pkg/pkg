@@ -35,6 +35,9 @@ damage[damage.length - 4 * boundary - 10] = 0x2;
 damage[damage.length - 2 * boundary + 10] = 0x2;
 damage[damage.length - 3 * boundary + 10] = 0x2;
 damage[damage.length - 4 * boundary + 10] = 0x2;
+// The prelude sits last, so the offsets above can all land in comments (CRLF
+// checkouts on Windows); its closing `})` is always code.
+damage[damage.length - 2] = 0x2;
 fs.writeFileSync(output, damage);
 
 if (process.platform === 'darwin') {
