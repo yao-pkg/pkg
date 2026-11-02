@@ -79,11 +79,13 @@ const npmTests = [
   'test-85-sea-enhanced',
   'test-86-sea-assets',
   'test-87-sea-esm',
+  'test-88-sea-hooks',
   'test-89-sea-fs-ops',
   'test-90-sea-worker-threads',
   'test-91-sea-esm-entry',
   'test-92-sea-tla',
   'test-94-sea-esm-import-meta',
+  'test-99-#295',
 ];
 
 if (testFilter) {

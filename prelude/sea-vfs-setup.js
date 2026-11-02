@@ -8,25 +8,18 @@ var shared = require('./bootstrap-shared');
 
 var COMPRESS_NONE = shared.COMPRESS_NONE;
 
+// Always use the polyfill: core node:vfs ignores the mount prefix (#317).
 var vfsModule;
 try {
-  vfsModule = require('node:vfs');
-} catch (_) {
-  try {
-    vfsModule = require('@roberts_lando/vfs');
-  } catch (e) {
-    throw new Error(
-      'pkg: VFS polyfill (@roberts_lando/vfs) is not available: ' + e.message,
-    );
-  }
+  vfsModule = require('@roberts_lando/vfs');
+} catch (e) {
+  throw new Error(
+    'pkg: VFS polyfill (@roberts_lando/vfs) is not available: ' + e.message,
+  );
 }
 
 var VirtualFileSystem = vfsModule.VirtualFileSystem;
 var MemoryProvider = vfsModule.MemoryProvider;
-
-// Matches the typical Linux SYMLOOP_MAX. Bounds the symlink resolution
-// loop so a manifest cycle (or a corrupt manifest) cannot hang startup.
-var MAX_SYMLINK_DEPTH = 40;
 
 // /////////////////////////////////////////////////////////////////
 // PERFORMANCE INSTRUMENTATION /////////////////////////////////////
@@ -151,6 +144,7 @@ var perf = {
       'statSync calls',
       'existsSync calls',
       'readdirSync calls',
+      'symlink resolutions',
     ];
     counterOrder.forEach(function (label) {
       var v = self._counters[label];
@@ -212,15 +206,33 @@ var toManifestKey =
         return _stripTrailingSeps(p);
       };
 
-function _enoent(syscall, filePath) {
-  var err = new Error(
-    'ENOENT: no such file or directory, ' + syscall + " '" + filePath + "'",
+// The VFS strips the mount prefix before calling the provider, so an error
+// built from what arrives here names a path the caller never used. Put the
+// prefix and the platform form back, so err.path matches classic mode.
+function toCallerPath(providerPath) {
+  // The mount root arrives as '/'; Node spells it without the trailing slash.
+  if (providerPath === '/') return toPlatformPath(SNAPSHOT_PREFIX);
+  return toPlatformPath(SNAPSHOT_PREFIX + providerPath);
+}
+
+function _einval(syscall, filePath) {
+  var shown = toCallerPath(filePath);
+  return shared.makeFsError(
+    'EINVAL: invalid argument, ' + syscall + " '" + shown + "'",
+    'EINVAL',
+    syscall,
+    shown,
   );
-  err.code = 'ENOENT';
-  err.errno = -2;
-  err.syscall = syscall;
-  err.path = filePath;
-  return err;
+}
+
+function _enoent(syscall, filePath) {
+  var shown = toCallerPath(filePath);
+  return shared.makeFsError(
+    'ENOENT: no such file or directory, ' + syscall + " '" + shown + "'",
+    'ENOENT',
+    syscall,
+    shown,
+  );
 }
 
 // /////////////////////////////////////////////////////////////////
@@ -281,7 +293,9 @@ function _makeStats(meta) {
  * at build time; the manifest's `offsets` map provides [byteOffset, byteLength]
  * for each file so readFileSync can extract them via zero-copy Buffer.subarray().
  *
- * Performance design:
+ * Performance design (each lookup first resolves symlinks, which is free
+ * when the manifest has none — see makeSymlinkResolver() in
+ * bootstrap-shared.js):
  *
  *   - internalModuleStat()  O(1) manifest hash lookup (no tree walk).
  *     This is the hottest path (~30K calls for large projects).
@@ -299,13 +313,15 @@ function _makeStats(meta) {
  *
  * The MemoryProvider base class directory tree is still populated at
  * construction time as a safety net for edge-case super method fallbacks
- * (e.g., readlinkSync).
+ * (e.g., readdirSync).
  */
 class SEAProvider extends MemoryProvider {
   constructor(seaManifest) {
     super();
     this._manifest = seaManifest;
     this._fileCache = new Map();
+    this._symlinks = seaManifest.symlinks;
+    this._resolve = shared.makeSymlinkResolver(this._symlinks, '/');
 
     // Pick the per-file decompressor once at construction time.  Absent or 0 =
     // uncompressed archive (backward compat with pre-#250 SEA binaries).  The
@@ -328,7 +344,7 @@ class SEAProvider extends MemoryProvider {
     perf.end('archive load');
 
     // Populate MemoryProvider directory tree as a safety net for edge-case
-    // fallbacks to super methods (e.g., readlinkSync for non-manifest paths).
+    // fallbacks to super methods (e.g., readdirSync for non-manifest paths).
     perf.start('directory tree init');
     for (var dir of Object.keys(seaManifest.directories)) {
       super.mkdirSync(dir, { recursive: true });
@@ -336,27 +352,12 @@ class SEAProvider extends MemoryProvider {
     perf.end('directory tree init');
   }
 
-  _resolveSymlink(p) {
-    // Fast path: the vast majority of lookups (~30K per startup on large
-    // projects) are not symlinks. A single object-has-key check avoids
-    // entering the loop and the i++/target fetch overhead for the common
-    // case.
-    var symlinks = this._manifest.symlinks;
-    if (symlinks[p] === undefined) return p;
-    var original = p;
-    for (var i = 0; i < MAX_SYMLINK_DEPTH; i++) {
-      var target = symlinks[p];
-      if (!target) return p;
-      p = target;
-    }
-    var err = new Error(
-      "ELOOP: too many symbolic links encountered, '" + original + "'",
-    );
-    err.code = 'ELOOP';
-    err.errno = -40;
-    err.syscall = 'stat';
-    err.path = original;
-    throw err;
+  _resolveSymlink(filePath) {
+    var p = toManifestKey(filePath);
+    var resolved = this._resolve(p, filePath);
+    // Count only lookups a symlink actually moved.
+    if (resolved !== p) perf.count('symlink resolutions');
+    return resolved;
   }
 
   get fileCacheSize() {
@@ -364,7 +365,7 @@ class SEAProvider extends MemoryProvider {
   }
 
   readFileSync(filePath, options) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     // Fast path: for compressed archives, a per-file decompressed Buffer is
     // memoised in _fileCache (decompression is expensive and most prelude
     // modules are read once during module resolution, twice for the compile
@@ -443,16 +444,33 @@ class SEAProvider extends MemoryProvider {
     return copy;
   }
 
+  // A plain string: the VFS maps it into the mount, then the
+  // VirtualFileSystem patch below applies the caller's encoding.
   readlinkSync(filePath) {
-    var p = toManifestKey(filePath);
-    var target = this._manifest.symlinks[p];
-    if (target) return target;
-    return super.readlinkSync(p);
+    var key = toManifestKey(filePath);
+    var resolvedKey = this._resolve.parent(key, filePath);
+    var target = shared.linkTarget(this._symlinks, resolvedKey);
+    if (target !== undefined) return target;
+    // EINVAL for a path that exists but is not a link, as classic mode does.
+    if (
+      resolvedKey in this._manifest.stats ||
+      resolvedKey in this._manifest.directories
+    ) {
+      throw _einval('readlink', filePath);
+    }
+    throw _enoent('readlink', filePath);
+  }
+
+  realpathSync(filePath) {
+    // The base class only knows directories, not archive files.
+    var p = this._resolveSymlink(filePath);
+    if (p in this._manifest.stats) return p;
+    return super.realpathSync(p);
   }
 
   statSync(filePath) {
     perf.count('statSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     var meta = this._manifest.stats[p];
     if (meta) {
       // Return a fresh stat object — matches Node.js fs.statSync contract.
@@ -467,25 +485,64 @@ class SEAProvider extends MemoryProvider {
    * startup (~30K calls for large projects) so it must be as lean as possible.
    */
   internalModuleStat(filePath) {
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     var meta = this._manifest.stats[p];
     if (meta) {
       return meta.isDirectory ? 1 : 0;
     }
-    return -2;
+    return -shared.ERRNO.ENOENT;
   }
 
-  readdirSync(dirPath) {
+  readdirSync(dirPath, options) {
     perf.count('readdirSync calls');
-    var p = this._resolveSymlink(toManifestKey(dirPath));
+    var key = toManifestKey(dirPath);
+    var p = this._resolveSymlink(dirPath);
     var entries = this._manifest.directories[p];
-    if (entries) return entries.slice();
-    return super.readdirSync(p);
+    if (!entries) return super.readdirSync(p, options);
+    if (!options || !options.withFileTypes) return entries.slice();
+    var resolvedBase = p.endsWith('/') ? p : p + '/';
+    var parentPath = toCallerPath(key);
+    var self = this;
+    return entries.map(function (name) {
+      var type = self._direntType(resolvedBase + name);
+      return new shared.Dirent(name, type, parentPath);
+    });
+  }
+
+  // A link when the manifest keys it as one; what it points at is not asked.
+  // An entry with no manifest record of its own reports as a file.
+  _direntType(resolvedKey) {
+    if (shared.linkTarget(this._symlinks, resolvedKey) !== undefined) {
+      return shared.UV_DIRENT_LINK;
+    }
+    if (Array.isArray(this._manifest.directories[resolvedKey])) {
+      return shared.UV_DIRENT_DIR;
+    }
+    var meta = this._manifest.stats[resolvedKey];
+    if (typeof meta === 'object' && meta.isDirectory) {
+      return shared.UV_DIRENT_DIR;
+    }
+    return shared.UV_DIRENT_FILE;
+  }
+
+  // The target's stat given link semantics — what classic mode returns.
+  lstatSync(filePath) {
+    var key = toManifestKey(filePath);
+    var target = shared.linkTarget(
+      this._symlinks,
+      this._resolve.parent(key, filePath),
+    );
+    var meta = this._manifest.stats[this._resolveSymlink(filePath)];
+    if (!meta) throw _enoent('lstat', filePath);
+    var s = _makeStats(meta);
+    return target === undefined
+      ? s
+      : shared.asSymlinkStat(s, toCallerPath(target));
   }
 
   existsSync(filePath) {
     perf.count('existsSync calls');
-    var p = this._resolveSymlink(toManifestKey(filePath));
+    var p = this._resolveSymlink(filePath);
     return p in this._manifest.stats;
   }
 }
@@ -524,9 +581,26 @@ if (process.platform === 'win32') {
   VirtualFileSystem.prototype.resolvePath = function (inputPath) {
     return _origResolvePath.call(this, _winToVFS(inputPath));
   };
+  // ...and convert back on the way out, so realpath agrees with __filename
+  // (`C:\snapshot\...`, not `/snapshot/...`) (#305).
+  var _origRealpathSync = VirtualFileSystem.prototype.realpathSync;
+  VirtualFileSystem.prototype.realpathSync = function (filePath, options) {
+    return toPlatformPath(_origRealpathSync.call(this, filePath, options));
+  };
 }
 
+// Every fs.readlink form comes through here. Encode only after the VFS has
+// added the mount prefix, or hex/base64 targets would lose it.
+var _origReadlinkSync = VirtualFileSystem.prototype.readlinkSync;
+VirtualFileSystem.prototype.readlinkSync = function (linkPath, options) {
+  return shared.applyReadlinkEncoding(
+    toPlatformPath(_origReadlinkSync.call(this, linkPath)),
+    options,
+  );
+};
+
 virtualFs.mount(SNAPSHOT_PREFIX, { overlay: true });
+
 perf.end('vfs mount + hooks');
 
 // /////////////////////////////////////////////////////////////////

@@ -156,6 +156,17 @@ function cpRecursive(src, dest) {
 }
 
 /**
+ * The on-disk directory pkg extracts snapshot content into at runtime.
+ * Overridable for hosts whose home directory is read-only.
+ */
+function pkgCacheDir() {
+  return path.join(
+    process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache'),
+    'pkg',
+  );
+}
+
+/**
  * Patch process.dlopen to extract native addons from the snapshot to a
  * cache directory on the real filesystem before loading them.
  *
@@ -163,8 +174,7 @@ function cpRecursive(src, dest) {
  */
 function patchDlopen(insideSnapshot) {
   var ancestor = process.dlopen;
-  var PKG_NATIVE_CACHE_BASE =
-    process.env.PKG_NATIVE_CACHE_PATH || path.join(homedir(), '.cache');
+  var PKG_CACHE_DIR = pkgCacheDir();
 
   function revertMakingLong(f) {
     if (/^\\\\\?\\/.test(f)) return f.slice(4);
@@ -180,7 +190,7 @@ function patchDlopen(insideSnapshot) {
     if (insideSnapshot(modulePath)) {
       var moduleContent = fs.readFileSync(modulePath);
       var hash = createHash('sha256').update(moduleContent).digest('hex');
-      var tmpFolder = path.join(PKG_NATIVE_CACHE_BASE, 'pkg', hash);
+      var tmpFolder = path.join(PKG_CACHE_DIR, hash);
 
       fs.mkdirSync(tmpFolder, { recursive: true });
 
@@ -373,6 +383,67 @@ function patchChildProcess(entrypoint) {
 }
 
 // /////////////////////////////////////////////////////////////////
+// INTL SEGMENTER //////////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+/**
+ * Replace Intl.Segmenter#segment with a throwing stub when the embedded
+ * Node.js has no ICU break-iterator data.
+ *
+ * pkg-fetch base binaries are built with --with-intl=small-icu, which
+ * ships no break-iterator data. V8 only DCHECKs the null
+ * icu::BreakIterator returned by BreakIterator::create*Instance, and
+ * DCHECKs are compiled out of release builds — so `new Intl.Segmenter()`
+ * succeeds and the first .segment() call dereferences null. The result is
+ * an uncatchable SIGSEGV with no stack, which is close to undebuggable
+ * downstream (nodejs/node#51752, https://issues.chromium.org/issues/531782498).
+ *
+ * Throwing the RangeError upstream intends to throw once the V8 fix lands
+ * costs nothing and makes the failure name its caller.
+ */
+function patchIntlSegmenter() {
+  if (typeof Intl === 'undefined' || typeof Intl.Segmenter !== 'function') {
+    return;
+  }
+
+  var variables = (process.config && process.config.variables) || {};
+
+  // Cheap gate first — full-icu builds are unaffected and pay only this
+  // property read.
+  if (variables.icu_small !== true) return;
+
+  // icu_small stays true when the user supplies real data through
+  // NODE_ICU_DATA / --icu-data-dir, and Segmenter then works, so probe for
+  // the data rather than trusting the build flag. Data-less small-icu
+  // resolves every locale to the default one; requiring two unrelated
+  // locales means no single system locale can mask the check.
+  if (
+    new Intl.DateTimeFormat('de').resolvedOptions().locale === 'de' &&
+    new Intl.DateTimeFormat('ja').resolvedOptions().locale === 'ja'
+  ) {
+    return;
+  }
+
+  var dat = 'icudt' + (variables.icu_ver_major || '') + 'l.dat';
+
+  // Only .segment() is replaced. string-width v7+ — a transitive
+  // dependency of ora, boxen, inquirer and cli-table3 — constructs a
+  // Segmenter at module scope, so removing the constructor would break
+  // those imports outright instead of at the point of use.
+  Intl.Segmenter.prototype.segment = function segment() {
+    throw new RangeError(
+      'pkg: Intl.Segmenter is unavailable in this executable. It embeds a ' +
+        'small-icu Node.js build with no break-iterator data, where calling ' +
+        'segment() would crash the process (nodejs/node#51752). Re-package ' +
+        'with --sea, which uses full-icu official Node.js binaries, or set ' +
+        'NODE_ICU_DATA to a directory containing ' +
+        dat +
+        '.',
+    );
+  };
+}
+
+// /////////////////////////////////////////////////////////////////
 // PROCESS.PKG SETUP ///////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
@@ -535,6 +606,8 @@ function installDiagnostic(snapshotPrefix) {
     wrap(fs, 'readdir');
     wrap(fs, 'realpathSync');
     wrap(fs, 'realpath');
+    wrap(fs, 'readlinkSync');
+    wrap(fs, 'readlink');
     wrap(fs, 'statSync');
     wrap(fs, 'stat');
     wrap(fs, 'lstatSync');
@@ -553,6 +626,7 @@ function installDiagnostic(snapshotPrefix) {
       wrap(fs.promises, 'write');
       wrap(fs.promises, 'readdir');
       wrap(fs.promises, 'realpath');
+      wrap(fs.promises, 'readlink');
       wrap(fs.promises, 'stat');
       wrap(fs.promises, 'lstat');
       wrap(fs.promises, 'access');
@@ -561,12 +635,225 @@ function installDiagnostic(snapshotPrefix) {
   }
 }
 
+// /////////////////////////////////////////////////////////////////
+// SYMLINK PROCESSING //////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// Matches the typical Linux SYMLOOP_MAX.
+var MAX_SYMLINK_DEPTH = 40;
+
+// libuv's errno numbers differ on Windows (uv/errno.h). Negated at use.
+var ERRNO = (function () {
+  var windows = process.platform === 'win32';
+  return {
+    ENOTDIR: windows ? 4052 : 20,
+    ENOENT: windows ? 4058 : 2,
+    EISDIR: windows ? 4068 : 21,
+    EINVAL: windows ? 4071 : 22,
+    ELOOP: windows ? 4067 : 40,
+  };
+})();
+
+// Callers keep their own message: classic ENOENT carries pkg's asset hint.
+function makeFsError(message, code, syscall, path_) {
+  var err = new Error(message);
+  err.code = code;
+  err.errno = -ERRNO[code];
+  if (syscall !== undefined) err.syscall = syscall;
+  err.path = path_;
+  err.pkg = true;
+  return err;
+}
+
+// libuv dirent types, as readdir({ withFileTypes: true }) reports them.
+var UV_DIRENT_FILE = 1;
+var UV_DIRENT_DIR = 2;
+var UV_DIRENT_LINK = 3;
+
+// POSIX file-type bits, so `mode & S_IFMT` agrees with isSymbolicLink().
+var S_IFMT = 0o170000;
+var S_IFLNK = 0o120000;
+
+function alwaysFalse() {
+  return false;
+}
+
+// Node 24 removed the deprecated `path` alias (DEP0178).
+var DIRENT_HAS_PATH = Number(process.versions.node.split('.')[0]) < 24;
+
+/**
+ * The Dirent both bootstraps return from readdir({ withFileTypes: true }).
+ * The type is fixed at construction: fs.Dirent's predicates take no argument.
+ */
+function Dirent(name, type, parentPath) {
+  this.name = name;
+  this.type = type;
+  this.parentPath = parentPath;
+  if (DIRENT_HAS_PATH) this.path = parentPath;
+}
+
+Dirent.prototype.isDirectory = function isDirectory() {
+  return this.type === UV_DIRENT_DIR;
+};
+
+Dirent.prototype.isFile = function isFile() {
+  return this.type === UV_DIRENT_FILE;
+};
+
+Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
+  return this.type === UV_DIRENT_LINK;
+};
+
+Dirent.prototype.isBlockDevice = alwaysFalse;
+Dirent.prototype.isCharacterDevice = alwaysFalse;
+Dirent.prototype.isSocket = alwaysFalse;
+Dirent.prototype.isFIFO = alwaysFalse;
+
+/**
+ * Where a snapshot path links to, or undefined when it is not a link.
+ * The walker keys every link under its parent's real path, so callers pass
+ * the path with its parents resolved.
+ */
+function linkTarget(symlinks, resolvedKey) {
+  // typeof: the record is read with a bracket index, so inherited keys like
+  // `constructor` must not match.
+  if (typeof symlinks[resolvedKey] === 'string') return symlinks[resolvedKey];
+  return undefined;
+}
+
+/**
+ * Give a through-the-link stat link semantics, as POSIX lstat reports them:
+ * link type bits, size of the target string, no blocks.
+ */
+function asSymlinkStat(s, target) {
+  s.isSymbolicLink = function () {
+    return true;
+  };
+  s.isFile = alwaysFalse;
+  s.isDirectory = alwaysFalse;
+  s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
+  s.size = Buffer.byteLength(target);
+  s.blocks = 0;
+  s.nlink = 1;
+  return s;
+}
+
+// readlink's options are an encoding string or { encoding }.
+function applyReadlinkEncoding(target, options) {
+  var encoding =
+    typeof options === 'string' ? options : options && options.encoding;
+  if (encoding === 'buffer') return Buffer.from(target);
+  if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
+    return Buffer.from(target).toString(encoding);
+  }
+  return target;
+}
+
+// Maps a snapshot key through its symlinks, parent components included:
+// a link at `node_modules/@x/y` also resolves `.../@x/y/package.json` (#295).
+// Runs before every snapshot fs call. `display` is the caller's path, shown in
+// errors instead of the internal key.
+function makeSymlinkResolver(symlinks, sep) {
+  var keys = Object.keys(symlinks);
+
+  // A symlink-free binary pays nothing. Still carries .parent for readlink
+  // and lstat.
+  if (keys.length === 0) {
+    var identity = function (p) {
+      return p;
+    };
+    identity.parent = identity;
+    return identity;
+  }
+
+  // Links sit at a few depths, so the scan below only slices at those.
+  var depthHasKey = [];
+  var maxDepth = 0;
+  for (var i = 0; i < keys.length; i++) {
+    var depth = 0;
+    var at = keys[i].indexOf(sep, 1);
+    while (at > 0) {
+      depth++;
+      at = keys[i].indexOf(sep, at + 1);
+    }
+    depthHasKey[depth] = true;
+    if (depth > maxDepth) maxDepth = depth;
+  }
+
+  function resolve(p, display, hops) {
+    // The walker stores realpaths as targets, so only a hand-edited manifest
+    // chains or loops; the hop bound turns a loop into ELOOP.
+    if (hops > MAX_SYMLINK_DEPTH) {
+      throw makeFsError(
+        "ELOOP: too many symbolic links encountered, '" + display + "'",
+        'ELOOP',
+        undefined,
+        display,
+      );
+    }
+
+    if (typeof symlinks[p] === 'string') {
+      return resolve(symlinks[p], display, hops + 1);
+    }
+
+    // Longest prefix wins: `<dir>/lib` and `<dir>/lib/sub` can both be keys.
+    var bestPos = -1;
+    var bestKey = null;
+    var pos = p.indexOf(sep, 1);
+    var depth = 0;
+    while (pos > 0 && depth <= maxDepth) {
+      if (depthHasKey[depth]) {
+        var prefix = p.slice(0, pos);
+        // typeof: `constructor` and friends are inherited, non-string values.
+        if (typeof symlinks[prefix] === 'string') {
+          bestPos = pos;
+          bestKey = prefix;
+        }
+      }
+      pos = p.indexOf(sep, pos + 1);
+      depth++;
+    }
+
+    if (bestKey === null) return p;
+
+    var target = symlinks[bestKey];
+    var rest = target.endsWith(sep) ? p.slice(bestPos + 1) : p.slice(bestPos);
+    return resolve(target + rest, display, hops + 1);
+  }
+
+  function resolveKey(p, display) {
+    return resolve(p, display === undefined ? p : display, 0);
+  }
+
+  // The key once a path's parents are followed but its last component is not,
+  // which is what POSIX resolves before reading a link.
+  resolveKey.parent = function (p, display) {
+    var slash = p.lastIndexOf(sep);
+    if (slash <= 0) return p;
+    return resolveKey(p.slice(0, slash), display || p) + p.slice(slash);
+  };
+
+  return resolveKey;
+}
+
 module.exports = {
+  pkgCacheDir: pkgCacheDir,
   patchDlopen: patchDlopen,
   patchChildProcess: patchChildProcess,
+  patchIntlSegmenter: patchIntlSegmenter,
   setupProcessPkg: setupProcessPkg,
   installDiagnostic: installDiagnostic,
   COMPRESS_NONE: COMPRESS_NONE,
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
+  makeSymlinkResolver: makeSymlinkResolver,
+  ERRNO: ERRNO,
+  makeFsError: makeFsError,
+  Dirent: Dirent,
+  linkTarget: linkTarget,
+  asSymlinkStat: asSymlinkStat,
+  applyReadlinkEncoding: applyReadlinkEncoding,
+  UV_DIRENT_FILE: UV_DIRENT_FILE,
+  UV_DIRENT_DIR: UV_DIRENT_DIR,
+  UV_DIRENT_LINK: UV_DIRENT_LINK,
 };

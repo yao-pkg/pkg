@@ -268,9 +268,13 @@ function stepDetect(
   try {
     detector.detect(
       body,
-      (node, trying) => {
+      (node, trying, requireAliases) => {
         const { toplevel } = marker;
-        let d = detector.visitorSuccessful(node) as unknown as Derivative;
+        let d = detector.visitorSuccessful(
+          node,
+          false,
+          requireAliases,
+        ) as unknown as Derivative;
 
         if (d) {
           if (d.mustExclude) {
@@ -283,7 +287,10 @@ function stepDetect(
           return false;
         }
 
-        d = detector.visitorNonLiteral(node) as unknown as Derivative;
+        d = detector.visitorNonLiteral(
+          node,
+          requireAliases,
+        ) as unknown as Derivative;
 
         if (d) {
           if (typeof d === 'object' && d.mustExclude) {
@@ -302,7 +309,10 @@ function stepDetect(
           return false;
         }
 
-        d = detector.visitorMalformed(node) as unknown as Derivative;
+        d = detector.visitorMalformed(
+          node,
+          requireAliases,
+        ) as unknown as Derivative;
 
         if (d) {
           // there is no 'mustExclude'
@@ -440,6 +450,15 @@ class Walker {
     const a = await findCommonJunctionPoint(file, realFile);
     file = a.file;
     realFile = a.realFile;
+
+    // A link inside a linked directory lives in the real one: key it there so
+    // its real path resolves too, and record the directory link it came through.
+    const dir = path.dirname(file);
+    const realDir = toNormalizedRealPath(dir);
+    if (realDir !== dir) {
+      await this.appendSymlink(dir, realDir);
+      file = path.join(realDir, path.basename(file));
+    }
 
     if (!this.symLinks[file]) {
       const dn = path.dirname(file);

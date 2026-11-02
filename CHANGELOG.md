@@ -1,5 +1,70 @@
 # Changelog
 
+## [6.24.0](https://github.com/yao-pkg/pkg/compare/v6.23.0...v6.24.0) (2026-10-23)
+
+### Features
+
+- bump fetch 3.6.7 with nodejs 22.23.4, 24.22.1, 26.12.1 ([#319](https://github.com/yao-pkg/pkg/issues/319)) ([f139a3e](https://github.com/yao-pkg/pkg/commit/f139a3ef2ab1a50d45212181c5867fa60adb062f))
+
+### Bug Fixes
+
+- **prelude:** extract compressed files into the native addon cache dir ([#309](https://github.com/yao-pkg/pkg/issues/309)) ([c819e37](https://github.com/yao-pkg/pkg/commit/c819e3795f771e148b1c9760346322c626949f52))
+- **prelude:** import homedir and create ~/.pkg-cache before mkdtemp ([#316](https://github.com/yao-pkg/pkg/issues/316)) ([19c899e](https://github.com/yao-pkg/pkg/commit/19c899e525906c0fdf01f7599a8f27b9f3437a51)), closes [#166](https://github.com/yao-pkg/pkg/issues/166)
+- **sea:** always load the VFS polyfill instead of node:vfs ([#318](https://github.com/yao-pkg/pkg/issues/318)) ([28b9fb4](https://github.com/yao-pkg/pkg/commit/28b9fb44af5bf75a59982f00aac16432128137c0)), closes [nodejs/node#66318](https://github.com/nodejs/node/issues/66318) [#317](https://github.com/yao-pkg/pkg/issues/317)
+- use cache directory in users home instead of system-wide tmp dir ([#166](https://github.com/yao-pkg/pkg/issues/166)) ([43feb8b](https://github.com/yao-pkg/pkg/commit/43feb8bba68b1db74f9090823679efda6907c2db))
+
+## [6.23.0](https://github.com/yao-pkg/pkg/compare/v6.22.0...v6.23.0) (2026-09-29)
+
+### Features
+
+- bump fetch 3.6.6 with nodejs 24.20.0, 26.8.1 ([#298](https://github.com/yao-pkg/pkg/issues/298)) ([30924f0](https://github.com/yao-pkg/pkg/commit/30924f0980fbb7440552bed84439402f56cb70cd))
+
+### Bug Fixes
+
+- **sea:** patch process.dlopen in worker threads ([#297](https://github.com/yao-pkg/pkg/issues/297)) ([fd33206](https://github.com/yao-pkg/pkg/commit/fd332066684156c3b2af196ffe455c38e6fbefdc)), closes [#293](https://github.com/yao-pkg/pkg/issues/293)
+- treat private class methods as function boundaries in TLA detection ([#307](https://github.com/yao-pkg/pkg/issues/307)) ([d3e91a9](https://github.com/yao-pkg/pkg/commit/d3e91a91432caaf162fd0aec3c2a0041904630cc))
+
+### Test added
+
+- pin node-opcua to 2.181.0 in test-80 ([#308](https://github.com/yao-pkg/pkg/issues/308)) ([36f18af](https://github.com/yao-pkg/pkg/commit/36f18af161c222baf62d1e1074f1add78ff4e7f3))
+
+## [6.22.0](https://github.com/yao-pkg/pkg/compare/v6.21.0...v6.22.0) (2026-07-30)
+
+### Features
+
+- bump fetch 3.6.5 with nodejs 22.23.2, 24.18.1, 26.5.1 ([#291](https://github.com/yao-pkg/pkg/issues/291)) ([e1a96ae](https://github.com/yao-pkg/pkg/commit/e1a96ae0efae0013f4a66a066442a4eef1f52d38))
+
+### Bug Fixes
+
+- **prelude:** throw instead of crashing on Intl.Segmenter with small-icu ([#290](https://github.com/yao-pkg/pkg/issues/290)) ([cbc7629](https://github.com/yao-pkg/pkg/commit/cbc7629cc5b427c8b062a30738f026a4fba86fe4))
+
+### Chores
+
+- **ci:** use node 24.x for release, drop npm upgrade step ([c1e10f5](https://github.com/yao-pkg/pkg/commit/c1e10f542a00843d758325027ae81b69b5bcf51f))
+
+## [6.21.0](https://github.com/yao-pkg/pkg/compare/v6.19.0...v6.21.0) (2026-06-30)
+
+### Features
+
+- build hooks (preBuild, postBuild, per-file transform) ([#273](https://github.com/yao-pkg/pkg/issues/273)) ([3667383](https://github.com/yao-pkg/pkg/commit/3667383c983b3e1819e3af8888491ce13ea964d6)), closes [package.json#pkg](https://github.com/yao-pkg/package.json/issues/pkg)
+- bump fetch 3.6.3 with node 22.22.3, 24.15.0 and 26.2.0 ([#277](https://github.com/yao-pkg/pkg/issues/277)) ([546bbf0](https://github.com/yao-pkg/pkg/commit/546bbf02f1cff07527c770cc0853b0d9d586eac7))
+- bump fetch 3.6.4 with nodejs 22.23.1, 24.18.0, 26.4.0 ([#288](https://github.com/yao-pkg/pkg/issues/288)) ([3520d26](https://github.com/yao-pkg/pkg/commit/3520d26250d4b9bc957f8b3b4970897d7cb94c3a))
+
+### Bug Fixes
+
+- **detector:** pick up six more silent-drop shapes (re-exports, new URL, multi-arg path.join, path.resolve(\_\_dirname,…), createRequire aliases, import.meta.resolve) ([#272](https://github.com/yao-pkg/pkg/issues/272)) ([ea66111](https://github.com/yao-pkg/pkg/commit/ea66111a675bc11a802abab2ab58d91c4897711f)), closes [#269](https://github.com/yao-pkg/pkg/issues/269)
+- **sea:** set process.pkg in worker threads ([#270](https://github.com/yao-pkg/pkg/issues/270)) ([376e2a4](https://github.com/yao-pkg/pkg/commit/376e2a44c2048f79912cd45e53b907ddcfeb2bbb))
+
+### Test added
+
+- **fetch-all:** track supported node majors, drop node20 ([#286](https://github.com/yao-pkg/pkg/issues/286)) ([1b0002f](https://github.com/yao-pkg/pkg/commit/1b0002ff643e46a9ad2f51003cff1e0cfc0dbc0d))
+- split unit tests into node:test suite, add c8 coverage ([#271](https://github.com/yao-pkg/pkg/issues/271)) ([26f10a3](https://github.com/yao-pkg/pkg/commit/26f10a3e5a499d0d1d9f61eee40dfb4c2b1f6244)), closes [#267](https://github.com/yao-pkg/pkg/issues/267) [#267](https://github.com/yao-pkg/pkg/issues/267)
+
+### Chores
+
+- add worktrees to gitignore ([d585e27](https://github.com/yao-pkg/pkg/commit/d585e2707090fe3da143b262f69baeefd03bad1d))
+- **deps:** bump esbuild to >=0.28.1 to fix security vuln ([#282](https://github.com/yao-pkg/pkg/issues/282)) ([#284](https://github.com/yao-pkg/pkg/issues/284)) ([68f41d5](https://github.com/yao-pkg/pkg/commit/68f41d5df50842a1edd7e3719fb48c8fddfb8d26))
+
 ## [6.19.0](https://github.com/yao-pkg/pkg/compare/v6.18.2...v6.19.0) (2026-04-24)
 
 ### Features

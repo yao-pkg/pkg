@@ -103,13 +103,7 @@ function detectESMFeatures(
         let isTopLevel = true;
 
         while (parent) {
-          if (
-            parent.isFunctionDeclaration() ||
-            parent.isFunctionExpression() ||
-            parent.isArrowFunctionExpression() ||
-            parent.isObjectMethod() ||
-            parent.isClassMethod()
-          ) {
+          if (parent.isFunction()) {
             isTopLevel = false;
             break;
           }
@@ -132,13 +126,7 @@ function detectESMFeatures(
           let isTopLevel = true;
 
           while (parent) {
-            if (
-              parent.isFunctionDeclaration() ||
-              parent.isFunctionExpression() ||
-              parent.isArrowFunctionExpression() ||
-              parent.isObjectMethod() ||
-              parent.isClassMethod()
-            ) {
+            if (parent.isFunction()) {
               isTopLevel = false;
               break;
             }

@@ -3,6 +3,9 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const utils = require('../utils.js');
 
 // Worker thread support in SEA requires Node.js >= 22
@@ -15,6 +18,10 @@ assert(__dirname === process.cwd());
 const input = './package.json';
 const testName = 'test-90-sea-worker-threads';
 
+// Kept in sync with index.js — the worker asserts the addon landed here.
+const nativeCache = path.join(os.tmpdir(), 'pkg-test-90-native-cache');
+fs.rmSync(nativeCache, { recursive: true, force: true });
+
 const newcomers = utils.seaHostOutputs(testName);
 
 const before = utils.filesBefore(newcomers);
@@ -26,8 +33,11 @@ const expected =
   'hasFilename:true\n' +
   'hasDirname:true\n' +
   'hasProcessPkg:true\n' +
-  'helperResult:hello world\n';
+  'helperResult:hello world\n' +
+  'addonExtracted:true\n';
 
 utils.assertSeaOutput(testName, expected);
 
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });
+
+fs.rmSync(nativeCache, { recursive: true, force: true });

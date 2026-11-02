@@ -271,6 +271,12 @@ export interface ParsedInput {
   build?: boolean;
   /** Pre-merge flag values keyed by CLI name (see `RawFlags`). */
   flags: RawFlags;
+  /**
+   * Programmatic-API-only `pkg` overrides that don't have a flag/config-file
+   * equivalent (currently: function-typed build hooks). Merged into the
+   * resolved `pkg` config in `resolveConfig`. The CLI never populates this.
+   */
+  apiPkg?: Partial<PkgOptions>;
 }
 
 /**
@@ -352,6 +358,23 @@ function parseCliInput(argv: string[]): ParsedInput {
 }
 
 /**
+ * Validate a `preBuild`/`postBuild` hook value: it must be a non-empty shell
+ * string or a function. `label` prefixes the error so the message matches the
+ * config source (`exec() option` vs `pkg config:`). Shared by the programmatic
+ * and config-file validators so the empty-string rule can't drift between them.
+ */
+function validateShellOrFnHook(label: string, key: string, v: unknown): void {
+  if (typeof v !== 'string' && typeof v !== 'function') {
+    throw wasReported(
+      `${label} "${key}" must be a shell command (string) or a function`,
+    );
+  }
+  if (typeof v === 'string' && v.trim() === '') {
+    throw wasReported(`${label} "${key}" must not be an empty string`);
+  }
+}
+
+/**
  * Parse a programmatic `exec()` options object into a `ParsedInput`. Validates
  * each flag's type at the boundary — wrong types throw immediately instead of
  * being silently dropped.
@@ -392,6 +415,22 @@ function parseOptionsInput(options: PkgExecOptions): ParsedInput {
     }
   }
 
+  const apiPkg: Partial<PkgOptions> = {};
+  if (options.preBuild !== undefined) {
+    validateShellOrFnHook('exec() option', 'preBuild', options.preBuild);
+    apiPkg.preBuild = options.preBuild;
+  }
+  if (options.postBuild !== undefined) {
+    validateShellOrFnHook('exec() option', 'postBuild', options.postBuild);
+    apiPkg.postBuild = options.postBuild;
+  }
+  if (options.transform !== undefined) {
+    if (typeof options.transform !== 'function') {
+      throw wasReported(`exec() option "transform" must be a function`);
+    }
+    apiPkg.transform = options.transform;
+  }
+
   return {
     entry: options.input,
     config: options.config,
@@ -400,6 +439,7 @@ function parseOptionsInput(options: PkgExecOptions): ParsedInput {
     targets: joinList(options.targets),
     build: options.build,
     flags,
+    apiPkg: Object.keys(apiPkg).length ? apiPkg : undefined,
   };
 }
 
@@ -431,6 +471,9 @@ const NON_FLAG_PKG_KEYS = [
   'targets',
   'outputPath',
   'seaConfig',
+  'preBuild',
+  'postBuild',
+  'transform',
 ] as const;
 
 /** Union of flag-driven and static keys — anything outside this set warns. */
@@ -467,6 +510,17 @@ export function validatePkgConfig(cfg: unknown): void {
       if (Array.isArray(v) && v.every((x) => typeof x === 'string')) continue;
       throw wasReported(`pkg config: "${s.cfg}" must be a string or string[]`);
     }
+  }
+  // Hooks: shell-string or function for pre/postBuild, function-only for
+  // transform. Functions are unreachable from JSON config files but valid
+  // when loaded from `pkg.config.{js,cjs,mjs}` or passed via the Node API.
+  for (const key of ['preBuild', 'postBuild'] as const) {
+    if (rec[key] !== undefined) {
+      validateShellOrFnHook('pkg config:', key, rec[key]);
+    }
+  }
+  if (rec.transform !== undefined && typeof rec.transform !== 'function') {
+    throw wasReported(`pkg config: "transform" must be a function`);
   }
 }
 
@@ -1000,10 +1054,20 @@ export async function resolveConfig(
     inputJson,
   );
 
-  const rawPkg = configJson?.pkg ?? inputJson?.pkg ?? {};
-  if (typeof rawPkg !== 'object' || rawPkg === null || Array.isArray(rawPkg)) {
+  const sourcePkg = configJson?.pkg ?? inputJson?.pkg ?? {};
+  if (
+    typeof sourcePkg !== 'object' ||
+    sourcePkg === null ||
+    Array.isArray(sourcePkg)
+  ) {
     throw wasReported('pkg config: "pkg" must be an object');
   }
+  // Spread (not Object.assign) so configJson/inputJson stay untouched —
+  // they're returned to the caller and other readers shouldn't observe
+  // API-injected hooks bleeding back into the source `pkg` field.
+  // Programmatic-API hook fields are layered on top of any config-file
+  // hooks: the API call site is the most explicit.
+  const rawPkg = { ...sourcePkg, ...(parsed.apiPkg ?? {}) };
   validatePkgConfig(rawPkg);
   const flags = resolveFlags(parsed.flags, rawPkg as PkgOptions);
   const pkg = applyResolvedFlags(rawPkg as PkgOptions, flags);
