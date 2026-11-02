@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { describe, it } from 'node:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import { after, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import {
@@ -9,12 +13,10 @@ import {
   fabricate,
   FABRICATOR_MAX_FRAME_PART_SIZE,
   FABRICATOR_PROTOCOL_EXIT_CODE,
-  fabricatorProtocolError,
+  fabricatorError,
+  fabricatorErrorCode,
   fabricatorScript,
-  isDeterministicFabricatorError,
-  isFabricatorProtocolError,
   shutdown,
-  toPrintableSnippet,
   tryParseFabricatorResponse,
 } from '../../lib/fabricator';
 import { Target } from '../../lib/types';
@@ -45,7 +47,7 @@ function withTimeout<T>(
 
 interface ChildRun {
   code: number | null;
-  stdout: Buffer;
+  response: Buffer;
   stderr: string;
 }
 
@@ -56,14 +58,14 @@ async function runFabricatorScript(
   endChunk?: Buffer,
 ): Promise<ChildRun> {
   const child = spawn(process.execPath, ['-e', fabricatorScript], {
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
   });
 
-  const stdoutChunks: Buffer[] = [];
+  const responseChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
 
-  child.stdout.on('data', (chunk: Buffer) => {
-    stdoutChunks.push(chunk);
+  (child.stdio[3] as Readable).on('data', (chunk: Buffer) => {
+    responseChunks.push(chunk);
   });
 
   child.stderr.on('data', (chunk: Buffer) => {
@@ -103,7 +105,7 @@ async function runFabricatorScript(
 
   return {
     code,
-    stdout: Buffer.concat(stdoutChunks),
+    response: Buffer.concat(responseChunks),
     stderr: Buffer.concat(stderrChunks).toString('utf8'),
   };
 }
@@ -139,6 +141,46 @@ function frameFor(snap: string, source: string): Buffer {
   return Buffer.concat(buildFabricatorRequestChunks(snap, Buffer.from(source)));
 }
 
+const hostTarget = {
+  nodeRange: 'node22',
+  arch: 'x64',
+  platform: 'linux',
+  binaryPath: process.execPath,
+  output: '',
+  fabricator: undefined,
+} as unknown as Target;
+
+const preloadDir = mkdtempSync(path.join(tmpdir(), 'pkg-fabricator-'));
+
+// Bakes are passed to the child before `-e`, so a `--require` preload can
+// script misbehaviour into the real fabricator child.
+function preloadBakes(name: string, source: string): string[] {
+  const file = path.join(preloadDir, `${name}.js`);
+  writeFileSync(file, source);
+  return ['--require', file];
+}
+
+function runFabricate(
+  bakes: string[],
+  source: string,
+  timeoutMs?: number,
+): Promise<{ error?: Error; buffer?: Buffer }> {
+  return withTimeout(
+    new Promise((resolve) => {
+      fabricate(
+        bakes,
+        hostTarget,
+        '/snapshot/integration.js',
+        Buffer.from(source),
+        (error, buffer) => resolve({ error, buffer }),
+        timeoutMs,
+      );
+    }),
+    FABRICATE_TIMEOUT_MS,
+    'fabricate() response',
+  );
+}
+
 describe('fabricator framing', () => {
   it('buildFabricatorRequestChunks uses independent headers', () => {
     const body = Buffer.from('module.exports = 42;');
@@ -172,7 +214,7 @@ describe('fabricator framing', () => {
 
       assert.equal(run.code, 0, `splitAt=${splitAt}: ${run.stderr}`);
 
-      const frames = parseAllFrames(run.stdout);
+      const frames = parseAllFrames(run.response);
       assert.equal(frames.length, 2, `splitAt=${splitAt}`);
       assert.ok(frames[0].length > 0, `splitAt=${splitAt}`);
       assert.ok(frames[1].length > 0, `splitAt=${splitAt}`);
@@ -222,45 +264,66 @@ describe('fabricator framing', () => {
 
     assert.equal(run.code, 0, run.stderr);
 
-    const frames = parseAllFrames(run.stdout);
+    const frames = parseAllFrames(run.response);
     assert.equal(frames.length, 2);
   });
 
-  it('fabricate() covers both halves end to end', async () => {
-    const target = {
-      nodeRange: 'node22',
-      arch: 'x64',
-      platform: 'linux',
-      binaryPath: process.execPath,
-      output: '',
-      fabricator: undefined,
-    } as unknown as Target;
-
-    try {
-      const buffer = await withTimeout(
-        new Promise<Buffer | undefined>((resolve, reject) => {
-          fabricate(
-            [],
-            target,
-            '/snapshot/integration.js',
-            Buffer.from('module.exports = 42;'),
-            (error, result) => {
-              if (error) {
-                reject(error);
-              } else {
-                resolve(result);
-              }
-            },
-          );
-        }),
-        FABRICATE_TIMEOUT_MS,
-        'fabricate() response',
-      );
-
-      assert.ok(buffer && buffer.length > 0);
-    } finally {
+  describe('fabricate()', () => {
+    after(() => {
       shutdown();
-    }
+      rmSync(preloadDir, { recursive: true, force: true });
+    });
+
+    it('covers both halves end to end and reuses the child', async () => {
+      for (const source of ['module.exports = 1;', 'module.exports = 2;']) {
+        const { error, buffer } = await runFabricate([], source);
+        assert.ifError(error);
+        assert.ok(buffer && buffer.length > 0);
+      }
+    });
+
+    it('ignores V8 trace output on stdout', async () => {
+      const bakes = preloadBakes(
+        'stdout-noise',
+        "process.stdout.write('[123:0x5] Scavenge 1.0 -> 0.9 MB\\n');",
+      );
+      const { error, buffer } = await runFabricate(
+        bakes,
+        'module.exports = 3;',
+      );
+      assert.ifError(error);
+      assert.ok(buffer && buffer.length > 0);
+    });
+
+    it('fails with a protocol error on a corrupt response', async () => {
+      const bakes = preloadBakes(
+        'corrupt-response',
+        "require('fs').writeSync(3, 'garbage trace');",
+      );
+      const { error } = await runFabricate(bakes, 'module.exports = 4;');
+      assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
+    });
+
+    it('times out a child that never answers', async () => {
+      const bakes = preloadBakes(
+        'never-answers',
+        "require('net').Socket.prototype.write = function () { return true; };",
+      );
+      const { error } = await runFabricate(bakes, 'module.exports = 5;', 200);
+      assert.equal(fabricatorErrorCode(error), 'FABRICATOR_TIMEOUT');
+    });
+
+    it('reports compile failures as plain, degradable errors', async () => {
+      const bakes = preloadBakes(
+        'no-cached-data',
+        "require('vm').Script = function () { return { cachedDataProduced: false }; };",
+      );
+      const { error } = await runFabricate(bakes, 'module.exports = 6;');
+      assert.ok(error);
+      assert.match(error.message, /exit 2/);
+      assert.match(error.message, /Cached data not produced/);
+      assert.equal(fabricatorErrorCode(error), undefined);
+    });
   });
 
   describe('tryParseFabricatorResponse', () => {
@@ -276,7 +339,10 @@ describe('fabricator framing', () => {
 
       const partial = Buffer.alloc(4);
       partial.writeInt32LE(10, 0);
-      assert.equal(tryParseFabricatorResponse(partial).status, 'incomplete');
+      assert.deepEqual(tryParseFabricatorResponse(partial), {
+        status: 'incomplete',
+        needed: 14,
+      });
       assert.equal(
         tryParseFabricatorResponse(Buffer.concat([partial, Buffer.alloc(5)]))
           .status,
@@ -325,9 +391,9 @@ describe('fabricator framing', () => {
       const oversizeParsed = tryParseFabricatorResponse(oversize);
       assert.equal(oversizeParsed.status, 'protocol-error');
 
-      // Garbage text on the response stream (e.g. bake output leaking to
-      // stdout) decodes to an implausible size and must be a protocol
-      // error, never a hang or a throw inside the data handler.
+      // Garbage text on the response stream decodes to an implausible size
+      // and must be a protocol error, never a hang or a throw inside the
+      // data handler.
       const garbage = Buffer.from('[123:0x5 garbage trace');
       assert.equal(
         tryParseFabricatorResponse(garbage).status,
@@ -340,10 +406,10 @@ describe('fabricator framing', () => {
     it('accepts payloads at the ceiling without allocating it', () => {
       checkFabricatorFramePartSize('snap', FABRICATOR_MAX_FRAME_PART_SIZE);
       checkFabricatorFramePartSize('body', FABRICATOR_MAX_FRAME_PART_SIZE);
-      assert.equal(isDeterministicFabricatorError(new Error('other')), false);
+      assert.equal(fabricatorErrorCode(new Error('other')), undefined);
     });
 
-    it('tags oversize payloads as deterministic failures', () => {
+    it('tags oversize payloads so they are not retried', () => {
       for (const label of ['snap', 'body'] as const) {
         assert.throws(
           () =>
@@ -362,24 +428,23 @@ describe('fabricator framing', () => {
         );
         assert.fail('expected checkFabricatorFramePartSize to throw');
       } catch (error) {
-        assert.equal(isDeterministicFabricatorError(error as Error), true);
-        assert.equal(isFabricatorProtocolError(error as Error), false);
+        assert.equal(
+          fabricatorErrorCode(error as Error),
+          'FABRICATOR_FRAME_TOO_LARGE',
+        );
       }
     });
   });
 
-  describe('protocol errors', () => {
-    it('are distinguishable from compile failures', () => {
-      const error = fabricatorProtocolError('desynced');
-      assert.match(error.message, /FABRICATOR_PROTOCOL/);
-      assert.equal(isFabricatorProtocolError(error), true);
-      assert.equal(isFabricatorProtocolError(new Error('other')), false);
-      assert.equal(isFabricatorProtocolError(undefined), false);
-    });
+  describe('fabricatorErrorCode', () => {
+    it('recognises only fabricator codes', () => {
+      const error = fabricatorError('FABRICATOR_PROTOCOL', 'desynced');
+      assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
 
-    it('printable snippets never leak raw binary', () => {
-      const snippet = toPrintableSnippet(Buffer.from([0, 1, 2, 104, 105]));
-      assert.ok(!snippet.includes(String.fromCharCode(0)));
+      const other = new Error('other');
+      (other as NodeJS.ErrnoException).code = 'ENOENT';
+      assert.equal(fabricatorErrorCode(other), undefined);
+      assert.equal(fabricatorErrorCode(undefined), undefined);
     });
   });
 });

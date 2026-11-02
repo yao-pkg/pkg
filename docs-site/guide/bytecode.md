@@ -64,6 +64,8 @@ pkg --fallback-to-source -t node22-linux-arm64 index.js
 
 Files that compile successfully still ship as bytecode; only the ones that fail are included as plain JavaScript. A warning is emitted for each file that falls back.
 
+This covers per-file compile failures and a file that takes longer than 60 seconds to compile. A corrupted exchange with the bytecode compiler process is different: it aborts the build even with `--fallback-to-source`, so a build can never succeed with the wrong bytecode in it. Use `--no-bytecode` to build without the compiler.
+
 ## SEA mode
 
 SEA mode never uses bytecode — source is always plaintext in a SEA binary. See [SEA vs Standard](/guide/sea-vs-standard) for the trade-off.

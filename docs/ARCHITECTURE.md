@@ -142,31 +142,36 @@ CLI (lib/index.ts)
 
 In traditional mode, `lib/fabricator.ts` compiles each JS file to V8 bytecode by
 spawning the target's base binary (`PKG_EXECPATH=PKG_INVOKE_NODEJS`) and exchanging
-length-prefixed frames over stdio:
+length-prefixed frames. Requests go on the child's stdin; responses come back on a
+dedicated pipe at fd 3. The child's stdout is ignored, because V8 flags passed via
+`--options` (`trace-gc`, `print-bytecode`, ...) print there and would corrupt frames.
 
 ```
-Request  (parent → child):  [u32 snapLen][snap bytes][u32 bodyLen][body bytes]
-Response (child → parent):  [u32 blobLen][cachedData bytes]
+Request  (parent → stdin):  [i32 snapLen][snap bytes][i32 bodyLen][body bytes]
+Response (fd 3 → parent):   [i32 blobLen][cachedData bytes]
 ```
 
-All integers are little-endian. Each frame part is capped at
-`FABRICATOR_MAX_FRAME_PART_SIZE` (256MB). Bodies are per-file source buffers and
-`module.wrap` already caps at Node's 512MB string limit, so this ceiling cannot
-reject a payload that previously worked.
+All integers are signed little-endian (`readInt32LE`), so both sides reject negative
+sizes. Each frame part, including the response blob, is capped at
+`FABRICATOR_MAX_FRAME_PART_SIZE` (256MB). This is below Node's string limit (~512MB),
+so a source file between 256MB and 512MB that used to compile is now rejected as a
+per-file failure.
 
-The child's exit code tells the parent how to treat a failure:
+The child answers one request at a time. Output with no request pending, bytes left
+over after a response, or a size header out of range is a channel desync.
 
-| Exit code | Meaning                                                              | Handling                                                                                 |
-| --------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 0         | Bytecode produced                                                    | Blob is delivered to the packer                                                          |
-| 2         | Well-formed request V8 refused to compile                            | Per-file failure: degrade to source with `--fallback-to-source`, otherwise skip the file |
-| 3         | Framing violation / channel desync (`FABRICATOR_PROTOCOL_EXIT_CODE`) | Build fails loudly — a desynced channel must never degrade to source                     |
+| Outcome                                                                     | Error code                   | Handling                                                                                  |
+| --------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Exit 2: well-formed request V8 refused to compile, or cachedData over 256MB | —                            | Retried once, then degrade to source with `--fallback-to-source`, otherwise skip the file |
+| Request part over 256MB                                                     | `FABRICATOR_FRAME_TOO_LARGE` | Not retried; degrade or skip as above                                                     |
+| No response within `FABRICATOR_RESPONSE_TIMEOUT_MS` (60s)                   | `FABRICATOR_TIMEOUT`         | Child is SIGKILLed; not retried; degrade or skip as above                                 |
+| Exit 65 (`FABRICATOR_PROTOCOL_EXIT_CODE`) or a desync seen by the parent    | `FABRICATOR_PROTOCOL`        | Build fails loudly via `wasReported()` — a desynced channel must never degrade to source  |
 
-On the parent side, every response header is validated against the same ceiling by
-`tryParseFabricatorResponse()` (shared with the unit tests), unconsumed remainder
-bytes are carried over to the next request, and each request is guarded by
-`FABRICATOR_RESPONSE_TIMEOUT_MS`. A bounded tail of the child's stderr is attached
-to failure messages so the cause is visible without `--debug`.
+Exit 65 is outside Node's reserved exit codes (1–14), so a Node bootstrap failure is
+never read as a desync. Each child keeps persistent listeners from spawn and is
+evicted on exit, so the next request respawns it. The last 2000 chars of stderr
+written during the failing request are attached to the error message, so the cause
+is visible without `--debug`.
 
 ### Binary Format
 
@@ -678,7 +683,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `lib/producer.ts`                | ~601  | Assembles final binary (payload injection, compression)                                      |
 | `lib/sea.ts`                     | ~672  | SEA orchestrator (seaEnhanced + simple sea, single-bootstrap dispatch)                       |
 | `lib/sea-assets.ts`              | ~188  | Generates single archive blob + manifest with offsets                                        |
-| `lib/fabricator.ts`              | ~460  | V8 bytecode compilation + frame IPC (traditional mode only)                                  |
+| `lib/fabricator.ts`              | ~490  | V8 bytecode compilation + frame IPC (traditional mode only)                                  |
 | `lib/esm-transformer.ts`         | ~434  | ESM to CJS transformation (traditional mode only)                                            |
 | `lib/refiner.ts`                 | ~110  | Path compression, empty directory pruning                                                    |
 | `lib/common.ts`                  | ~375  | Path normalization, snapshot helpers, store constants                                        |

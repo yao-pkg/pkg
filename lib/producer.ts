@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 
 import { STORE_BLOB, STORE_CONTENT, isDotNODE, snapshotify } from './common';
 import { log, wasReported } from './log';
-import { fabricateTwice, isFabricatorProtocolError } from './fabricator';
+import { fabricateTwice, fabricatorErrorCode } from './fabricator';
 import { platform, SymLinks, Target } from './types';
 import { Stripe } from './packer';
 import { CompressType, getZstdCompressStream } from './compress_type';
@@ -484,11 +484,17 @@ export default function producer({
                   if (error) {
                     const file = stripe.file ?? snap;
 
-                    if (isFabricatorProtocolError(error)) {
+                    if (fabricatorErrorCode(error) === 'FABRICATOR_PROTOCOL') {
                       // A desynced fabricator channel must never degrade to
                       // plain source: fail loudly instead of shipping a
                       // green build without bytecode.
-                      return cb(error, null);
+                      return cb(
+                        wasReported(error.message, [
+                          'This is a pkg bug or a corrupted fabricator binary. Re-run with --debug and report it at https://github.com/yao-pkg/pkg/issues',
+                          'Use --no-bytecode to build without the fabricator.',
+                        ]),
+                        null,
+                      );
                     }
 
                     if (fallbackToSource) {

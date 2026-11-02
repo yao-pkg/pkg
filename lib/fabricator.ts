@@ -1,67 +1,69 @@
-import { spawn, ChildProcessByStdio } from 'child_process';
-import { Readable, Writable } from 'stream';
+import { spawn, ChildProcess } from 'child_process';
+import { Readable } from 'stream';
 import { log } from './log';
 import { Target } from './types';
 
-// Upper bound for one framed part (snap path or file body). Bodies are
-// per-file source buffers and `module.wrap` already caps at Node's 512MB
-// string limit, so this ceiling cannot reject a payload that previously
-// worked. See docs/ARCHITECTURE.md for the framing description.
+// Upper bound for one framed part (snap path, file body or cachedData).
+// Frame headers are signed i32, so this stays well under 2GB. See
+// docs/ARCHITECTURE.md for the framing description.
 export const FABRICATOR_MAX_FRAME_PART_SIZE = 256 * 1024 * 1024;
 
 // Exit code for framing violations (corrupt size headers). Distinct from
-// exit 2, which means a well-formed request V8 refused to compile, so a
-// desynced pipe can never silently degrade to `--fallback-to-source`.
-export const FABRICATOR_PROTOCOL_EXIT_CODE = 3;
+// exit 2 (V8 refused a well-formed request) and outside Node's reserved
+// 1-14 range, so a Node bootstrap failure is never read as a desync.
+export const FABRICATOR_PROTOCOL_EXIT_CODE = 65;
 
 // A child that accepts a valid frame and then never answers must not stall
 // the build forever. There is no other timeout on this path.
 export const FABRICATOR_RESPONSE_TIMEOUT_MS = 60 * 1000;
 
-// Bounded tail of child stderr kept per child and attached to failures so
-// non-debug users see the cause (e.g. `Pkg: Cached data not produced.`).
-export const FABRICATOR_STDERR_TAIL_MAX_BYTES = 16 * 1024;
+// Responses go on their own pipe: V8 flags such as `--trace-gc` print to
+// stdout and would otherwise corrupt the frame stream.
+const FABRICATOR_RESPONSE_FD = 3;
 
-const FABRICATOR_CLOSE_SNIPPET_MAX_CHARS = 512;
+// Bounded tail of child stderr attached to failures so non-debug users see
+// the cause (e.g. `Pkg: Cached data not produced.`).
+const FABRICATOR_STDERR_TAIL_MAX_BYTES = 16 * 1024;
+const FABRICATOR_STDERR_TAIL_MAX_CHARS = 2000;
 
 export const fabricatorScript = `
   var vm = require('vm');
   var module = require('module');
+  var net = require('net');
   var MAX_FRAME_PART_SIZE = ${FABRICATOR_MAX_FRAME_PART_SIZE};
   var PROTOCOL_EXIT_CODE = ${FABRICATOR_PROTOCOL_EXIT_CODE};
-  var stdin = Buffer.alloc(0);
+  var out = new net.Socket({ fd: ${FABRICATOR_RESPONSE_FD}, readable: false, writable: true });
+  var chunks = [];
+  var chunksLength = 0;
+  // Bytes needed before another parse attempt is worthwhile; keeps the
+  // concat below to a few copies per frame instead of one per chunk.
+  var needed = 4;
   process.stdin.on('data', function (data) {
-    stdin = Buffer.concat([ stdin, data ]);
-    while (stdin.length >= 4) {
-      var sizeOfSnap = stdin.readInt32LE(0);
+    chunks.push(data);
+    chunksLength += data.length;
+    if (chunksLength < needed) return;
+    var stdin = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, chunksLength);
+    var offset = 0;
+    for (;;) {
+      var available = stdin.length - offset;
+      if (available < 4) { needed = 4; break; }
+      var sizeOfSnap = stdin.readInt32LE(offset);
       if (sizeOfSnap < 0 || sizeOfSnap > MAX_FRAME_PART_SIZE) {
         console.error('Pkg: Invalid snap size header: ' + sizeOfSnap);
         process.exit(PROTOCOL_EXIT_CODE);
       }
-      if (stdin.length < 4 + sizeOfSnap + 4) break;
-      var sizeOfBody = stdin.readInt32LE(4 + sizeOfSnap);
+      if (available < 4 + sizeOfSnap + 4) { needed = 4 + sizeOfSnap + 4; break; }
+      var sizeOfBody = stdin.readInt32LE(offset + 4 + sizeOfSnap);
       if (sizeOfBody < 0 || sizeOfBody > MAX_FRAME_PART_SIZE) {
         console.error('Pkg: Invalid body size header: ' + sizeOfBody);
         process.exit(PROTOCOL_EXIT_CODE);
       }
       var totalSize = 4 + sizeOfSnap + 4 + sizeOfBody;
-      if (stdin.length < totalSize) break;
+      if (available < totalSize) { needed = totalSize; break; }
 
-      var snap = stdin.toString('utf8', 4, 4 + sizeOfSnap);
-      var body = Buffer.alloc(sizeOfBody);
-      var startOfBody = 4 + sizeOfSnap + 4;
-      stdin.copy(body, 0, startOfBody, startOfBody + sizeOfBody);
-
-      // Preserve unconsumed bytes for subsequent payloads, without pinning
-      // a large backing store behind a small tail.
-      var rest = stdin.subarray(totalSize);
-      if (rest.length === 0) {
-        stdin = Buffer.alloc(0);
-      } else if (totalSize > 65536 && rest.length * 4 < totalSize) {
-        stdin = Buffer.from(rest);
-      } else {
-        stdin = rest;
-      }
+      var snap = stdin.toString('utf8', offset + 4, offset + 4 + sizeOfSnap);
+      var body = stdin.subarray(offset + 4 + sizeOfSnap + 4, offset + totalSize);
+      offset += totalSize;
 
       var code = module.wrap(body);
       var s = new vm.Script(code, {
@@ -69,34 +71,42 @@ export const fabricatorScript = `
         produceCachedData: true,
         sourceless: true
       });
+      // Exit 2 is a per-file compile failure: the parent may ship source.
       if (!s.cachedDataProduced) {
         console.error('Pkg: Cached data not produced.');
         process.exit(2);
       }
-      var h = Buffer.alloc(4);
       var b = s.cachedData;
+      if (b.length > MAX_FRAME_PART_SIZE) {
+        console.error('Pkg: Cached data exceeds max frame size: ' + b.length);
+        process.exit(2);
+      }
+      var h = Buffer.alloc(4);
       h.writeInt32LE(b.length, 0);
-      process.stdout.write(h);
-      process.stdout.write(b);
+      out.write(h);
+      out.write(b);
     }
+    // Copy the partial tail so it never pins the consumed frames' memory.
+    var rest = stdin.subarray(offset);
+    chunks = rest.length === 0 ? [] : [Buffer.from(rest)];
+    chunksLength = rest.length;
   });
   process.stdin.resume();
 `;
 
 export type FabricatorFrameParseResult =
   | { status: 'ok'; frame: Buffer; remainder: Buffer }
-  | { status: 'incomplete' }
+  | { status: 'incomplete'; needed: number }
   | { status: 'protocol-error'; message: string };
 
-// Single source of truth for the response side of the frame protocol:
-// accumulate, validate the header against the shared max, slice one frame,
-// keep the remainder. Used by the parent decoder; the child script keeps
-// its own inline copy since it must stay self-contained `-e` source text.
+// Response side of the frame protocol: validate the header against the
+// shared max and slice one frame. The child script keeps its own inline
+// request parser since it must stay self-contained `-e` source text.
 export function tryParseFabricatorResponse(
   buffer: Buffer,
 ): FabricatorFrameParseResult {
   if (buffer.length < 4) {
-    return { status: 'incomplete' };
+    return { status: 'incomplete', needed: 4 };
   }
 
   const sizeOfBlob = buffer.readInt32LE(0);
@@ -109,16 +119,42 @@ export function tryParseFabricatorResponse(
   }
 
   if (buffer.length < 4 + sizeOfBlob) {
-    return { status: 'incomplete' };
+    return { status: 'incomplete', needed: 4 + sizeOfBlob };
   }
 
-  const frame = Buffer.alloc(sizeOfBlob);
-  buffer.copy(frame, 0, 4, 4 + sizeOfBlob);
+  return {
+    status: 'ok',
+    frame: buffer.subarray(4, 4 + sizeOfBlob),
+    remainder: buffer.subarray(4 + sizeOfBlob),
+  };
+}
 
-  // Copy the tail so leftover bytes never pin the whole backing store.
-  const remainder = Buffer.from(buffer.subarray(4 + sizeOfBlob));
+// Failures that must not be retried: an oversize payload fails the same
+// way twice, a timeout would just double the wait, and a desynced channel
+// aborts the build.
+export type FabricatorErrorCode =
+  | 'FABRICATOR_FRAME_TOO_LARGE'
+  | 'FABRICATOR_TIMEOUT'
+  | 'FABRICATOR_PROTOCOL';
 
-  return { status: 'ok', frame, remainder };
+export function fabricatorError(
+  code: FabricatorErrorCode,
+  message: string,
+): Error {
+  const error = new Error(message);
+  (error as NodeJS.ErrnoException).code = code;
+  return error;
+}
+
+export function fabricatorErrorCode(
+  error?: Error | null,
+): FabricatorErrorCode | undefined {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'FABRICATOR_FRAME_TOO_LARGE' ||
+    code === 'FABRICATOR_TIMEOUT' ||
+    code === 'FABRICATOR_PROTOCOL'
+    ? code
+    : undefined;
 }
 
 export function checkFabricatorFramePartSize(
@@ -126,72 +162,11 @@ export function checkFabricatorFramePartSize(
   byteLength: number,
 ): void {
   if (byteLength > FABRICATOR_MAX_FRAME_PART_SIZE) {
-    const error = new Error(
+    throw fabricatorError(
+      'FABRICATOR_FRAME_TOO_LARGE',
       `Fabricator ${label} exceeds max frame size (${byteLength} bytes)`,
     );
-    (error as NodeJS.ErrnoException).code = 'FABRICATOR_FRAME_TOO_LARGE';
-    throw error;
   }
-}
-
-export function isDeterministicFabricatorError(error?: Error | null): boolean {
-  return (
-    !!error &&
-    (error as NodeJS.ErrnoException).code === 'FABRICATOR_FRAME_TOO_LARGE'
-  );
-}
-
-export function fabricatorProtocolError(message: string): Error {
-  const error = new Error(`FABRICATOR_PROTOCOL: ${message}`);
-  (error as NodeJS.ErrnoException).code = 'FABRICATOR_PROTOCOL';
-  return error;
-}
-
-export function isFabricatorProtocolError(error?: Error | null): boolean {
-  return (
-    !!error && (error as NodeJS.ErrnoException).code === 'FABRICATOR_PROTOCOL'
-  );
-}
-
-// Printable-safe snippet for error messages. JSON.stringify escapes rather
-// than dumping raw (possibly binary) bytes to the terminal.
-export function toPrintableSnippet(
-  buffer: Buffer,
-  maxChars: number = FABRICATOR_CLOSE_SNIPPET_MAX_CHARS,
-): string {
-  return JSON.stringify(buffer.toString('utf8').trim().slice(0, maxChars));
-}
-
-interface FabricatorChildState {
-  proc: ChildProcessByStdio<Writable, Readable, Readable>;
-  // Unconsumed response bytes. The child may pipeline answers while the
-  // parent still holds earlier ones; the remainder belongs to the next call.
-  stdoutBuf: Buffer;
-  stderrTail: Buffer[];
-  stderrTailLength: number;
-}
-
-const children: Record<string, FabricatorChildState> = {};
-
-function appendStderrTail(state: FabricatorChildState, data: Buffer) {
-  state.stderrTail.push(data);
-  state.stderrTailLength += data.length;
-
-  while (
-    state.stderrTailLength > FABRICATOR_STDERR_TAIL_MAX_BYTES &&
-    state.stderrTail.length > 1
-  ) {
-    const shifted = state.stderrTail.shift() as Buffer;
-    state.stderrTailLength -= shifted.length;
-  }
-}
-
-function stderrTailText(state: FabricatorChildState): string {
-  if (state.stderrTailLength === 0) {
-    return '';
-  }
-
-  return Buffer.concat(state.stderrTail).toString('utf8').trim().slice(0, 2000);
 }
 
 export function buildFabricatorRequestChunks(
@@ -214,13 +189,225 @@ export function buildFabricatorRequestChunks(
   return [h1, snapBuf, h2, body];
 }
 
+interface FabricatorRequest {
+  snap: string;
+  cb: (error?: Error, buffer?: Buffer) => void;
+  timer: NodeJS.Timeout;
+}
+
+interface FabricatorChild {
+  key: string;
+  label: string;
+  proc: ChildProcess;
+  chunks: Buffer[];
+  chunksLength: number;
+  needed: number;
+  stderrTail: Buffer[];
+  stderrTailLength: number;
+  // The child answers one request at a time; output with no pending
+  // request means the channel is desynced.
+  pending?: FabricatorRequest;
+}
+
+const children: Record<string, FabricatorChild> = {};
+
+function appendStderrTail(state: FabricatorChild, data: Buffer) {
+  state.stderrTail.push(data);
+  state.stderrTailLength += data.length;
+
+  while (
+    state.stderrTailLength > FABRICATOR_STDERR_TAIL_MAX_BYTES &&
+    state.stderrTail.length > 1
+  ) {
+    const shifted = state.stderrTail.shift() as Buffer;
+    state.stderrTailLength -= shifted.length;
+  }
+}
+
+function tailSuffix(state: FabricatorChild): string {
+  const tail = Buffer.concat(state.stderrTail)
+    .toString('utf8')
+    .trim()
+    .slice(-FABRICATOR_STDERR_TAIL_MAX_CHARS);
+  return tail ? ` stderr: ${tail}` : '';
+}
+
+function settle(state: FabricatorChild, error?: Error, frame?: Buffer) {
+  const request = state.pending;
+
+  if (!request) {
+    return;
+  }
+
+  state.pending = undefined;
+  clearTimeout(request.timer);
+  request.cb(error, frame);
+}
+
+function evict(state: FabricatorChild) {
+  if (children[state.key] === state) {
+    delete children[state.key];
+  }
+}
+
+function kill(state: FabricatorChild) {
+  evict(state);
+  // SIGKILL: a child stuck in a synchronous compile ignores SIGTERM.
+  state.proc.kill('SIGKILL');
+}
+
+function fail(state: FabricatorChild, error: Error) {
+  kill(state);
+
+  if (!state.pending) {
+    log.warn(`${error.message}. Restarting the fabricator.`);
+  }
+
+  settle(state, error);
+}
+
+function failProtocol(state: FabricatorChild, message: string) {
+  const snap = state.pending?.snap;
+  fail(
+    state,
+    fabricatorError(
+      'FABRICATOR_PROTOCOL',
+      `Fabricator ${state.label} channel desynced${snap ? ` for file ${snap}` : ''}: ${message}${tailSuffix(state)}`,
+    ),
+  );
+}
+
+function onResponseData(state: FabricatorChild, data: Buffer) {
+  if (!state.pending) {
+    return failProtocol(
+      state,
+      `${data.length} bytes received with no request pending`,
+    );
+  }
+
+  state.chunks.push(data);
+  state.chunksLength += data.length;
+
+  if (state.chunksLength < state.needed) {
+    return;
+  }
+
+  const buffer =
+    state.chunks.length === 1
+      ? state.chunks[0]
+      : Buffer.concat(state.chunks, state.chunksLength);
+  const parsed = tryParseFabricatorResponse(buffer);
+
+  if (parsed.status === 'incomplete') {
+    state.chunks = [buffer];
+    state.needed = parsed.needed;
+    return;
+  }
+
+  state.chunks = [];
+  state.chunksLength = 0;
+  state.needed = 4;
+
+  if (parsed.status === 'protocol-error') {
+    return failProtocol(state, parsed.message);
+  }
+
+  if (parsed.remainder.length > 0) {
+    return failProtocol(
+      state,
+      `${parsed.remainder.length} unexpected bytes after response`,
+    );
+  }
+
+  settle(state, undefined, parsed.frame);
+}
+
+function spawnFabricator(
+  key: string,
+  label: string,
+  cmd: string,
+  activeBakes: string[],
+): FabricatorChild {
+  const proc = spawn(cmd, activeBakes.concat('-e', fabricatorScript), {
+    stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
+    env: { PKG_EXECPATH: 'PKG_INVOKE_NODEJS' },
+  });
+  const state: FabricatorChild = {
+    key,
+    label,
+    proc,
+    chunks: [],
+    chunksLength: 0,
+    needed: 4,
+    stderrTail: [],
+    stderrTailLength: 0,
+  };
+  const response = proc.stdio[FABRICATOR_RESPONSE_FD] as Readable;
+
+  function onError(error: Error) {
+    fail(
+      state,
+      new Error(
+        `Failed to make bytecode ${label} for file ${state.pending?.snap} error (${error.message})${tailSuffix(state)}`,
+      ),
+    );
+  }
+
+  proc.on('error', onError);
+  proc.stdin?.on('error', onError);
+  response.on('error', onError);
+  response.on('data', (data: Buffer) => onResponseData(state, data));
+
+  proc.stderr?.on('data', (data: Buffer) => {
+    appendStderrTail(state, data);
+
+    if (log.debugMode) {
+      log.debug(`fabricator: ${data.toString().trim()}`);
+    }
+  });
+
+  // Evict on any exit, requested or not, so the next call respawns
+  // instead of writing into a dead pipe.
+  proc.on('close', (code, signal) => {
+    evict(state);
+
+    const snap = state.pending?.snap;
+
+    if (code === FABRICATOR_PROTOCOL_EXIT_CODE) {
+      return failProtocol(
+        state,
+        `child rejected a malformed request (exit ${code})`,
+      );
+    }
+
+    settle(
+      state,
+      new Error(
+        code === 0
+          ? `${cmd} closed unexpectedly for file ${snap}${tailSuffix(state)}`
+          : `Failed to make bytecode ${label} for file ${snap} (exit ${code ?? signal})${tailSuffix(state)}`,
+      ),
+    );
+  });
+
+  return state;
+}
+
 export function fabricate(
   bakes: string[],
   fabricator: Target,
   snap: string,
   body: Buffer,
   cb: (error?: Error, buffer?: Buffer) => void,
+  timeoutMs: number = FABRICATOR_RESPONSE_TIMEOUT_MS,
 ) {
+  let requestChunks: Buffer[];
+  try {
+    requestChunks = buildFabricatorRequestChunks(snap, body);
+  } catch (error) {
+    return cb(error as Error);
+  }
+
   const activeBakes = bakes.filter((bake) => {
     // list of bakes that don't influence the bytecode
     const bake2 = bake.replace(/_/g, '-');
@@ -232,191 +419,33 @@ export function fabricate(
 
   const cmd = fabricator.binaryPath;
   const key = JSON.stringify([cmd, activeBakes]);
+  const label = `${fabricator.nodeRange}-${fabricator.arch}`;
 
   if (!children[key]) {
-    const proc = spawn(cmd, activeBakes.concat('-e', fabricatorScript), {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { PKG_EXECPATH: 'PKG_INVOKE_NODEJS' },
-    });
-    const state: FabricatorChildState = {
-      proc,
-      stdoutBuf: Buffer.alloc(0),
-      stderrTail: [],
-      stderrTailLength: 0,
-    };
-    children[key] = state;
-
-    proc.stderr.on('data', (data: Buffer) => {
-      appendStderrTail(state, data);
-
-      if (log.debugMode) {
-        log.debug(`fabricator: ${data.toString().trim()}`);
-      }
-    });
+    children[key] = spawnFabricator(key, label, cmd, activeBakes);
   }
 
   const state = children[key];
-  const child = state.proc;
-  let settled = false;
 
-  function tailSuffix(): string {
-    const tail = stderrTailText(state);
-    return tail ? ` stderr: ${tail}` : '';
-  }
-
-  function kill() {
-    delete children[key];
-    child.kill();
-  }
+  // Only this request's stderr belongs in its failure message.
+  state.stderrTail = [];
+  state.stderrTailLength = 0;
 
   const timer = setTimeout(() => {
-    if (settled) {
-      return;
-    }
-
-    settled = true;
-    removeListeners();
-    kill();
-    cb(
-      fabricatorProtocolError(
-        `timed out after ${FABRICATOR_RESPONSE_TIMEOUT_MS}ms waiting for bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap}${tailSuffix()}`,
+    kill(state);
+    settle(
+      state,
+      fabricatorError(
+        'FABRICATOR_TIMEOUT',
+        `Timed out after ${timeoutMs}ms waiting for bytecode ${label} for file ${snap}${tailSuffix(state)}`,
       ),
     );
-  }, FABRICATOR_RESPONSE_TIMEOUT_MS);
+  }, timeoutMs);
 
-  function onError(error: Error) {
-    if (settled) {
-      return;
-    }
-
-    settled = true;
-    clearTimeout(timer);
-    removeListeners();
-    kill();
-    cb(
-      new Error(
-        `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap} error (${error.message})${tailSuffix()}`,
-      ),
-    );
-  }
-
-  function onClose(code: number | null) {
-    if (settled) {
-      return;
-    }
-
-    settled = true;
-    clearTimeout(timer);
-    removeListeners();
-    kill();
-
-    if (code === FABRICATOR_PROTOCOL_EXIT_CODE) {
-      return cb(
-        fabricatorProtocolError(
-          `fabricator channel desynced for file ${snap} (exit ${code})${tailSuffix()}`,
-        ),
-      );
-    }
-
-    if (code !== 0) {
-      return cb(
-        new Error(
-          `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap} (exit ${code})${tailSuffix()}`,
-        ),
-      );
-    }
-
-    if (state.stdoutBuf.length > 0) {
-      return cb(
-        new Error(
-          `${cmd} closed unexpectedly, output: ${toPrintableSnippet(state.stdoutBuf)}${tailSuffix()}`,
-        ),
-      );
-    }
-
-    return cb(new Error(`${cmd} closed unexpectedly${tailSuffix()}`));
-  }
-
-  // Tries to deliver one frame from the buffered bytes. Returns true when
-  // the call settled (frame delivered or fatal protocol error).
-  function tryDeliver(): boolean {
-    const parsed = tryParseFabricatorResponse(state.stdoutBuf);
-
-    if (parsed.status === 'protocol-error') {
-      settled = true;
-      clearTimeout(timer);
-      removeListeners();
-      kill();
-      cb(
-        fabricatorProtocolError(
-          `invalid fabricator response for file ${snap}: ${parsed.message}${tailSuffix()}`,
-        ),
-      );
-      return true;
-    }
-
-    if (parsed.status === 'ok') {
-      settled = true;
-      clearTimeout(timer);
-      state.stdoutBuf = parsed.remainder;
-      removeListeners();
-      cb(undefined, parsed.frame);
-      return true;
-    }
-
-    return false;
-  }
-
-  function onData(data: Buffer) {
-    if (settled) {
-      return;
-    }
-
-    // Responses are single small frames, so concatenating per event is
-    // bounded; the timeout above guards the only unbounded wait.
-    state.stdoutBuf =
-      state.stdoutBuf.length === 0
-        ? data
-        : Buffer.concat([state.stdoutBuf, data]);
-    tryDeliver();
-  }
-
-  function removeListeners() {
-    child.removeListener('error', onError);
-    child.removeListener('close', onClose);
-    child.stdin.removeListener('error', onError);
-    child.stdout.removeListener('error', onError);
-    child.stdout.removeListener('data', onData);
-  }
-
-  child.on('error', onError);
-  child.on('close', onClose);
-  child.stdin.on('error', onError);
-  child.stdout.on('error', onError);
-  child.stdout.on('data', onData);
-
-  // A previous call may have left a pipelined response buffered; deliver it
-  // without waiting for a new `data` event that will never come.
-  if (state.stdoutBuf.length >= 4 && tryDeliver()) {
-    return;
-  }
-
-  let requestChunks: Buffer[];
-  try {
-    requestChunks = buildFabricatorRequestChunks(snap, body);
-  } catch (error) {
-    settled = true;
-    clearTimeout(timer);
-    removeListeners();
-    return cb(
-      new Error(
-        `Failed to make bytecode ${fabricator.nodeRange}-${fabricator.arch} for file ${snap} error (${(error as Error).message})`,
-      ),
-    );
-  }
+  state.pending = { snap, cb, timer };
 
   for (const chunk of requestChunks) {
-    child.stdin.write(chunk);
+    state.proc.stdin?.write(chunk);
   }
 }
 
@@ -433,12 +462,7 @@ export function fabricateTwice(
     // when node4 can not compile as well, for example file 'lib/js-yaml/dumper.js'
     // of package js-yaml@3.9.0 does not get bytecode second time on node4-win-x64
     if (error) {
-      // Deterministic failures (oversize payload) and desynced channels
-      // fail loudly instead of being retried and/or degraded to source.
-      if (
-        isDeterministicFabricatorError(error) ||
-        isFabricatorProtocolError(error)
-      ) {
+      if (fabricatorErrorCode(error)) {
         return cb(error);
       }
 
