@@ -23,8 +23,7 @@ const FABRICATOR_RESPONSE_FD = 3;
 
 // Bounded tail of child stderr attached to failures so non-debug users see
 // the cause (e.g. `Pkg: Cached data not produced.`).
-const FABRICATOR_STDERR_TAIL_MAX_BYTES = 16 * 1024;
-const FABRICATOR_STDERR_TAIL_MAX_CHARS = 2000;
+const FABRICATOR_STDERR_TAIL_MAX_BYTES = 2000;
 
 export const fabricatorScript = `
   var vm = require('vm');
@@ -93,41 +92,6 @@ export const fabricatorScript = `
   });
   process.stdin.resume();
 `;
-
-export type FabricatorFrameParseResult =
-  | { status: 'ok'; frame: Buffer; remainder: Buffer }
-  | { status: 'incomplete'; needed: number }
-  | { status: 'protocol-error'; message: string };
-
-// Response side of the frame protocol: validate the header against the
-// shared max and slice one frame. The child script keeps its own inline
-// request parser since it must stay self-contained `-e` source text.
-export function tryParseFabricatorResponse(
-  buffer: Buffer,
-): FabricatorFrameParseResult {
-  if (buffer.length < 4) {
-    return { status: 'incomplete', needed: 4 };
-  }
-
-  const sizeOfBlob = buffer.readInt32LE(0);
-
-  if (sizeOfBlob < 0 || sizeOfBlob > FABRICATOR_MAX_FRAME_PART_SIZE) {
-    return {
-      status: 'protocol-error',
-      message: `Invalid blob size header: ${sizeOfBlob}`,
-    };
-  }
-
-  if (buffer.length < 4 + sizeOfBlob) {
-    return { status: 'incomplete', needed: 4 + sizeOfBlob };
-  }
-
-  return {
-    status: 'ok',
-    frame: buffer.subarray(4, 4 + sizeOfBlob),
-    remainder: buffer.subarray(4 + sizeOfBlob),
-  };
-}
 
 // Failures that must not be retried: an oversize payload fails the same
 // way twice, a timeout would just double the wait, and a desynced channel
@@ -202,10 +166,7 @@ interface FabricatorChild {
   chunks: Buffer[];
   chunksLength: number;
   needed: number;
-  stderrTail: Buffer[];
-  stderrTailLength: number;
-  // Set once we kill the child; its late events are no longer ours.
-  killed: boolean;
+  stderrTail: Buffer;
   // The child answers one request at a time; output with no pending
   // request means the channel is desynced.
   pending?: FabricatorRequest;
@@ -213,24 +174,8 @@ interface FabricatorChild {
 
 const children: Record<string, FabricatorChild> = {};
 
-function appendStderrTail(state: FabricatorChild, data: Buffer) {
-  state.stderrTail.push(data);
-  state.stderrTailLength += data.length;
-
-  while (
-    state.stderrTailLength > FABRICATOR_STDERR_TAIL_MAX_BYTES &&
-    state.stderrTail.length > 1
-  ) {
-    const shifted = state.stderrTail.shift() as Buffer;
-    state.stderrTailLength -= shifted.length;
-  }
-}
-
 function tailSuffix(state: FabricatorChild): string {
-  const tail = Buffer.concat(state.stderrTail)
-    .toString('utf8')
-    .trim()
-    .slice(-FABRICATOR_STDERR_TAIL_MAX_CHARS);
+  const tail = state.stderrTail.toString('utf8').trim();
   return tail ? ` stderr: ${tail}` : '';
 }
 
@@ -246,15 +191,16 @@ function settle(state: FabricatorChild, error?: Error, frame?: Buffer) {
   request.cb(error, frame);
 }
 
-function evict(state: FabricatorChild) {
-  if (children[state.key] === state) {
-    delete children[state.key];
-  }
+// A killed or exited child is unregistered; its late events are not ours.
+function isLive(state: FabricatorChild): boolean {
+  return children[state.key] === state;
 }
 
 function kill(state: FabricatorChild) {
-  evict(state);
-  state.killed = true;
+  if (isLive(state)) {
+    delete children[state.key];
+  }
+
   // SIGKILL: a child stuck in a synchronous compile ignores SIGTERM.
   state.proc.kill('SIGKILL');
 }
@@ -269,26 +215,29 @@ function fail(state: FabricatorChild, error: Error) {
   settle(state, error);
 }
 
-function bytecodeError(state: FabricatorChild, detail: string): Error {
+function context(state: FabricatorChild): string {
   const snap = state.pending?.snap;
+  return `${state.label}${snap ? ` for file ${snap}` : ''}`;
+}
+
+function bytecodeError(state: FabricatorChild, detail: string): Error {
   return new Error(
-    `Failed to make bytecode ${state.label}${snap ? ` for file ${snap}` : ''} (${detail})${tailSuffix(state)}`,
+    `Failed to make bytecode ${context(state)} (${detail})${tailSuffix(state)}`,
   );
 }
 
 function failProtocol(state: FabricatorChild, message: string) {
-  const snap = state.pending?.snap;
   fail(
     state,
     fabricatorError(
       'FABRICATOR_PROTOCOL',
-      `Fabricator ${state.label} channel desynced${snap ? ` for file ${snap}` : ''}: ${message}${tailSuffix(state)}`,
+      `Fabricator channel desynced making bytecode ${context(state)}: ${message}${tailSuffix(state)}`,
     ),
   );
 }
 
 function onResponseData(state: FabricatorChild, data: Buffer) {
-  if (state.killed) {
+  if (!isLive(state)) {
     return;
   }
 
@@ -306,34 +255,32 @@ function onResponseData(state: FabricatorChild, data: Buffer) {
     return;
   }
 
-  const buffer =
-    state.chunks.length === 1
-      ? state.chunks[0]
-      : Buffer.concat(state.chunks, state.chunksLength);
-  const parsed = tryParseFabricatorResponse(buffer);
+  // Concatenating only once `needed` bytes are in keeps reassembly linear.
+  const buffer = Buffer.concat(state.chunks, state.chunksLength);
+  const sizeOfBlob = buffer.readInt32LE(0);
 
-  if (parsed.status === 'incomplete') {
+  if (sizeOfBlob < 0 || sizeOfBlob > FABRICATOR_MAX_FRAME_PART_SIZE) {
+    return failProtocol(state, `Invalid blob size header: ${sizeOfBlob}`);
+  }
+
+  state.needed = 4 + sizeOfBlob;
+
+  if (buffer.length < state.needed) {
     state.chunks = [buffer];
-    state.needed = parsed.needed;
     return;
+  }
+
+  if (buffer.length > state.needed) {
+    return failProtocol(
+      state,
+      `${buffer.length - state.needed} unexpected bytes after response`,
+    );
   }
 
   state.chunks = [];
   state.chunksLength = 0;
   state.needed = 4;
-
-  if (parsed.status === 'protocol-error') {
-    return failProtocol(state, parsed.message);
-  }
-
-  if (parsed.remainder.length > 0) {
-    return failProtocol(
-      state,
-      `${parsed.remainder.length} unexpected bytes after response`,
-    );
-  }
-
-  settle(state, undefined, parsed.frame);
+  settle(state, undefined, buffer.subarray(4));
 }
 
 function spawnFabricator(
@@ -353,14 +300,12 @@ function spawnFabricator(
     chunks: [],
     chunksLength: 0,
     needed: 4,
-    stderrTail: [],
-    stderrTailLength: 0,
-    killed: false,
+    stderrTail: Buffer.alloc(0),
   };
   const response = proc.stdio[FABRICATOR_RESPONSE_FD] as Readable;
 
   function onError(error: Error) {
-    if (!state.killed) {
+    if (isLive(state)) {
       fail(state, bytecodeError(state, `error: ${error.message}`));
     }
   }
@@ -371,7 +316,9 @@ function spawnFabricator(
   response.on('data', (data: Buffer) => onResponseData(state, data));
 
   proc.stderr?.on('data', (data: Buffer) => {
-    appendStderrTail(state, data);
+    state.stderrTail = Buffer.concat([state.stderrTail, data]).subarray(
+      -FABRICATOR_STDERR_TAIL_MAX_BYTES,
+    );
 
     if (log.debugMode) {
       log.debug(`fabricator: ${data.toString().trim()}`);
@@ -381,11 +328,11 @@ function spawnFabricator(
   // Evict on any exit, requested or not, so the next call respawns
   // instead of writing into a dead pipe.
   proc.on('close', (code, signal) => {
-    evict(state);
-
-    if (state.killed) {
+    if (!isLive(state)) {
       return;
     }
+
+    delete children[key];
 
     if (!state.pending) {
       log.debug(
@@ -401,15 +348,7 @@ function spawnFabricator(
       );
     }
 
-    settle(
-      state,
-      bytecodeError(
-        state,
-        code === 0
-          ? 'fabricator closed unexpectedly'
-          : `exit ${code ?? signal}`,
-      ),
-    );
+    settle(state, bytecodeError(state, `exit ${code ?? signal}`));
   });
 
   return state;
@@ -450,15 +389,14 @@ export function fabricate(
   const state = children[key];
 
   // Only this request's stderr belongs in its failure message.
-  state.stderrTail = [];
-  state.stderrTailLength = 0;
+  state.stderrTail = Buffer.alloc(0);
 
   const timer = setTimeout(() => {
     fail(
       state,
       fabricatorError(
         'FABRICATOR_TIMEOUT',
-        `Timed out after ${timeoutMs}ms waiting for bytecode ${label} for file ${snap}${tailSuffix(state)}`,
+        `Timed out after ${timeoutMs}ms making bytecode ${context(state)}${tailSuffix(state)}`,
       ),
     );
   }, timeoutMs);

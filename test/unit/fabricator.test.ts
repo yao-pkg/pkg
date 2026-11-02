@@ -24,7 +24,6 @@ import {
   fabricatorErrorCode,
   fabricatorScript,
   shutdown,
-  tryParseFabricatorResponse,
 } from '../../lib/fabricator';
 import { STORE_BLOB } from '../../lib/common';
 import { CompressType } from '../../lib/compress_type';
@@ -117,28 +116,13 @@ async function runFabricatorScript(
   };
 }
 
-// Decodes every frame with the production parser (not a test-local copy).
 function parseAllFrames(buffer: Buffer): Buffer[] {
   const frames: Buffer[] = [];
-  let rest = buffer;
 
-  for (;;) {
-    const parsed = tryParseFabricatorResponse(rest);
-
-    if (parsed.status === 'incomplete') {
-      break;
-    }
-
-    if (parsed.status === 'protocol-error') {
-      throw new Error(parsed.message);
-    }
-
-    frames.push(parsed.frame);
-    rest = parsed.remainder;
-
-    if (rest.length === 0) {
-      break;
-    }
+  for (let offset = 0; offset + 4 <= buffer.length; ) {
+    const size = buffer.readInt32LE(offset);
+    frames.push(buffer.subarray(offset + 4, offset + 4 + size));
+    offset += 4 + size;
   }
 
   return frames;
@@ -332,9 +316,49 @@ describe('fabricator framing', () => {
     });
 
     it('fails with a protocol error on a corrupt response', async () => {
-      const bakes = preloadBakes('corrupt-response', CORRUPT_RESPONSE);
-      const { error } = await runFabricate(bakes, 'module.exports = 4;');
-      assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
+      // Trace text decodes to an oversize header; 0xff bytes to a negative one.
+      const cases = {
+        'corrupt-response': CORRUPT_RESPONSE,
+        'negative-header': "require('fs').writeSync(3, Buffer.alloc(4, 0xff));",
+      };
+
+      for (const [name, source] of Object.entries(cases)) {
+        const { error } = await runFabricate(
+          preloadBakes(name, source),
+          'module.exports = 4;',
+        );
+        assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL', name);
+      }
+    });
+
+    it('reassembles a response split across chunks', async () => {
+      const sent = path.join(preloadDir, 'split-response.blob');
+
+      // Header and blob are re-sent in delayed pieces: inside the header,
+      // then inside the blob, so the parent must wait twice.
+      const bakes = preloadBakes(
+        'split-response',
+        `var net = require('net');
+        var write = net.Socket.prototype.write;
+        var header;
+        net.Socket.prototype.write = function (chunk) {
+          if (!header) { header = chunk; return true; }
+          var self = this;
+          var frame = Buffer.concat([header, chunk]);
+          require('fs').writeFileSync(${JSON.stringify(sent)}, chunk);
+          var cuts = [0, 2, 4 + (chunk.length >> 1), frame.length];
+          header = undefined;
+          cuts.slice(1).forEach(function (end, i) {
+            setTimeout(function () {
+              write.call(self, frame.subarray(cuts[i], end));
+            }, 30 * i);
+          });
+          return true;
+        };`,
+      );
+      const split = await runFabricate(bakes, 'module.exports = "split";');
+      assert.ifError(split.error);
+      assert.deepEqual(split.buffer, readFileSync(sent));
     });
 
     it('times out a child that never answers, then respawns', async () => {
@@ -493,82 +517,6 @@ describe('fabricator framing', () => {
       const { output, done } = produce(bakes, 'fallback', source);
       await done;
       assert.ok(readFileSync(output).includes(source));
-    });
-  });
-
-  describe('tryParseFabricatorResponse', () => {
-    it('reports incomplete buffers', () => {
-      assert.equal(
-        tryParseFabricatorResponse(Buffer.alloc(0)).status,
-        'incomplete',
-      );
-      assert.equal(
-        tryParseFabricatorResponse(Buffer.alloc(2)).status,
-        'incomplete',
-      );
-
-      const partial = Buffer.alloc(4);
-      partial.writeInt32LE(10, 0);
-      assert.deepEqual(tryParseFabricatorResponse(partial), {
-        status: 'incomplete',
-        needed: 14,
-      });
-      assert.equal(
-        tryParseFabricatorResponse(Buffer.concat([partial, Buffer.alloc(5)]))
-          .status,
-        'incomplete',
-      );
-    });
-
-    it('slices one frame and keeps the remainder', () => {
-      const blob = Buffer.from([1, 2, 3]);
-      const header = Buffer.alloc(4);
-      header.writeInt32LE(blob.length, 0);
-      const trailing = Buffer.from([9, 9]);
-      const parsed = tryParseFabricatorResponse(
-        Buffer.concat([header, blob, trailing]),
-      );
-
-      assert.equal(parsed.status, 'ok');
-
-      if (parsed.status === 'ok') {
-        assert.deepEqual(parsed.frame, blob);
-        assert.deepEqual(parsed.remainder, trailing);
-      }
-    });
-
-    it('decodes zero-length frames', () => {
-      const header = Buffer.alloc(4);
-      header.writeInt32LE(0, 0);
-      const parsed = tryParseFabricatorResponse(header);
-
-      assert.equal(parsed.status, 'ok');
-
-      if (parsed.status === 'ok') {
-        assert.equal(parsed.frame.length, 0);
-        assert.equal(parsed.remainder.length, 0);
-      }
-    });
-
-    it('rejects negative and oversize headers', () => {
-      const negative = Buffer.alloc(4);
-      negative.writeInt32LE(-1, 0);
-      const negativeParsed = tryParseFabricatorResponse(negative);
-      assert.equal(negativeParsed.status, 'protocol-error');
-
-      const oversize = Buffer.alloc(4);
-      oversize.writeInt32LE(FABRICATOR_MAX_FRAME_PART_SIZE + 1, 0);
-      const oversizeParsed = tryParseFabricatorResponse(oversize);
-      assert.equal(oversizeParsed.status, 'protocol-error');
-
-      // Garbage text on the response stream decodes to an implausible size
-      // and must be a protocol error, never a hang or a throw inside the
-      // data handler.
-      const garbage = Buffer.from('[123:0x5 garbage trace');
-      assert.equal(
-        tryParseFabricatorResponse(garbage).status,
-        'protocol-error',
-      );
     });
   });
 

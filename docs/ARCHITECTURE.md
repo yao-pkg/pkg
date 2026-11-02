@@ -171,7 +171,7 @@ restarts the child with a warning, since no bytecode was delivered from it.
 
 Exit 65 is outside Node's reserved exit codes (1–14), so a Node bootstrap failure is
 never read as a desync. Each child keeps persistent listeners from spawn and is
-evicted on exit, so the next request respawns it. The last 2000 chars of stderr
+evicted on exit, so the next request respawns it. The last 2000 bytes of stderr
 written during the failing request are attached to the error message, so the cause
 is visible without `--debug`.
 
