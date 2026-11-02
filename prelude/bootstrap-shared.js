@@ -97,6 +97,15 @@ function hasSameContent(file, content) {
   }
 }
 
+// False when `file` is missing or not a symlink.
+function isLinkTo(file, target) {
+  try {
+    return fs.readlinkSync(file) === target;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Blocks the thread for `ms`: dlopen is synchronous, so no setTimeout. Nothing
 // ever notifies this private buffer, so the wait always runs to the timeout.
 function sleepSync(ms) {
@@ -197,11 +206,7 @@ function cpRecursive(src, dest) {
     // Recreate the symlink at the destination instead of dereferencing it.
     var target = fs.readlinkSync(src);
     // Keep a correct link: another process may be loading through it.
-    try {
-      if (fs.readlinkSync(dest) === target) return;
-    } catch (_) {
-      /* dest is missing or not a link */
-    }
+    if (isLinkTo(dest, target)) return;
     try {
       fs.unlinkSync(dest);
     } catch (_) {
@@ -212,13 +217,7 @@ function cpRecursive(src, dest) {
       return;
     } catch (e) {
       // A concurrent extraction may have recreated the same link first.
-      if (e && e.code === 'EEXIST') {
-        try {
-          if (fs.readlinkSync(dest) === target) return;
-        } catch (_) {
-          /* not a link: fall through and rethrow */
-        }
-      }
+      if (e && e.code === 'EEXIST' && isLinkTo(dest, target)) return;
       // Windows requires admin privileges or developer mode to create
       // symlinks. Fall back to copying the resolved target so native addon
       // extraction still succeeds — the duplicated content is the lesser
