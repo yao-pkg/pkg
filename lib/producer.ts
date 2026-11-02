@@ -443,6 +443,17 @@ export default function producer({
     let preludePosition: number;
     let preludeSize: number;
 
+    const output = fs.createWriteStream(target.output);
+    let failed = false;
+
+    // Don't leave a truncated binary at the user's --output path.
+    function fail(error: Error) {
+      if (failed) return;
+      failed = true;
+      output.destroy();
+      fs.rm(target.output, { force: true }, () => reject(error));
+    }
+
     new Multistream((cb) => {
       if (count === 0) {
         return cb(null, next(intoStream(binaryBuffer)));
@@ -609,17 +620,14 @@ export default function producer({
         return cb(null, null);
       }
     })
-      .on('error', (error) => {
-        reject(error);
-      })
-      .pipe(fs.createWriteStream(target.output))
-      .on('error', (error) => {
-        reject(error);
-      })
+      .on('error', fail)
+      .pipe(output)
+      .on('error', fail)
       .on('close', () => {
+        if (failed) return;
         preludeSize = meter.bytes;
         fs.open(target.output, 'r+', (error, fd) => {
-          if (error) return reject(error);
+          if (error) return fail(error);
           injectPlaceholders(
             fd,
             placeholders,
@@ -631,9 +639,9 @@ export default function producer({
               PRELUDE_SIZE: preludeSize,
             },
             (error2) => {
-              if (error2) return reject(error2);
+              if (error2) return fail(error2);
               fs.close(fd, (error3) => {
-                if (error3) return reject(error3);
+                if (error3) return fail(error3);
                 resolve();
               });
             },

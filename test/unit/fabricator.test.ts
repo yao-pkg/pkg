@@ -478,11 +478,13 @@ describe('fabricator framing', () => {
 
     it('aborts on a protocol error even with --fallback-to-source', async () => {
       const bakes = preloadBakes('producer-desync', CORRUPT_RESPONSE);
+      const { output, done } = produce(bakes, 'desync', 'module.exports = 12;');
       await assert.rejects(
-        produce(bakes, 'desync', 'module.exports = 12;').done,
+        done,
         (error: Error & { wasReported?: boolean }) =>
           error.wasReported === true && /channel desynced/.test(error.message),
       );
+      assert.equal(existsSync(output), false, 'partial output removed');
     });
 
     it('falls back to source on a compile failure', async () => {
