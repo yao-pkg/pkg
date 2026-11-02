@@ -138,16 +138,40 @@ function syncCacheFile(dest, content) {
   try {
     // 'wx' refuses to follow a symlink planted at the temp path.
     fs.writeFileSync(temporary, content, { flag: 'wx' });
+  } catch (error) {
+    if (error.syscall === 'open') {
+      // A cache dir prepared read-only with writable files: update in place.
+      if (error.code === 'EACCES') {
+        fs.writeFileSync(dest, content);
+        return;
+      }
+      // Nothing of ours to clean up; EEXIST means the name is someone else's.
+    } else {
+      removeQuietly(temporary);
+    }
+    // The error names the temp file only, so say which addon failed.
+    throw Object.assign(
+      new Error('pkg: cannot extract ' + dest + ': ' + error.message, {
+        cause: error,
+      }),
+      { code: error.code },
+    );
+  }
+  try {
     renameSyncRetry(temporary, dest, content);
   } catch (error) {
-    try {
-      fs.unlinkSync(temporary);
-    } catch (_) {
-      // Best-effort cleanup must not hide the original error.
-    }
+    removeQuietly(temporary);
     // Windows can refuse to replace an addon another process has loaded.
     // Accept a concurrent winner only if it published the exact same bytes.
     if (!hasSameContent(dest, content)) throw error;
+  }
+}
+
+function removeQuietly(file) {
+  try {
+    fs.unlinkSync(file);
+  } catch (_) {
+    // Best-effort cleanup must not hide the original error.
   }
 }
 
@@ -180,6 +204,14 @@ function cpRecursive(src, dest) {
       fs.symlinkSync(target, dest);
       return;
     } catch (e) {
+      // A concurrent extraction may have recreated the same link first.
+      if (e && e.code === 'EEXIST') {
+        try {
+          if (fs.readlinkSync(dest) === target) return;
+        } catch (_) {
+          /* not a link: fall through and rethrow */
+        }
+      }
       // Windows requires admin privileges or developer mode to create
       // symlinks. Fall back to copying the resolved target so native addon
       // extraction still succeeds — the duplicated content is the lesser

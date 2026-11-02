@@ -22,14 +22,31 @@ type Layout = 'node_modules' | 'standalone';
 // writer published `winner` at the destination.
 // renameBusyOnce: the first rename fails with EBUSY, as when antivirus holds
 // the just-written temp file.
-type Failure = 'diskFull' | 'renameRefused' | 'renameBusyOnce';
+// tempDenied: the cache dir is read-only, so creating the temp file fails.
+// tempTaken: another writer already owns the temp file name.
+// linkRaced: another process recreates a symlink just before we do.
+type Failure =
+  | 'diskFull'
+  | 'renameRefused'
+  | 'renameBusyOnce'
+  | 'tempDenied'
+  | 'tempTaken'
+  | 'linkRaced';
 
-// The fs the prelude sees inside the VM: records renames, injects one failure.
+// The fs the prelude sees inside the VM: records writes and renames, injects
+// one failure.
 function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
+  const writes: { file: string; flag?: string }[] = [];
   const renames: { from: string; to: string }[] = [];
   const vmFs = {
     ...fs,
-    writeFileSync(file: string, bytes: Buffer, options?: fs.WriteFileOptions) {
+    writeFileSync(file: string, bytes: Buffer, options?: { flag?: string }) {
+      writes.push({ file, flag: options?.flag });
+      if (options?.flag === 'wx' && failure === 'tempDenied') throw error;
+      if (options?.flag === 'wx' && failure === 'tempTaken') {
+        fs.writeFileSync(file, raced);
+        throw error;
+      }
       if (failure === 'diskFull') {
         fs.writeFileSync(file, bytes.subarray(0, 3), options);
         throw error;
@@ -45,8 +62,12 @@ function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
       if (failure === 'renameBusyOnce' && renames.length === 1) throw error;
       fs.renameSync(from, to);
     },
+    symlinkSync(target: string, file: string) {
+      if (failure === 'linkRaced') fs.symlinkSync(target, file);
+      fs.symlinkSync(target, file);
+    },
   };
-  return { renames, vmFs };
+  return { writes, renames, vmFs };
 }
 
 function fixture(
@@ -73,14 +94,23 @@ function fixture(
   });
   fs.writeFileSync(path.join(sourceRoot, relative), fresh);
 
+  const [code, syscall] = {
+    diskFull: ['ENOSPC', 'write'],
+    renameRefused: ['EPERM', 'rename'],
+    renameBusyOnce: ['EBUSY', 'rename'],
+    tempDenied: ['EACCES', 'open'],
+    tempTaken: ['EEXIST', 'open'],
+    linkRaced: ['EEXIST', 'symlink'],
+  }[options.failure ?? 'renameRefused'];
   const error = Object.assign(new Error('injected cache failure'), {
-    code: {
-      diskFull: 'ENOSPC',
-      renameRefused: 'EPERM',
-      renameBusyOnce: 'EBUSY',
-    }[options.failure ?? 'renameRefused'],
+    code,
+    syscall,
   });
-  const { renames, vmFs } = faultyFs(options.failure, error, options.winner);
+  const { writes, renames, vmFs } = faultyFs(
+    options.failure,
+    error,
+    options.winner,
+  );
   const loads: { file: string; bytes: Buffer }[] = [];
   const fakeProcess = {
     env: { PKG_NATIVE_CACHE_PATH: cacheRoot },
@@ -121,6 +151,7 @@ function fixture(
 
   return {
     destination,
+    writes,
     renames,
     loads,
     error,
@@ -151,6 +182,7 @@ for (const layout of ['node_modules', 'standalone'] as const) {
       assert.equal(f.load(), 'loaded');
       assert.deepEqual(f.loads, [{ file: f.destination, bytes: fresh }]);
       assertPublishedViaSibling(f);
+      assert.deepEqual(f.writes, [{ file: f.renames[0].from, flag: 'wx' }]);
       assert.deepEqual(f.tempFiles(), []);
     });
 
@@ -180,7 +212,12 @@ describe('native addon cache failures', () => {
     const f = fixture(t, 'standalone', { failure: 'diskFull' });
     f.seed(stale);
 
-    assert.throws(f.load, (err) => err === f.error);
+    assert.throws(f.load, (err: Error & { code: string }) => {
+      assert.equal(err.cause, f.error);
+      assert.equal(err.code, 'ENOSPC');
+      assert.ok(err.message.includes(f.destination), 'names the addon');
+      return true;
+    });
     assert.deepEqual(f.loads, []);
     assert.deepEqual(f.renames, [], 'must not publish partial bytes');
     assert.deepEqual(fs.readFileSync(f.destination), stale);
@@ -240,6 +277,47 @@ describe('native addon cache failures', () => {
     assert.deepEqual(f.tempFiles(), []);
   });
 
+  it('gives up on Windows after 5 refused renames', (t) => {
+    const f = fixture(t, 'standalone', {
+      failure: 'renameRefused',
+      platform: 'win32',
+    });
+
+    assert.throws(f.load, (err) => err === f.error);
+    assert.equal(f.renames.length, 5);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('stops retrying on Windows once a winner has the same bytes', (t) => {
+    const f = fixture(t, 'standalone', {
+      failure: 'renameRefused',
+      platform: 'win32',
+      winner: fresh,
+    });
+
+    assert.equal(f.load(), 'loaded');
+    assert.equal(f.renames.length, 1);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('updates in place when the cache dir is read-only', (t) => {
+    const f = fixture(t, 'standalone', { failure: 'tempDenied' });
+    f.seed(stale);
+
+    assert.equal(f.load(), 'loaded');
+    assert.deepEqual(f.loads, [{ file: f.destination, bytes: fresh }]);
+    assert.deepEqual(f.renames, []);
+  });
+
+  it("does not remove another writer's temp file", (t) => {
+    const f = fixture(t, 'standalone', { failure: 'tempTaken' });
+    f.seed(stale);
+
+    assert.throws(f.load, (err: Error) => err.cause === f.error);
+    assert.equal(f.tempFiles().length, 1);
+    assert.deepEqual(fs.readFileSync(f.destination), stale);
+  });
+
   it('keeps the rename error when the destination cannot be read', (t) => {
     const f = fixture(t, 'standalone', { failure: 'renameRefused' });
     fs.mkdirSync(f.destination, { recursive: true });
@@ -251,7 +329,7 @@ describe('native addon cache failures', () => {
   });
 });
 
-describe('native addon cache (multi-file package)', () => {
+describe('native addon cache (copied package)', () => {
   it('rewrites only the stale files of a copied package', (t) => {
     const f = fixture(t, 'node_modules');
     f.addSource('../../package.json', fresh);
@@ -267,5 +345,18 @@ describe('native addon cache (multi-file package)', () => {
     );
     assert.deepEqual(fs.readFileSync(staleHelper), fresh);
     assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('accepts a symlink another process recreated first', (t) => {
+    const f = fixture(t, 'node_modules', { failure: 'linkRaced' });
+    const helper = f.addSource('libhelper.so', fresh);
+    fs.symlinkSync(
+      'libhelper.so',
+      path.join(path.dirname(helper), 'libhelper.so.1'),
+    );
+
+    assert.equal(f.load(), 'loaded');
+    const link = path.join(path.dirname(f.destination), 'libhelper.so.1');
+    assert.equal(fs.readlinkSync(link), 'libhelper.so');
   });
 });
