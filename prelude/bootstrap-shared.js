@@ -85,54 +85,46 @@ function pickDecompressorAsync(compression) {
 // NATIVE ADDON EXTRACTION /////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-// Publish a complete file without truncating a cached addon that another
-// process may already have mapped into memory. The sibling temp file keeps
-// rename on the same filesystem; randomness also separates worker threads
-// that share a process.pid.
-function writeFileAtomic(dest, content) {
-  // Do not extend the destination basename: it may already be near NAME_MAX.
+// Reads `file` back only when its size matches; any error counts as different.
+function hasSameContent(file, content) {
+  try {
+    return (
+      fs.statSync(file).size === content.length &&
+      fs.readFileSync(file).equals(content)
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+// Write `content` to `dest` unless it is already there. Publishes through a
+// sibling temp file + rename, so a process that has the old addon mapped never
+// sees it truncated. A crash before the rename can leave a `.pkg-*.tmp` behind.
+function syncCacheFile(dest, content) {
+  if (hasSameContent(dest, content)) return;
+  // Fixed short name: the destination basename may already be near NAME_MAX.
   var temporary = path.join(
     path.dirname(dest),
     '.pkg-' + process.pid + '-' + randomBytes(6).toString('hex') + '.tmp',
   );
-  // Only enter cleanup once we own the file. An EEXIST must not remove
-  // another writer's temporary file.
-  var fd = fs.openSync(temporary, 'wx');
-  var renamed = false;
   try {
+    // 'wx' refuses to follow a symlink planted at the temp path.
+    fs.writeFileSync(temporary, content, { flag: 'wx' });
+    fs.renameSync(temporary, dest);
+  } catch (error) {
     try {
-      fs.writeFileSync(fd, content);
-    } finally {
-      fs.closeSync(fd);
+      fs.unlinkSync(temporary);
+    } catch (_) {
+      // Best-effort cleanup must not hide the original error.
     }
-    try {
-      fs.renameSync(temporary, dest);
-      renamed = true;
-    } catch (error) {
-      // Windows can refuse to replace an addon another process has loaded.
-      // Accept a concurrent winner only if it published the exact same bytes.
-      var identical = false;
-      try {
-        identical = fs.readFileSync(dest).equals(content);
-      } catch (_) {
-        // Keep the original rename error if the destination cannot be read.
-      }
-      if (!identical) throw error;
-    }
-  } finally {
-    // Also remove partial files left by a failed write, not just failed renames.
-    if (!renamed) {
-      try {
-        fs.unlinkSync(temporary);
-      } catch (_) {
-        // Best-effort cleanup must not hide the original write or rename error.
-      }
-    }
+    // Windows can refuse to replace an addon another process has loaded.
+    // Accept a concurrent winner only if it published the exact same bytes.
+    if (!hasSameContent(dest, content)) throw error;
   }
 }
 
-// Recursively copy src -> dest. For existing destination files, compare
-// SHA-256 hashes and skip identical ones to avoid redundant writes.
+// Recursively copy src -> dest. Existing destination files with identical
+// bytes are skipped to avoid redundant writes.
 //
 // IMPORTANT: Always run the copy — do NOT guard with existsSync on the folder.
 // OS temp cleanup or antivirus can delete files inside the cache directory while
@@ -185,20 +177,11 @@ function cpRecursive(src, dest) {
   }
 
   // Regular file: read via fs.readFileSync (VFS-routed when src is inside
-  // the snapshot), hash the Buffer, then write the same Buffer to the real
-  // disk via writeFileSync. We avoid copyFileSync because VFS module hooks
-  // intercept readFile but may not intercept copyFile — a copyFileSync from
-  // a snapshot path would fail to resolve the source in SEA mode.
-  var srcContent = fs.readFileSync(src);
-  if (fs.existsSync(dest)) {
-    var destContent = fs.readFileSync(dest);
-    var srcHash = createHash('sha256').update(srcContent).digest('hex');
-    var destHash = createHash('sha256').update(destContent).digest('hex');
-    if (srcHash === destHash) {
-      return;
-    }
-  }
-  writeFileAtomic(dest, srcContent);
+  // the snapshot), then write the same Buffer to the real disk. We avoid
+  // copyFileSync because VFS module hooks intercept readFile but may not
+  // intercept copyFile — a copyFileSync from a snapshot path would fail to
+  // resolve the source in SEA mode.
+  syncCacheFile(dest, fs.readFileSync(src));
 }
 
 /**
@@ -259,19 +242,7 @@ function patchDlopen(insideSnapshot) {
 
         // Same rationale as above — always verify the file is present and up-to-date,
         // never skip based on directory existence alone (see vercel/pkg PR #1492).
-        // Use writeFileSync with the already-read moduleContent instead of
-        // copyFileSync because VFS module hooks intercept readFile but may not
-        // intercept copyFile — copying a snapshot path via copyFileSync would
-        // fail to find the source in SEA mode.
-        if (fs.existsSync(tmpModulePath)) {
-          var dContent = fs.readFileSync(tmpModulePath);
-          var dHash = createHash('sha256').update(dContent).digest('hex');
-          if (hash !== dHash) {
-            writeFileAtomic(tmpModulePath, moduleContent);
-          }
-        } else {
-          writeFileAtomic(tmpModulePath, moduleContent);
-        }
+        syncCacheFile(tmpModulePath, moduleContent);
 
         newPath = tmpModulePath;
       }

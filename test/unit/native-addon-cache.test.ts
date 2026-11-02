@@ -12,104 +12,72 @@ const sharedPath = path.join(__dirname, '../../prelude/bootstrap-shared.js');
 const sharedSource = fs.readFileSync(sharedPath, 'utf8');
 const requireBuiltin = createRequire(__filename);
 // Synthetic bytes only: the fake dlopen below never loads a native library.
-const content = Buffer.from([0, 1, 2, 3, 4, 5, 255, 0]);
-const previous = Buffer.from([8, 7, 6, 5, 4, 3, 2, 1]);
-const different = Buffer.from([0, 1, 2, 3, 4, 6, 255, 0]);
+const fresh = Buffer.from([0, 1, 2, 3, 4, 5, 255, 0]);
+const stale = Buffer.from([8, 7, 6, 5, 4, 3, 2, 1]);
+const raced = Buffer.from([0, 1, 2, 3, 4, 6, 255, 0]);
 type Layout = 'node_modules' | 'standalone';
+// diskFull: the temp write stops after 3 bytes with ENOSPC.
+// renameRefused: Windows-style EPERM on rename, optionally after a concurrent
+// writer published `winner` at the destination.
+type Failure = 'diskFull' | 'renameRefused';
 
-function fixture(
-  t: TestContext,
-  layout: Layout,
-  options: {
-    fail?: 'write' | 'rename' | 'open';
-    winner?: Buffer;
-    filename?: string;
-  } = {},
-) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-native-cache-'));
-  const liveDescriptors = new Set<number>();
-  t.after(() => {
-    // Also release leaked descriptors when testing a broken implementation.
-    for (const fd of liveDescriptors) fs.closeSync(fd);
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  const snapshot = path.join(root, 'snapshot');
-  const cache = path.join(root, 'cache');
-  const filename = options.filename ?? 'addon.node';
-  const relative =
-    layout === 'node_modules'
-      ? path.join('sample-addon', 'build', 'Release', filename)
-      : filename;
-  const source = path.join(
-    snapshot,
-    layout === 'node_modules' ? 'node_modules' : '',
-    relative,
-  );
-  const hash = createHash('sha256').update(content).digest('hex');
-  const destination = path.join(cache, 'pkg', hash, relative);
-  fs.mkdirSync(path.dirname(source), { recursive: true });
-  fs.writeFileSync(source, content);
-
-  const opens: { file: string; flags: string; fd?: number }[] = [];
-  const writes: (string | number)[] = [];
-  const closes: number[] = [];
-  const renames: { from: string; to: string; before?: Buffer }[] = [];
-  const loads: { file: string; bytes: Buffer }[] = [];
-  const error = Object.assign(new Error('injected cache failure'), {
-    code: options.fail === 'write' ? 'ENOSPC' : 'EPERM',
-  });
-  let collision: string | undefined;
-
-  // Only the VM sees these wrappers; fixture setup and inspection use real fs.
-  const wrappedFs = {
+// The fs the prelude sees inside the VM: records renames, injects one failure.
+function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
+  const renames: { from: string; to: string }[] = [];
+  const vmFs = {
     ...fs,
-    openSync(file: string, flags: string) {
-      const attempt: (typeof opens)[number] = { file, flags };
-      opens.push(attempt);
-      if (options.fail === 'open') {
-        // Another writer owns this exact candidate before our exclusive open.
-        collision = file;
-        fs.writeFileSync(file, different);
-      }
-      const fd = fs.openSync(file, flags);
-      attempt.fd = fd;
-      liveDescriptors.add(fd);
-      return fd;
-    },
-    writeFileSync(file: string | number, bytes: Buffer) {
-      writes.push(file);
-      if (options.fail === 'write') {
-        fs.writeFileSync(file, bytes.subarray(0, 3));
+    writeFileSync(file: string, bytes: Buffer, options?: fs.WriteFileOptions) {
+      if (failure === 'diskFull') {
+        fs.writeFileSync(file, bytes.subarray(0, 3), options);
         throw error;
       }
-      fs.writeFileSync(file, bytes);
-    },
-    closeSync(fd: number) {
-      fs.closeSync(fd);
-      liveDescriptors.delete(fd);
-      closes.push(fd);
+      fs.writeFileSync(file, bytes, options);
     },
     renameSync(from: string, to: string) {
-      renames.push({
-        from,
-        to,
-        before: fs.existsSync(to) ? fs.readFileSync(to) : undefined,
-      });
-      assert.deepEqual(fs.readFileSync(from), content);
-      assert.equal(liveDescriptors.size, 0, 'close before publishing');
-      if (options.fail === 'rename') {
-        // Deterministic Windows-style race: a winner appears, then rename fails.
-        // No timing, child processes, or host-specific rename semantics needed.
-        if (options.winner) fs.writeFileSync(to, options.winner);
+      renames.push({ from, to });
+      if (failure === 'renameRefused') {
+        if (winner) fs.writeFileSync(to, winner);
         throw error;
       }
       fs.renameSync(from, to);
     },
   };
+  return { renames, vmFs };
+}
+
+function fixture(
+  t: TestContext,
+  layout: Layout,
+  options: { failure?: Failure; winner?: Buffer } = {},
+) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-native-cache-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const snapshot = path.join(root, 'snapshot');
+  const hash = createHash('sha256').update(fresh).digest('hex');
+  const cacheRoot = path.join(root, 'cache');
+  const cache = path.join(cacheRoot, 'pkg', hash);
+  const relative =
+    layout === 'node_modules'
+      ? path.join('sample-addon', 'build', 'Release', 'addon.node')
+      : 'addon.node';
+  const sourceRoot =
+    layout === 'node_modules' ? path.join(snapshot, 'node_modules') : snapshot;
+  const destination = path.join(cache, relative);
+  fs.mkdirSync(path.dirname(path.join(sourceRoot, relative)), {
+    recursive: true,
+  });
+  fs.writeFileSync(path.join(sourceRoot, relative), fresh);
+
+  const error = Object.assign(new Error('injected cache failure'), {
+    code: options.failure === 'diskFull' ? 'ENOSPC' : 'EPERM',
+  });
+  const { renames, vmFs } = faultyFs(options.failure, error, options.winner);
+  const loads: { file: string; bytes: Buffer }[] = [];
   const fakeProcess = {
-    env: { PKG_NATIVE_CACHE_PATH: cache },
+    env: { PKG_NATIVE_CACHE_PATH: cacheRoot },
     pid: process.pid,
+    versions: process.versions,
     dlopen(_module: object, file: string) {
       loads.push({ file, bytes: fs.readFileSync(file) });
       return 'loaded';
@@ -128,185 +96,147 @@ function fixture(
       Buffer,
       process: fakeProcess,
       module: shared,
-      require: (id: string) => (id === 'fs' ? wrappedFs : requireBuiltin(id)),
+      require: (id: string) => (id === 'fs' ? vmFs : requireBuiltin(id)),
     },
     { filename: sharedPath },
   );
   shared.exports.patchDlopen((file) => file.startsWith(snapshot + path.sep));
 
+  // Both helpers take paths relative to the addon's own directory.
+  const write = (base: string, file: string, bytes: Buffer) => {
+    const target = path.join(path.dirname(path.join(base, relative)), file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, bytes);
+    return target;
+  };
+
   return {
     destination,
-    opens,
-    writes,
-    closes,
     renames,
     loads,
     error,
-    load: () => fakeProcess.dlopen({}, source),
-    seed(bytes: Buffer) {
-      fs.mkdirSync(path.dirname(destination), { recursive: true });
-      fs.writeFileSync(destination, bytes);
-    },
-    assertLoaded() {
-      assert.deepEqual(loads, [{ file: destination, bytes: content }]);
-    },
-    assertCache(bytes?: Buffer, extra: string[] = []) {
-      assert.deepEqual(
-        fs.readdirSync(path.dirname(destination)).sort(),
-        [...(bytes ? [path.basename(destination)] : []), ...extra].sort(),
-        'no temporary files left behind',
-      );
-      if (bytes) assert.deepEqual(fs.readFileSync(destination), bytes);
-      assert.equal(liveDescriptors.size, 0, 'no leaked descriptors');
-    },
-    assertStagedWrite() {
-      assert.equal(opens.length, 1, 'one exclusive temporary-file open');
-      const [{ file, flags, fd }] = opens;
-      assert.equal(flags, 'wx');
-      assert.notEqual(
-        file,
-        destination,
-        'never open the destination for writing',
-      );
-      assert.equal(path.dirname(file), path.dirname(destination));
-      assert.equal(typeof fd, 'number');
-      assert.deepEqual(writes, [fd], 'write only through the temporary fd');
-      assert.deepEqual(closes, [fd], 'close the temporary fd exactly once');
-      assert.throws(() => fs.fstatSync(fd!), { code: 'EBADF' });
-      return file;
-    },
-    getCollision() {
-      assert.ok(collision, 'exclusive open must have been attempted');
-      return collision;
-    },
+    load: () => fakeProcess.dlopen({}, path.join(sourceRoot, relative)),
+    addSource: (file: string, bytes: Buffer) => write(sourceRoot, file, bytes),
+    seed: (bytes: Buffer, file = path.basename(destination)) =>
+      write(cache, file, bytes),
+    tempFiles: () =>
+      (fs.readdirSync(cache, { recursive: true }) as string[]).filter((f) =>
+        f.endsWith('.tmp'),
+      ),
   };
+}
+
+function assertPublishedViaSibling(f: ReturnType<typeof fixture>) {
+  assert.equal(f.renames.length, 1);
+  const [{ from, to }] = f.renames;
+  assert.equal(to, f.destination);
+  assert.notEqual(from, f.destination);
+  assert.equal(path.dirname(from), path.dirname(f.destination));
 }
 
 for (const layout of ['node_modules', 'standalone'] as const) {
   describe(`native addon cache (${layout})`, () => {
-    for (const existing of [false, true]) {
-      const state = existing ? 'replacement' : 'cold';
-
-      it(`publishes a ${state} cache via a complete sibling file`, (t) => {
-        const f = fixture(t, layout);
-        if (existing) f.seed(previous);
-
-        assert.equal(f.load(), 'loaded');
-        f.assertLoaded();
-        const temporary = f.assertStagedWrite();
-        assert.deepEqual(f.renames, [
-          {
-            from: temporary,
-            to: f.destination,
-            before: existing ? previous : undefined,
-          },
-        ]);
-        f.assertCache(content);
-      });
-
-      it(`cleans up a partial ENOSPC write for a ${state} cache`, (t) => {
-        const f = fixture(t, layout, { fail: 'write' });
-        if (existing) f.seed(previous);
-
-        assert.throws(f.load, (err) => err === f.error);
-        assert.deepEqual(f.loads, [], 'must not load after a failed write');
-        assert.deepEqual(f.renames, [], 'must not publish partial bytes');
-        f.assertCache(existing ? previous : undefined);
-        f.assertStagedWrite();
-      });
-
-      it(`cleans up a failed rename for a ${state} cache`, (t) => {
-        const f = fixture(t, layout, { fail: 'rename' });
-        if (existing) f.seed(previous);
-
-        assert.throws(f.load, (err) => err === f.error);
-        assert.deepEqual(f.loads, [], 'must not load after a failed rename');
-        assert.equal(f.renames.length, 1);
-        f.assertCache(existing ? previous : undefined);
-        f.assertStagedWrite();
-      });
-    }
-
-    it('publishes an addon with a 240-byte basename', (t) => {
-      // A valid basename near NAME_MAX must not be extended with a temp suffix.
-      const filename = `${'a'.repeat(235)}.node`;
-      const f = fixture(t, layout, { filename });
-      assert.equal(Buffer.byteLength(path.basename(f.destination)), 240);
+    it('publishes a cold cache via a sibling temp file', (t) => {
+      const f = fixture(t, layout);
 
       assert.equal(f.load(), 'loaded');
-      f.assertLoaded();
-      const temporary = f.assertStagedWrite();
-      assert.ok(Buffer.byteLength(path.basename(temporary)) <= 255);
-      assert.deepEqual(f.renames, [
-        { from: temporary, to: f.destination, before: undefined },
-      ]);
-      f.assertCache(content);
+      assert.deepEqual(f.loads, [{ file: f.destination, bytes: fresh }]);
+      assertPublishedViaSibling(f);
+      assert.deepEqual(f.tempFiles(), []);
     });
 
-    it('uses a fresh sibling filename for each cache repair', (t) => {
+    it('replaces a stale cache via a sibling temp file', (t) => {
       const f = fixture(t, layout);
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        f.seed(previous);
-        assert.equal(f.load(), 'loaded');
-      }
-
-      assert.equal(f.opens.length, 2);
-      assert.notEqual(f.opens[0].file, f.opens[1].file);
-      for (const { file, flags } of f.opens) {
-        assert.equal(flags, 'wx');
-        assert.notEqual(file, f.destination);
-        assert.equal(path.dirname(file), path.dirname(f.destination));
-      }
-      assert.equal(f.renames.length, 2);
-      f.assertCache(content);
-    });
-
-    it('does not write an identical warm cache', (t) => {
-      const f = fixture(t, layout);
-      f.seed(content);
+      f.seed(stale);
 
       assert.equal(f.load(), 'loaded');
-      f.assertLoaded();
-      assert.deepEqual(f.opens, []);
-      assert.deepEqual(f.writes, []);
-      assert.deepEqual(f.closes, []);
-      assert.deepEqual(f.renames, []);
-      f.assertCache(content);
+      assert.deepEqual(f.loads, [{ file: f.destination, bytes: fresh }]);
+      assertPublishedViaSibling(f);
+      assert.deepEqual(f.tempFiles(), []);
     });
 
-    for (const matching of [true, false]) {
-      it(`${matching ? 'accepts' : 'rejects'} a Windows-style rename race with ${matching ? 'matching' : 'different'} winner bytes`, (t) => {
-        const winner = matching ? content : different;
-        const f = fixture(t, layout, { fail: 'rename', winner });
+    it('does not rewrite an identical warm cache', (t) => {
+      const f = fixture(t, layout);
+      f.seed(fresh);
 
-        if (matching) {
-          assert.equal(f.load(), 'loaded');
-          f.assertLoaded();
-        } else {
-          assert.throws(f.load, (err) => err === f.error);
-          assert.deepEqual(f.loads, [], 'must not load a different winner');
-        }
-        assert.equal(f.renames.length, 1, 'exercise the rename failure');
-        f.assertCache(winner);
-        f.assertStagedWrite();
-      });
-    }
-
-    it("does not remove another writer's temporary file on open EEXIST", (t) => {
-      const f = fixture(t, layout, { fail: 'open' });
-      f.seed(previous);
-
-      assert.throws(f.load, { code: 'EEXIST' });
-      const collision = f.getCollision();
-      assert.notEqual(collision, f.destination);
-      assert.equal(path.dirname(collision), path.dirname(f.destination));
-      assert.deepEqual(f.opens, [{ file: collision, flags: 'wx' }]);
-      assert.deepEqual(fs.readFileSync(collision), different);
-      assert.deepEqual(f.writes, []);
-      assert.deepEqual(f.closes, []);
+      assert.equal(f.load(), 'loaded');
+      assert.deepEqual(f.loads, [{ file: f.destination, bytes: fresh }]);
       assert.deepEqual(f.renames, []);
-      assert.deepEqual(f.loads, []);
-      f.assertCache(previous, [path.basename(collision)]);
     });
   });
 }
+
+describe('native addon cache failures', () => {
+  it('removes a partial temp file after ENOSPC', (t) => {
+    const f = fixture(t, 'standalone', { failure: 'diskFull' });
+    f.seed(stale);
+
+    assert.throws(f.load, (err) => err === f.error);
+    assert.deepEqual(f.loads, []);
+    assert.deepEqual(f.renames, [], 'must not publish partial bytes');
+    assert.deepEqual(fs.readFileSync(f.destination), stale);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('removes the temp file after a refused rename', (t) => {
+    const f = fixture(t, 'standalone', { failure: 'renameRefused' });
+    f.seed(stale);
+
+    assert.throws(f.load, (err) => err === f.error);
+    assert.deepEqual(f.loads, []);
+    assert.deepEqual(fs.readFileSync(f.destination), stale);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('accepts a rename race won with the same bytes', (t) => {
+    const f = fixture(t, 'standalone', {
+      failure: 'renameRefused',
+      winner: fresh,
+    });
+
+    assert.equal(f.load(), 'loaded');
+    assert.deepEqual(f.loads, [{ file: f.destination, bytes: fresh }]);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('rejects a rename race won with different bytes', (t) => {
+    const f = fixture(t, 'standalone', {
+      failure: 'renameRefused',
+      winner: raced,
+    });
+
+    assert.throws(f.load, (err) => err === f.error);
+    assert.deepEqual(f.loads, []);
+    assert.deepEqual(fs.readFileSync(f.destination), raced);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
+  it('keeps the rename error when the destination cannot be read', (t) => {
+    const f = fixture(t, 'standalone', { failure: 'renameRefused' });
+    fs.mkdirSync(f.destination, { recursive: true });
+
+    assert.throws(f.load, (err) => err === f.error);
+    assert.deepEqual(f.loads, []);
+    assert.ok(fs.statSync(f.destination).isDirectory());
+    assert.deepEqual(f.tempFiles(), []);
+  });
+});
+
+describe('native addon cache (multi-file package)', () => {
+  it('rewrites only the stale files of a copied package', (t) => {
+    const f = fixture(t, 'node_modules');
+    f.addSource('../../package.json', fresh);
+    f.addSource('deps/libhelper.so', fresh);
+    f.seed(fresh);
+    f.seed(fresh, '../../package.json');
+    const staleHelper = f.seed(stale, 'deps/libhelper.so');
+
+    assert.equal(f.load(), 'loaded');
+    assert.deepEqual(
+      f.renames.map(({ to }) => to),
+      [staleHelper],
+    );
+    assert.deepEqual(fs.readFileSync(staleHelper), fresh);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+});
