@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -11,6 +17,7 @@ import {
   buildFabricatorRequestChunks,
   checkFabricatorFramePartSize,
   fabricate,
+  fabricateTwice,
   FABRICATOR_MAX_FRAME_PART_SIZE,
   FABRICATOR_PROTOCOL_EXIT_CODE,
   fabricatorError,
@@ -19,6 +26,9 @@ import {
   shutdown,
   tryParseFabricatorResponse,
 } from '../../lib/fabricator';
+import { STORE_BLOB } from '../../lib/common';
+import { CompressType } from '../../lib/compress_type';
+import producer from '../../lib/producer';
 import { Target } from '../../lib/types';
 
 const CHILD_CLOSE_TIMEOUT_MS = 30 * 1000;
@@ -160,21 +170,45 @@ function preloadBakes(name: string, source: string): string[] {
   return ['--require', file];
 }
 
+// Counts spawns so tests can observe retries and respawns; with
+// `firstSpawnOnly` the misbehaviour runs in the first child only.
+function countedBakes(
+  name: string,
+  source: string,
+  firstSpawnOnly: boolean,
+): { bakes: string[]; spawns: () => number } {
+  const marker = JSON.stringify(path.join(preloadDir, `${name}.spawns`));
+  const bakes = preloadBakes(
+    name,
+    `var fs = require('fs');
+    var first = !fs.existsSync(${marker});
+    fs.appendFileSync(${marker}, 'x');
+    if (first || !${firstSpawnOnly}) { ${source} }`,
+  );
+  return {
+    bakes,
+    spawns: () =>
+      existsSync(JSON.parse(marker))
+        ? readFileSync(JSON.parse(marker), 'utf8').length
+        : 0,
+  };
+}
+
 function runFabricate(
   bakes: string[],
   source: string,
-  timeoutMs?: number,
+  { timeoutMs, twice = false }: { timeoutMs?: number; twice?: boolean } = {},
 ): Promise<{ error?: Error; buffer?: Buffer }> {
   return withTimeout(
     new Promise((resolve) => {
-      fabricate(
-        bakes,
-        hostTarget,
-        '/snapshot/integration.js',
-        Buffer.from(source),
-        (error, buffer) => resolve({ error, buffer }),
-        timeoutMs,
-      );
+      const cb = (error?: Error, buffer?: Buffer) => resolve({ error, buffer });
+      const snap = '/snapshot/integration.js';
+
+      if (twice) {
+        fabricateTwice(bakes, hostTarget, snap, Buffer.from(source), cb);
+      } else {
+        fabricate(bakes, hostTarget, snap, Buffer.from(source), cb, timeoutMs);
+      }
     }),
     FABRICATE_TIMEOUT_MS,
     'fabricate() response',
@@ -182,6 +216,11 @@ function runFabricate(
 }
 
 describe('fabricator framing', () => {
+  after(() => {
+    shutdown();
+    rmSync(preloadDir, { recursive: true, force: true });
+  });
+
   it('buildFabricatorRequestChunks uses independent headers', () => {
     const body = Buffer.from('module.exports = 42;');
     const [h1, snapBuf, h2, bodyBuf] = buildFabricatorRequestChunks(
@@ -269,11 +308,6 @@ describe('fabricator framing', () => {
   });
 
   describe('fabricate()', () => {
-    after(() => {
-      shutdown();
-      rmSync(preloadDir, { recursive: true, force: true });
-    });
-
     it('covers both halves end to end and reuses the child', async () => {
       for (const source of ['module.exports = 1;', 'module.exports = 2;']) {
         const { error, buffer } = await runFabricate([], source);
@@ -304,13 +338,93 @@ describe('fabricator framing', () => {
       assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
     });
 
-    it('times out a child that never answers', async () => {
-      const bakes = preloadBakes(
+    it('times out a child that never answers, then respawns', async () => {
+      const { bakes, spawns } = countedBakes(
         'never-answers',
         "require('net').Socket.prototype.write = function () { return true; };",
+        true,
       );
-      const { error } = await runFabricate(bakes, 'module.exports = 5;', 200);
+      const { error } = await runFabricate(bakes, 'module.exports = 5;', {
+        timeoutMs: 200,
+      });
       assert.equal(fabricatorErrorCode(error), 'FABRICATOR_TIMEOUT');
+
+      const retry = await runFabricate(bakes, 'module.exports = 5;');
+      assert.ifError(retry.error);
+      assert.equal(spawns(), 2);
+    });
+
+    it('maps child exit 65 to a protocol error', async () => {
+      const bakes = preloadBakes(
+        'exit-65',
+        `process.stdin.on('data', function () { process.exit(${FABRICATOR_PROTOCOL_EXIT_CODE}); });`,
+      );
+      const { error } = await runFabricate(bakes, 'module.exports = 7;');
+      assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
+    });
+
+    it('fails with a protocol error on bytes after the response', async () => {
+      // Header and blob go out in one write with a trailing byte, so the
+      // parent sees them in a single chunk.
+      const bakes = preloadBakes(
+        'trailing-bytes',
+        `var net = require('net');
+        var write = net.Socket.prototype.write;
+        var header;
+        net.Socket.prototype.write = function (chunk) {
+          if (!header) { header = chunk; return true; }
+          return write.call(this, Buffer.concat([header, chunk, Buffer.from('x')]));
+        };`,
+      );
+      const { error } = await runFabricate(bakes, 'module.exports = 8;');
+      assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
+      assert.match(error!.message, /1 unexpected bytes after response/);
+    });
+
+    it('restarts a child that writes with no request pending', async () => {
+      const { bakes, spawns } = countedBakes(
+        'unsolicited',
+        `process.stdin.once('data', function () {
+          setTimeout(function () { fs.writeSync(3, 'late'); }, 20);
+        });`,
+        true,
+      );
+      const first = await runFabricate(bakes, 'module.exports = 9;');
+      assert.ifError(first.error);
+      await delay(200);
+
+      const second = await runFabricate(bakes, 'module.exports = 9;');
+      assert.ifError(second.error);
+      assert.equal(spawns(), 2);
+    });
+
+    it('fabricateTwice retries plain failures once', async () => {
+      const { bakes, spawns } = countedBakes(
+        'fail-once',
+        "require('vm').Script = function () { return { cachedDataProduced: false }; };",
+        true,
+      );
+      const { error, buffer } = await runFabricate(
+        bakes,
+        'module.exports = 10;',
+        { twice: true },
+      );
+      assert.ifError(error);
+      assert.ok(buffer && buffer.length > 0);
+      assert.equal(spawns(), 2);
+    });
+
+    it('fabricateTwice never retries coded failures', async () => {
+      const { bakes, spawns } = countedBakes(
+        'corrupt-always',
+        "fs.writeSync(3, 'garbage trace');",
+        false,
+      );
+      const { error } = await runFabricate(bakes, 'module.exports = 11;', {
+        twice: true,
+      });
+      assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
+      assert.equal(spawns(), 1);
     });
 
     it('reports compile failures as plain, degradable errors', async () => {
@@ -323,6 +437,74 @@ describe('fabricator framing', () => {
       assert.match(error.message, /exit 2/);
       assert.match(error.message, /Cached data not produced/);
       assert.equal(fabricatorErrorCode(error), undefined);
+    });
+  });
+
+  describe('producer()', () => {
+    // Just enough of a base binary for producer to find its placeholders.
+    const baseBinary = path.join(preloadDir, 'base-binary');
+    writeFileSync(
+      baseBinary,
+      `\0${'// BAKERY '.repeat(20)}\0` +
+        '// PAYLOAD_POSITION // // PAYLOAD_SIZE // ' +
+        '// PRELUDE_POSITION // // PRELUDE_SIZE // ',
+    );
+
+    function produce(bakes: string[], name: string, source: string) {
+      const output = path.join(preloadDir, `${name}.out`);
+      const target = {
+        ...hostTarget,
+        binaryPath: baseBinary,
+        output,
+        fabricator: hostTarget,
+      } as unknown as Target;
+
+      return {
+        output,
+        done: producer({
+          backpack: {
+            prelude: '',
+            entrypoint: '/app/index.js',
+            stripes: [
+              {
+                snap: '/app/index.js',
+                store: STORE_BLOB,
+                buffer: Buffer.from(source),
+              },
+            ],
+          },
+          bakes,
+          slash: '/',
+          target,
+          symLinks: {},
+          doCompress: CompressType.None,
+          nativeBuild: false,
+          fallbackToSource: true,
+        }),
+      };
+    }
+
+    it('aborts on a protocol error even with --fallback-to-source', async () => {
+      const bakes = preloadBakes(
+        'producer-desync',
+        "require('fs').writeSync(3, 'garbage trace');",
+      );
+      await assert.rejects(
+        produce(bakes, 'desync', 'module.exports = 12;').done,
+        (error: Error & { wasReported?: boolean }) =>
+          error.wasReported === true && /channel desynced/.test(error.message),
+      );
+    });
+
+    it('falls back to source on a compile failure', async () => {
+      const bakes = preloadBakes(
+        'producer-compile-failure',
+        "require('vm').Script = function () { return { cachedDataProduced: false }; };",
+      );
+      const source = 'module.exports = "fallback-marker";';
+      const { output, done } = produce(bakes, 'fallback', source);
+      await done;
+      assert.ok(readFileSync(output).includes(source));
     });
   });
 

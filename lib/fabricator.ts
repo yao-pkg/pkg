@@ -204,6 +204,8 @@ interface FabricatorChild {
   needed: number;
   stderrTail: Buffer[];
   stderrTailLength: number;
+  // Set once we kill the child; its late events are no longer ours.
+  killed: boolean;
   // The child answers one request at a time; output with no pending
   // request means the channel is desynced.
   pending?: FabricatorRequest;
@@ -252,6 +254,7 @@ function evict(state: FabricatorChild) {
 
 function kill(state: FabricatorChild) {
   evict(state);
+  state.killed = true;
   // SIGKILL: a child stuck in a synchronous compile ignores SIGTERM.
   state.proc.kill('SIGKILL');
 }
@@ -266,6 +269,13 @@ function fail(state: FabricatorChild, error: Error) {
   settle(state, error);
 }
 
+function bytecodeError(state: FabricatorChild, detail: string): Error {
+  const snap = state.pending?.snap;
+  return new Error(
+    `Failed to make bytecode ${state.label}${snap ? ` for file ${snap}` : ''} (${detail})${tailSuffix(state)}`,
+  );
+}
+
 function failProtocol(state: FabricatorChild, message: string) {
   const snap = state.pending?.snap;
   fail(
@@ -278,6 +288,10 @@ function failProtocol(state: FabricatorChild, message: string) {
 }
 
 function onResponseData(state: FabricatorChild, data: Buffer) {
+  if (state.killed) {
+    return;
+  }
+
   if (!state.pending) {
     return failProtocol(
       state,
@@ -341,16 +355,14 @@ function spawnFabricator(
     needed: 4,
     stderrTail: [],
     stderrTailLength: 0,
+    killed: false,
   };
   const response = proc.stdio[FABRICATOR_RESPONSE_FD] as Readable;
 
   function onError(error: Error) {
-    fail(
-      state,
-      new Error(
-        `Failed to make bytecode ${label} for file ${state.pending?.snap} error (${error.message})${tailSuffix(state)}`,
-      ),
-    );
+    if (!state.killed) {
+      fail(state, bytecodeError(state, `error: ${error.message}`));
+    }
   }
 
   proc.on('error', onError);
@@ -371,7 +383,16 @@ function spawnFabricator(
   proc.on('close', (code, signal) => {
     evict(state);
 
-    const snap = state.pending?.snap;
+    if (state.killed) {
+      return;
+    }
+
+    if (!state.pending) {
+      log.debug(
+        `fabricator ${label} exited (${code ?? signal}) with no request pending${tailSuffix(state)}`,
+      );
+      return;
+    }
 
     if (code === FABRICATOR_PROTOCOL_EXIT_CODE) {
       return failProtocol(
@@ -382,10 +403,11 @@ function spawnFabricator(
 
     settle(
       state,
-      new Error(
+      bytecodeError(
+        state,
         code === 0
-          ? `${cmd} closed unexpectedly for file ${snap}${tailSuffix(state)}`
-          : `Failed to make bytecode ${label} for file ${snap} (exit ${code ?? signal})${tailSuffix(state)}`,
+          ? 'fabricator closed unexpectedly'
+          : `exit ${code ?? signal}`,
       ),
     );
   });
@@ -478,10 +500,6 @@ export function fabricateTwice(
 
 export function shutdown() {
   for (const key in children) {
-    if (children[key]) {
-      const state = children[key];
-      delete children[key];
-      state.proc.kill();
-    }
+    kill(children[key]);
   }
 }
