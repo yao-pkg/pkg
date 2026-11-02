@@ -195,6 +195,12 @@ function cpRecursive(src, dest) {
   if (st.isSymbolicLink()) {
     // Recreate the symlink at the destination instead of dereferencing it.
     var target = fs.readlinkSync(src);
+    // Keep a correct link: another process may be loading through it.
+    try {
+      if (fs.readlinkSync(dest) === target) return;
+    } catch (_) {
+      /* dest is missing or not a link */
+    }
     try {
       fs.unlinkSync(dest);
     } catch (_) {

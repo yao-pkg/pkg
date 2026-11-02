@@ -25,19 +25,22 @@ type Layout = 'node_modules' | 'standalone';
 // tempDenied: the cache dir is read-only, so creating the temp file fails.
 // tempTaken: another writer already owns the temp file name.
 // linkRaced: another process recreates a symlink just before we do.
+// linkDenied: symlinks need admin or developer mode (Windows), so EPERM.
 type Failure =
   | 'diskFull'
   | 'renameRefused'
   | 'renameBusyOnce'
   | 'tempDenied'
   | 'tempTaken'
-  | 'linkRaced';
+  | 'linkRaced'
+  | 'linkDenied';
 
 // The fs the prelude sees inside the VM: records writes and renames, injects
 // one failure.
 function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
   const writes: { file: string; flag?: string }[] = [];
   const renames: { from: string; to: string }[] = [];
+  const symlinks: string[] = [];
   const vmFs = {
     ...fs,
     writeFileSync(file: string, bytes: Buffer, options?: { flag?: string }) {
@@ -63,11 +66,14 @@ function faultyFs(failure: Failure | undefined, error: Error, winner?: Buffer) {
       fs.renameSync(from, to);
     },
     symlinkSync(target: string, file: string) {
+      symlinks.push(file);
+      if (failure === 'linkDenied') throw error;
+      // The other process wins, so our real call below hits a real EEXIST.
       if (failure === 'linkRaced') fs.symlinkSync(target, file);
       fs.symlinkSync(target, file);
     },
   };
-  return { writes, renames, vmFs };
+  return { writes, renames, symlinks, vmFs };
 }
 
 function fixture(
@@ -101,12 +107,13 @@ function fixture(
     tempDenied: ['EACCES', 'open'],
     tempTaken: ['EEXIST', 'open'],
     linkRaced: ['EEXIST', 'symlink'],
+    linkDenied: ['EPERM', 'symlink'],
   }[options.failure ?? 'renameRefused'];
   const error = Object.assign(new Error('injected cache failure'), {
     code,
     syscall,
   });
-  const { writes, renames, vmFs } = faultyFs(
+  const { writes, renames, symlinks, vmFs } = faultyFs(
     options.failure,
     error,
     options.winner,
@@ -153,6 +160,7 @@ function fixture(
     destination,
     writes,
     renames,
+    symlinks,
     loads,
     error,
     load: () => fakeProcess.dlopen({}, path.join(sourceRoot, relative)),
@@ -208,31 +216,33 @@ for (const layout of ['node_modules', 'standalone'] as const) {
 }
 
 describe('native addon cache failures', () => {
-  it('removes a partial temp file after ENOSPC', (t) => {
-    const f = fixture(t, 'standalone', { failure: 'diskFull' });
-    f.seed(stale);
+  for (const layout of ['node_modules', 'standalone'] as const) {
+    it(`removes a partial temp file after ENOSPC (${layout})`, (t) => {
+      const f = fixture(t, layout, { failure: 'diskFull' });
+      f.seed(stale);
 
-    assert.throws(f.load, (err: Error & { code: string }) => {
-      assert.equal(err.cause, f.error);
-      assert.equal(err.code, 'ENOSPC');
-      assert.ok(err.message.includes(f.destination), 'names the addon');
-      return true;
+      assert.throws(f.load, (err: Error & { code: string }) => {
+        assert.equal(err.cause, f.error);
+        assert.equal(err.code, 'ENOSPC');
+        assert.ok(err.message.includes(f.destination), 'names the addon');
+        return true;
+      });
+      assert.deepEqual(f.loads, []);
+      assert.deepEqual(f.renames, [], 'must not publish partial bytes');
+      assert.deepEqual(fs.readFileSync(f.destination), stale);
+      assert.deepEqual(f.tempFiles(), []);
     });
-    assert.deepEqual(f.loads, []);
-    assert.deepEqual(f.renames, [], 'must not publish partial bytes');
-    assert.deepEqual(fs.readFileSync(f.destination), stale);
-    assert.deepEqual(f.tempFiles(), []);
-  });
 
-  it('removes the temp file after a refused rename', (t) => {
-    const f = fixture(t, 'standalone', { failure: 'renameRefused' });
-    f.seed(stale);
+    it(`removes the temp file after a refused rename (${layout})`, (t) => {
+      const f = fixture(t, layout, { failure: 'renameRefused' });
+      f.seed(stale);
 
-    assert.throws(f.load, (err) => err === f.error);
-    assert.deepEqual(f.loads, []);
-    assert.deepEqual(fs.readFileSync(f.destination), stale);
-    assert.deepEqual(f.tempFiles(), []);
-  });
+      assert.throws(f.load, (err) => err === f.error);
+      assert.deepEqual(f.loads, []);
+      assert.deepEqual(fs.readFileSync(f.destination), stale);
+      assert.deepEqual(f.tempFiles(), []);
+    });
+  }
 
   it('accepts a rename race won with the same bytes', (t) => {
     const f = fixture(t, 'standalone', {
@@ -300,6 +310,19 @@ describe('native addon cache failures', () => {
     assert.deepEqual(f.tempFiles(), []);
   });
 
+  it('keeps retrying on Windows while a winner has different bytes', (t) => {
+    const f = fixture(t, 'standalone', {
+      failure: 'renameRefused',
+      platform: 'win32',
+      winner: raced,
+    });
+
+    assert.throws(f.load, (err) => err === f.error);
+    assert.equal(f.renames.length, 5);
+    assert.deepEqual(fs.readFileSync(f.destination), raced);
+    assert.deepEqual(f.tempFiles(), []);
+  });
+
   it('updates in place when the cache dir is read-only', (t) => {
     const f = fixture(t, 'standalone', { failure: 'tempDenied' });
     f.seed(stale);
@@ -358,5 +381,35 @@ describe('native addon cache (copied package)', () => {
     assert.equal(f.load(), 'loaded');
     const link = path.join(path.dirname(f.destination), 'libhelper.so.1');
     assert.equal(fs.readlinkSync(link), 'libhelper.so');
+  });
+
+  it('keeps a symlink that already has the right target', (t) => {
+    const f = fixture(t, 'node_modules');
+    const helper = f.addSource('libhelper.so', fresh);
+    fs.symlinkSync(
+      'libhelper.so',
+      path.join(path.dirname(helper), 'libhelper.so.1'),
+    );
+    f.seed(fresh, 'libhelper.so');
+    const link = path.join(path.dirname(f.destination), 'libhelper.so.1');
+    fs.symlinkSync('libhelper.so', link);
+
+    assert.equal(f.load(), 'loaded');
+    assert.deepEqual(f.symlinks, []);
+    assert.equal(fs.readlinkSync(link), 'libhelper.so');
+  });
+
+  it('copies the link target when symlinks are not allowed', (t) => {
+    const f = fixture(t, 'node_modules', { failure: 'linkDenied' });
+    const helper = f.addSource('libhelper.so', fresh);
+    fs.symlinkSync(
+      'libhelper.so',
+      path.join(path.dirname(helper), 'libhelper.so.1'),
+    );
+
+    assert.equal(f.load(), 'loaded');
+    const copy = path.join(path.dirname(f.destination), 'libhelper.so.1');
+    assert.ok(fs.lstatSync(copy).isFile());
+    assert.deepEqual(fs.readFileSync(copy), fresh);
   });
 });
