@@ -97,6 +97,12 @@ function hasSameContent(file, content) {
   }
 }
 
+// Blocks the thread for `ms`: dlopen is synchronous, so no setTimeout. Nothing
+// ever notifies this private buffer, so the wait always runs to the timeout.
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 // Windows antivirus can hold a just-written file open for a moment, so a
 // refused rename is retried there for up to ~1s, as graceful-fs does.
 var RENAME_RETRY_CODES = ['EPERM', 'EACCES', 'EBUSY'];
@@ -115,12 +121,7 @@ function renameSyncRetry(from, to, content) {
       ) {
         throw error;
       }
-      Atomics.wait(
-        new Int32Array(new SharedArrayBuffer(4)),
-        0,
-        0,
-        attempt * 100,
-      );
+      sleepSync(attempt * 100);
     }
   }
 }
