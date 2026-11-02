@@ -652,6 +652,8 @@ function installDiagnostic(snapshotPrefix) {
     wrap(fs, 'readdir');
     wrap(fs, 'realpathSync');
     wrap(fs, 'realpath');
+    wrap(fs, 'readlinkSync');
+    wrap(fs, 'readlink');
     wrap(fs, 'statSync');
     wrap(fs, 'stat');
     wrap(fs, 'lstatSync');
@@ -670,12 +672,214 @@ function installDiagnostic(snapshotPrefix) {
       wrap(fs.promises, 'write');
       wrap(fs.promises, 'readdir');
       wrap(fs.promises, 'realpath');
+      wrap(fs.promises, 'readlink');
       wrap(fs.promises, 'stat');
       wrap(fs.promises, 'lstat');
       wrap(fs.promises, 'access');
       wrap(fs.promises, 'copyFile');
     }
   }
+}
+
+// /////////////////////////////////////////////////////////////////
+// SYMLINK PROCESSING //////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// Matches the typical Linux SYMLOOP_MAX.
+var MAX_SYMLINK_DEPTH = 40;
+
+// libuv's errno numbers differ on Windows (uv/errno.h). Negated at use.
+var ERRNO = (function () {
+  var windows = process.platform === 'win32';
+  return {
+    ENOTDIR: windows ? 4052 : 20,
+    ENOENT: windows ? 4058 : 2,
+    EISDIR: windows ? 4068 : 21,
+    EINVAL: windows ? 4071 : 22,
+    ELOOP: windows ? 4067 : 40,
+  };
+})();
+
+// Callers keep their own message: classic ENOENT carries pkg's asset hint.
+function makeFsError(message, code, syscall, path_) {
+  var err = new Error(message);
+  err.code = code;
+  err.errno = -ERRNO[code];
+  if (syscall !== undefined) err.syscall = syscall;
+  err.path = path_;
+  err.pkg = true;
+  return err;
+}
+
+// libuv dirent types, as readdir({ withFileTypes: true }) reports them.
+var UV_DIRENT_FILE = 1;
+var UV_DIRENT_DIR = 2;
+var UV_DIRENT_LINK = 3;
+
+// POSIX file-type bits, so `mode & S_IFMT` agrees with isSymbolicLink().
+var S_IFMT = 0o170000;
+var S_IFLNK = 0o120000;
+
+function alwaysFalse() {
+  return false;
+}
+
+// Node 24 removed the deprecated `path` alias (DEP0178).
+var DIRENT_HAS_PATH = Number(process.versions.node.split('.')[0]) < 24;
+
+/**
+ * The Dirent both bootstraps return from readdir({ withFileTypes: true }).
+ * The type is fixed at construction: fs.Dirent's predicates take no argument.
+ */
+function Dirent(name, type, parentPath) {
+  this.name = name;
+  this.type = type;
+  this.parentPath = parentPath;
+  if (DIRENT_HAS_PATH) this.path = parentPath;
+}
+
+Dirent.prototype.isDirectory = function isDirectory() {
+  return this.type === UV_DIRENT_DIR;
+};
+
+Dirent.prototype.isFile = function isFile() {
+  return this.type === UV_DIRENT_FILE;
+};
+
+Dirent.prototype.isSymbolicLink = function isSymbolicLink() {
+  return this.type === UV_DIRENT_LINK;
+};
+
+Dirent.prototype.isBlockDevice = alwaysFalse;
+Dirent.prototype.isCharacterDevice = alwaysFalse;
+Dirent.prototype.isSocket = alwaysFalse;
+Dirent.prototype.isFIFO = alwaysFalse;
+
+/**
+ * Where a snapshot path links to, or undefined when it is not a link.
+ * The walker keys every link under its parent's real path, so callers pass
+ * the path with its parents resolved.
+ */
+function linkTarget(symlinks, resolvedKey) {
+  // typeof: the record is read with a bracket index, so inherited keys like
+  // `constructor` must not match.
+  if (typeof symlinks[resolvedKey] === 'string') return symlinks[resolvedKey];
+  return undefined;
+}
+
+/**
+ * Give a through-the-link stat link semantics, as POSIX lstat reports them:
+ * link type bits, size of the target string, no blocks.
+ */
+function asSymlinkStat(s, target) {
+  s.isSymbolicLink = function () {
+    return true;
+  };
+  s.isFile = alwaysFalse;
+  s.isDirectory = alwaysFalse;
+  s.mode = (s.mode & ~S_IFMT) | S_IFLNK;
+  s.size = Buffer.byteLength(target);
+  s.blocks = 0;
+  s.nlink = 1;
+  return s;
+}
+
+// readlink's options are an encoding string or { encoding }.
+function applyReadlinkEncoding(target, options) {
+  var encoding =
+    typeof options === 'string' ? options : options && options.encoding;
+  if (encoding === 'buffer') return Buffer.from(target);
+  if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
+    return Buffer.from(target).toString(encoding);
+  }
+  return target;
+}
+
+// Maps a snapshot key through its symlinks, parent components included:
+// a link at `node_modules/@x/y` also resolves `.../@x/y/package.json` (#295).
+// Runs before every snapshot fs call. `display` is the caller's path, shown in
+// errors instead of the internal key.
+function makeSymlinkResolver(symlinks, sep) {
+  var keys = Object.keys(symlinks);
+
+  // A symlink-free binary pays nothing. Still carries .parent for readlink
+  // and lstat.
+  if (keys.length === 0) {
+    var identity = function (p) {
+      return p;
+    };
+    identity.parent = identity;
+    return identity;
+  }
+
+  // Links sit at a few depths, so the scan below only slices at those.
+  var depthHasKey = [];
+  var maxDepth = 0;
+  for (var i = 0; i < keys.length; i++) {
+    var depth = 0;
+    var at = keys[i].indexOf(sep, 1);
+    while (at > 0) {
+      depth++;
+      at = keys[i].indexOf(sep, at + 1);
+    }
+    depthHasKey[depth] = true;
+    if (depth > maxDepth) maxDepth = depth;
+  }
+
+  function resolve(p, display, hops) {
+    // The walker stores realpaths as targets, so only a hand-edited manifest
+    // chains or loops; the hop bound turns a loop into ELOOP.
+    if (hops > MAX_SYMLINK_DEPTH) {
+      throw makeFsError(
+        "ELOOP: too many symbolic links encountered, '" + display + "'",
+        'ELOOP',
+        undefined,
+        display,
+      );
+    }
+
+    if (typeof symlinks[p] === 'string') {
+      return resolve(symlinks[p], display, hops + 1);
+    }
+
+    // Longest prefix wins: `<dir>/lib` and `<dir>/lib/sub` can both be keys.
+    var bestPos = -1;
+    var bestKey = null;
+    var pos = p.indexOf(sep, 1);
+    var depth = 0;
+    while (pos > 0 && depth <= maxDepth) {
+      if (depthHasKey[depth]) {
+        var prefix = p.slice(0, pos);
+        // typeof: `constructor` and friends are inherited, non-string values.
+        if (typeof symlinks[prefix] === 'string') {
+          bestPos = pos;
+          bestKey = prefix;
+        }
+      }
+      pos = p.indexOf(sep, pos + 1);
+      depth++;
+    }
+
+    if (bestKey === null) return p;
+
+    var target = symlinks[bestKey];
+    var rest = target.endsWith(sep) ? p.slice(bestPos + 1) : p.slice(bestPos);
+    return resolve(target + rest, display, hops + 1);
+  }
+
+  function resolveKey(p, display) {
+    return resolve(p, display === undefined ? p : display, 0);
+  }
+
+  // The key once a path's parents are followed but its last component is not,
+  // which is what POSIX resolves before reading a link.
+  resolveKey.parent = function (p, display) {
+    var slash = p.lastIndexOf(sep);
+    if (slash <= 0) return p;
+    return resolveKey(p.slice(0, slash), display || p) + p.slice(slash);
+  };
+
+  return resolveKey;
 }
 
 module.exports = {
@@ -688,4 +892,14 @@ module.exports = {
   COMPRESS_NONE: COMPRESS_NONE,
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
+  makeSymlinkResolver: makeSymlinkResolver,
+  ERRNO: ERRNO,
+  makeFsError: makeFsError,
+  Dirent: Dirent,
+  linkTarget: linkTarget,
+  asSymlinkStat: asSymlinkStat,
+  applyReadlinkEncoding: applyReadlinkEncoding,
+  UV_DIRENT_FILE: UV_DIRENT_FILE,
+  UV_DIRENT_DIR: UV_DIRENT_DIR,
+  UV_DIRENT_LINK: UV_DIRENT_LINK,
 };

@@ -1,5 +1,18 @@
 # Changelog
 
+## [6.24.0](https://github.com/yao-pkg/pkg/compare/v6.23.0...v6.24.0) (2026-10-23)
+
+### Features
+
+- bump fetch 3.6.7 with nodejs 22.23.4, 24.22.1, 26.12.1 ([#319](https://github.com/yao-pkg/pkg/issues/319)) ([f139a3e](https://github.com/yao-pkg/pkg/commit/f139a3ef2ab1a50d45212181c5867fa60adb062f))
+
+### Bug Fixes
+
+- **prelude:** extract compressed files into the native addon cache dir ([#309](https://github.com/yao-pkg/pkg/issues/309)) ([c819e37](https://github.com/yao-pkg/pkg/commit/c819e3795f771e148b1c9760346322c626949f52))
+- **prelude:** import homedir and create ~/.pkg-cache before mkdtemp ([#316](https://github.com/yao-pkg/pkg/issues/316)) ([19c899e](https://github.com/yao-pkg/pkg/commit/19c899e525906c0fdf01f7599a8f27b9f3437a51)), closes [#166](https://github.com/yao-pkg/pkg/issues/166)
+- **sea:** always load the VFS polyfill instead of node:vfs ([#318](https://github.com/yao-pkg/pkg/issues/318)) ([28b9fb4](https://github.com/yao-pkg/pkg/commit/28b9fb44af5bf75a59982f00aac16432128137c0)), closes [nodejs/node#66318](https://github.com/nodejs/node/issues/66318) [#317](https://github.com/yao-pkg/pkg/issues/317)
+- use cache directory in users home instead of system-wide tmp dir ([#166](https://github.com/yao-pkg/pkg/issues/166)) ([43feb8b](https://github.com/yao-pkg/pkg/commit/43feb8bba68b1db74f9090823679efda6907c2db))
+
 ## [6.23.0](https://github.com/yao-pkg/pkg/compare/v6.22.0...v6.23.0) (2026-09-29)
 
 ### Features
