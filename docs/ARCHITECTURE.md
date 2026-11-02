@@ -158,7 +158,9 @@ so a source file between 256MB and 512MB that used to compile is now rejected as
 per-file failure.
 
 The child answers one request at a time. Output with no request pending, bytes left
-over after a response, or a size header out of range is a channel desync.
+over after a response, or a size header out of range is a channel desync. A
+desync during a request fails the build; stray output between requests only
+restarts the child with a warning, since no bytecode was delivered from it.
 
 | Outcome                                                                     | Error code                   | Handling                                                                                  |
 | --------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |

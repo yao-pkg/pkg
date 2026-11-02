@@ -84,9 +84,7 @@ async function runFabricatorScript(
 
   // Attach before any await: a child that exits during the staged writes
   // below may fully tear down before a later-attached listener runs, and
-  // Node never re-emits `exit`/`close` to late subscribers. Resolve on
-  // `exit` or `close`, whichever comes first — ending stdin after the
-  // child already exited can additionally leave `close` never firing.
+  // Node never re-emits `exit`/`close` to late subscribers.
   const closePromise = new Promise<number | null>((resolve) => {
     child.once('exit', (exitCode) => resolve(exitCode));
     child.once('close', (closeCode) => resolve(closeCode));
@@ -104,9 +102,8 @@ async function runFabricatorScript(
     child.stdin.end();
   }
 
-  // Resolve on `exit` or `close`, whichever comes first. Ending stdin
-  // after the child already exited can leave `close` never firing even
-  // though the process is gone, so `close` alone is not reliable here.
+  // `exit` or `close`, whichever comes first: ending stdin after the child
+  // exited can leave `close` never firing.
   const code = await withTimeout(
     closePromise,
     CHILD_CLOSE_TIMEOUT_MS,
@@ -160,6 +157,11 @@ const hostTarget = {
   fabricator: undefined,
 } as unknown as Target;
 
+// Preload snippets; fd 3 is the child's response pipe.
+const CORRUPT_RESPONSE = "require('fs').writeSync(3, 'garbage trace');";
+const NO_CACHED_DATA =
+  "require('vm').Script = function () { return { cachedDataProduced: false }; };";
+
 const preloadDir = mkdtempSync(path.join(tmpdir(), 'pkg-fabricator-'));
 
 // Bakes are passed to the child before `-e`, so a `--require` preload can
@@ -177,20 +179,20 @@ function countedBakes(
   source: string,
   firstSpawnOnly: boolean,
 ): { bakes: string[]; spawns: () => number } {
-  const marker = JSON.stringify(path.join(preloadDir, `${name}.spawns`));
+  const marker = path.join(preloadDir, `${name}.spawns`);
+  const guard = firstSpawnOnly
+    ? `!require('fs').existsSync(${JSON.stringify(marker)})`
+    : 'true';
   const bakes = preloadBakes(
     name,
-    `var fs = require('fs');
-    var first = !fs.existsSync(${marker});
-    fs.appendFileSync(${marker}, 'x');
-    if (first || !${firstSpawnOnly}) { ${source} }`,
+    `var misbehave = ${guard};
+    require('fs').appendFileSync(${JSON.stringify(marker)}, 'x');
+    if (misbehave) { ${source} }`,
   );
   return {
     bakes,
     spawns: () =>
-      existsSync(JSON.parse(marker))
-        ? readFileSync(JSON.parse(marker), 'utf8').length
-        : 0,
+      existsSync(marker) ? readFileSync(marker, 'utf8').length : 0,
   };
 }
 
@@ -330,10 +332,7 @@ describe('fabricator framing', () => {
     });
 
     it('fails with a protocol error on a corrupt response', async () => {
-      const bakes = preloadBakes(
-        'corrupt-response',
-        "require('fs').writeSync(3, 'garbage trace');",
-      );
+      const bakes = preloadBakes('corrupt-response', CORRUPT_RESPONSE);
       const { error } = await runFabricate(bakes, 'module.exports = 4;');
       assert.equal(fabricatorErrorCode(error), 'FABRICATOR_PROTOCOL');
     });
@@ -385,7 +384,7 @@ describe('fabricator framing', () => {
       const { bakes, spawns } = countedBakes(
         'unsolicited',
         `process.stdin.once('data', function () {
-          setTimeout(function () { fs.writeSync(3, 'late'); }, 20);
+          setTimeout(function () { require('fs').writeSync(3, 'late'); }, 20);
         });`,
         true,
       );
@@ -399,11 +398,7 @@ describe('fabricator framing', () => {
     });
 
     it('fabricateTwice retries plain failures once', async () => {
-      const { bakes, spawns } = countedBakes(
-        'fail-once',
-        "require('vm').Script = function () { return { cachedDataProduced: false }; };",
-        true,
-      );
+      const { bakes, spawns } = countedBakes('fail-once', NO_CACHED_DATA, true);
       const { error, buffer } = await runFabricate(
         bakes,
         'module.exports = 10;',
@@ -417,7 +412,7 @@ describe('fabricator framing', () => {
     it('fabricateTwice never retries coded failures', async () => {
       const { bakes, spawns } = countedBakes(
         'corrupt-always',
-        "fs.writeSync(3, 'garbage trace');",
+        CORRUPT_RESPONSE,
         false,
       );
       const { error } = await runFabricate(bakes, 'module.exports = 11;', {
@@ -428,10 +423,7 @@ describe('fabricator framing', () => {
     });
 
     it('reports compile failures as plain, degradable errors', async () => {
-      const bakes = preloadBakes(
-        'no-cached-data',
-        "require('vm').Script = function () { return { cachedDataProduced: false }; };",
-      );
+      const bakes = preloadBakes('no-cached-data', NO_CACHED_DATA);
       const { error } = await runFabricate(bakes, 'module.exports = 6;');
       assert.ok(error);
       assert.match(error.message, /exit 2/);
@@ -485,10 +477,7 @@ describe('fabricator framing', () => {
     }
 
     it('aborts on a protocol error even with --fallback-to-source', async () => {
-      const bakes = preloadBakes(
-        'producer-desync',
-        "require('fs').writeSync(3, 'garbage trace');",
-      );
+      const bakes = preloadBakes('producer-desync', CORRUPT_RESPONSE);
       await assert.rejects(
         produce(bakes, 'desync', 'module.exports = 12;').done,
         (error: Error & { wasReported?: boolean }) =>
@@ -497,10 +486,7 @@ describe('fabricator framing', () => {
     });
 
     it('falls back to source on a compile failure', async () => {
-      const bakes = preloadBakes(
-        'producer-compile-failure',
-        "require('vm').Script = function () { return { cachedDataProduced: false }; };",
-      );
+      const bakes = preloadBakes('producer-compile-failure', NO_CACHED_DATA);
       const source = 'module.exports = "fallback-marker";';
       const { output, done } = produce(bakes, 'fallback', source);
       await done;

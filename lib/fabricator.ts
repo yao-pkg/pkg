@@ -454,8 +454,7 @@ export function fabricate(
   state.stderrTailLength = 0;
 
   const timer = setTimeout(() => {
-    kill(state);
-    settle(
+    fail(
       state,
       fabricatorError(
         'FABRICATOR_TIMEOUT',
