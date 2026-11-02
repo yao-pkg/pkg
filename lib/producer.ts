@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 
 import { STORE_BLOB, STORE_CONTENT, isDotNODE, snapshotify } from './common';
 import { log, wasReported } from './log';
-import { fabricateTwice } from './fabricator';
+import { fabricateTwice, fabricatorErrorCode } from './fabricator';
 import { platform, SymLinks, Target } from './types';
 import { Stripe } from './packer';
 import { CompressType, getZstdCompressStream } from './compress_type';
@@ -443,6 +443,17 @@ export default function producer({
     let preludePosition: number;
     let preludeSize: number;
 
+    const output = fs.createWriteStream(target.output);
+    let failed = false;
+
+    // Don't leave a truncated binary at the user's --output path.
+    function fail(error: Error) {
+      if (failed) return;
+      failed = true;
+      output.destroy();
+      fs.rm(target.output, { force: true }, () => reject(error));
+    }
+
     new Multistream((cb) => {
       if (count === 0) {
         return cb(null, next(intoStream(binaryBuffer)));
@@ -483,6 +494,19 @@ export default function producer({
                 (error, buffer) => {
                   if (error) {
                     const file = stripe.file ?? snap;
+
+                    if (fabricatorErrorCode(error) === 'FABRICATOR_PROTOCOL') {
+                      // A desynced fabricator channel must never degrade to
+                      // plain source: fail loudly instead of shipping a
+                      // green build without bytecode.
+                      return cb(
+                        wasReported(error.message, [
+                          'This is likely a pkg bug. Re-run with --debug and report it at https://github.com/yao-pkg/pkg/issues',
+                          'Use --no-bytecode to build without the fabricator.',
+                        ]),
+                        null,
+                      );
+                    }
 
                     if (fallbackToSource) {
                       log.warn(
@@ -596,17 +620,14 @@ export default function producer({
         return cb(null, null);
       }
     })
-      .on('error', (error) => {
-        reject(error);
-      })
-      .pipe(fs.createWriteStream(target.output))
-      .on('error', (error) => {
-        reject(error);
-      })
+      .on('error', fail)
+      .pipe(output)
+      .on('error', fail)
       .on('close', () => {
+        if (failed) return;
         preludeSize = meter.bytes;
         fs.open(target.output, 'r+', (error, fd) => {
-          if (error) return reject(error);
+          if (error) return fail(error);
           injectPlaceholders(
             fd,
             placeholders,
@@ -618,9 +639,9 @@ export default function producer({
               PRELUDE_SIZE: preludeSize,
             },
             (error2) => {
-              if (error2) return reject(error2);
+              if (error2) return fail(error2);
               fs.close(fd, (error3) => {
-                if (error3) return reject(error3);
+                if (error3) return fail(error3);
                 resolve();
               });
             },

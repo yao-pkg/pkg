@@ -138,6 +138,43 @@ CLI (lib/index.ts)
   └─ runPostBuild() — lib/hooks.ts (per-binary, sets PKG_OUTPUT)
 ```
 
+### Bytecode Fabricator IPC
+
+In traditional mode, `lib/fabricator.ts` compiles each JS file to V8 bytecode by
+spawning the target's base binary (`PKG_EXECPATH=PKG_INVOKE_NODEJS`) and exchanging
+length-prefixed frames. Requests go on the child's stdin; responses come back on a
+dedicated pipe at fd 3. The child's stdout is ignored, because V8 flags passed via
+`--options` (`trace-gc`, `print-bytecode`, ...) print there and would corrupt frames.
+
+```
+Request  (parent → stdin):  [i32 snapLen][snap bytes][i32 bodyLen][body bytes]
+Response (fd 3 → parent):   [i32 blobLen][cachedData bytes]
+```
+
+All integers are signed little-endian (`readInt32LE`), so both sides reject negative
+sizes. Each frame part, including the response blob, is capped at
+`FABRICATOR_MAX_FRAME_PART_SIZE` (256MB). This is below Node's string limit (~512MB),
+so a source file between 256MB and 512MB that used to compile is now rejected as a
+per-file failure.
+
+The child answers one request at a time. Output with no request pending, bytes left
+over after a response, or a size header out of range is a channel desync. A
+desync during a request fails the build; stray output between requests only
+restarts the child with a warning, since no bytecode was delivered from it.
+
+| Outcome                                                                     | Error code                   | Handling                                                                                  |
+| --------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Exit 2: well-formed request V8 refused to compile, or cachedData over 256MB | —                            | Retried once, then degrade to source with `--fallback-to-source`, otherwise skip the file |
+| Request part over 256MB                                                     | `FABRICATOR_FRAME_TOO_LARGE` | Not retried; degrade or skip as above                                                     |
+| No response within `FABRICATOR_RESPONSE_TIMEOUT_MS` (60s)                   | `FABRICATOR_TIMEOUT`         | Child is SIGKILLed; not retried; degrade or skip as above                                 |
+| Exit 65 (`FABRICATOR_PROTOCOL_EXIT_CODE`) or a desync seen by the parent    | `FABRICATOR_PROTOCOL`        | Build fails loudly via `wasReported()` — a desynced channel must never degrade to source  |
+
+Exit 65 is outside Node's reserved exit codes (1–14), so a Node bootstrap failure is
+never read as a desync. Each child keeps persistent listeners from spawn and is
+evicted on exit, so the next request respawns it. The last 2000 bytes of stderr
+written during the failing request are attached to the error message, so the cause
+is visible without `--debug`.
+
 ### Binary Format
 
 The traditional executable has this layout:
@@ -648,7 +685,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `lib/producer.ts`                | ~601  | Assembles final binary (payload injection, compression)                                      |
 | `lib/sea.ts`                     | ~672  | SEA orchestrator (seaEnhanced + simple sea, single-bootstrap dispatch)                       |
 | `lib/sea-assets.ts`              | ~188  | Generates single archive blob + manifest with offsets                                        |
-| `lib/fabricator.ts`              | ~173  | V8 bytecode compilation (traditional mode only)                                              |
+| `lib/fabricator.ts`              | ~490  | V8 bytecode compilation + frame IPC (traditional mode only)                                  |
 | `lib/esm-transformer.ts`         | ~434  | ESM to CJS transformation (traditional mode only)                                            |
 | `lib/refiner.ts`                 | ~110  | Path compression, empty directory pruning                                                    |
 | `lib/common.ts`                  | ~375  | Path normalization, snapshot helpers, store constants                                        |
