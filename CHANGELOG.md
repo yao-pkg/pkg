@@ -1,5 +1,14 @@
 # Changelog
 
+## [6.25.0](https://github.com/yao-pkg/pkg/compare/v6.24.0...v6.25.0) (2026-11-02)
+
+### Bug Fixes
+
+- **fabricator:** stop bytecode hangs from header aliasing and stdout traces ([#294](https://github.com/yao-pkg/pkg/issues/294)) ([169287a](https://github.com/yao-pkg/pkg/commit/169287a057c2ceed7500305759c60dbfc932cc21))
+- **prelude:** resolve symlinks consistently in classic and SEA modes ([#296](https://github.com/yao-pkg/pkg/issues/296)) ([f5af0a0](https://github.com/yao-pkg/pkg/commit/f5af0a07b6a1510fd1cc71dac5e68f6f73c74791)), closes [#295](https://github.com/yao-pkg/pkg/issues/295) [test-99-#295](https://github.com/yao-pkg/test-99-/issues/295) [test-99-#295](https://github.com/yao-pkg/test-99-/issues/295) [test-99-#108](https://github.com/yao-pkg/test-99-/issues/108) [test-99-#295](https://github.com/yao-pkg/test-99-/issues/295) [#295](https://github.com/yao-pkg/pkg/issues/295) [#295](https://github.com/yao-pkg/pkg/issues/295) [#299](https://github.com/yao-pkg/pkg/issues/299) [test-99-#295](https://github.com/yao-pkg/test-99-/issues/295) [test-99-#295](https://github.com/yao-pkg/test-99-/issues/295) [robertsLando/vfs#4](https://github.com/robertsLando/vfs/issues/4) [test-99-#295](https://github.com/yao-pkg/test-99-/issues/295) [robertsLando/vfs#4](https://github.com/robertsLando/vfs/issues/4) [robertsLando/vfs#4](https://github.com/robertsLando/vfs/issues/4) [test-99-#295](https://github.com/yao-pkg/test-99-/issues/295) [robertsLando/vfs#4](https://github.com/robertsLando/vfs/issues/4) [test-99-#1505](https://github.com/yao-pkg/test-99-/issues/1505) [#305](https://github.com/yao-pkg/pkg/issues/305) [#295](https://github.com/yao-pkg/pkg/issues/295)
+- publish native addon cache files atomically ([#313](https://github.com/yao-pkg/pkg/issues/313)) ([8ddf2aa](https://github.com/yao-pkg/pkg/commit/8ddf2aa02d08d3cedfb7ea03b3257802833d1bcf))
+- report snapshot symlinks as links in lstat, readlink and readdir ([#310](https://github.com/yao-pkg/pkg/issues/310)) ([d6ee147](https://github.com/yao-pkg/pkg/commit/d6ee147a0aee61df857812cf682c97325113210a)), closes [robertsLando/vfs#4](https://github.com/robertsLando/vfs/issues/4)
+
 ## [6.24.0](https://github.com/yao-pkg/pkg/compare/v6.23.0...v6.24.0) (2026-10-23)
 
 ### Features
