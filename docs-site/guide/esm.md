@@ -15,6 +15,7 @@ Starting from version **6.13.0**, `pkg` has improved support for ECMAScript Modu
 - **`import.meta.url`** — polyfilled to provide the file URL of the current module
 - **`import.meta.dirname`** — polyfilled to provide the directory path (Node.js 20.11+ property)
 - **`import.meta.filename`** — polyfilled to provide the file path (Node.js 20.11+ property)
+- **package.json `imports`** — subpath imports such as `#ansi-styles` or `#internal/*` are resolved when packaging and at runtime
 
 ## Known limitations
 

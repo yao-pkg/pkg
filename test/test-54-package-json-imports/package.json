@@ -1,0 +1,6 @@
+{
+  "name": "test-54-package-json-imports",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js"
+}
