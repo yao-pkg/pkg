@@ -2,7 +2,7 @@ import { sync, SyncOpts } from 'resolve';
 import fs from 'fs';
 import path from 'path';
 import { toNormalizedRealPath } from './common';
-import { resolveModule } from './resolver';
+import { resolveModule, resolvePackageImport } from './resolver';
 
 import type { PackageJson } from './types';
 
@@ -54,7 +54,37 @@ function isValidPackageName(specifier: string): boolean {
   return /^[a-z0-9_.-]+$/.test(packageName);
 }
 
-export function follow(x: string, opts: FollowOptions) {
+export function follow(x: string, opts: FollowOptions): Promise<string> {
+  // package.json "imports" (subpath imports like `#ansi-styles` in chalk 5+)
+  if (x.startsWith('#')) {
+    const result = resolvePackageImport(x, opts.basedir || process.cwd());
+    if (!result) {
+      return Promise.reject(
+        new Error(`Cannot find module '${x}' from '${opts.basedir}'`),
+      );
+    }
+    // The declaring package.json must be in the snapshot, the runtime
+    // resolver in the prelude reads its "imports" field
+    if (opts.catchReadFile) {
+      opts.catchReadFile(result.packageJson);
+      if (opts.catchPackageFilter) {
+        const dir = path.dirname(result.packageJson);
+        opts.catchPackageFilter(
+          JSON.parse(fs.readFileSync(result.packageJson, 'utf8')),
+          dir,
+          dir,
+        );
+      }
+    }
+    if (result.isBare) {
+      return follow(result.target, {
+        ...opts,
+        basedir: path.dirname(result.packageJson),
+      });
+    }
+    return Promise.resolve(result.target);
+  }
+
   // TODO async version
   return new Promise<string>((resolve, reject) => {
     // Try ESM-aware resolution first for non-relative specifiers

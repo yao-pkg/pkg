@@ -1,5 +1,8 @@
 import { sync as resolveSync } from 'resolve';
-import { exports as resolveExports } from 'resolve.exports';
+import {
+  exports as resolveExports,
+  imports as resolveImports,
+} from 'resolve.exports';
 import fs from 'fs';
 import path from 'path';
 import { isESMFile } from './common';
@@ -171,4 +174,71 @@ export function resolveModule(
     resolved,
     isESM: false, // CJS resolution
   };
+}
+
+interface PackageImportResult {
+  /** Absolute path of the resolved file, or the bare target specifier */
+  target: string;
+  /** True if `target` is a bare specifier (e.g. "#dep": "some-pkg") */
+  isBare: boolean;
+  /** package.json that declares the "imports" field */
+  packageJson: string;
+}
+
+/**
+ * Resolve a package.json "imports" specifier (subpath import, e.g.
+ * `#ansi-styles`). Like Node.js, only the nearest package.json of
+ * `basedir` (the package scope) is consulted.
+ * @param specifier - Specifier starting with '#'
+ * @param basedir - Directory of the importing file
+ * @returns Resolution result or null if the specifier is not defined
+ */
+export function resolvePackageImport(
+  specifier: string,
+  basedir: string,
+): PackageImportResult | null {
+  if (!specifier.startsWith('#')) return null;
+
+  let dir = path.resolve(basedir);
+  while (true) {
+    const packageJson = path.join(dir, 'package.json');
+    if (fs.existsSync(packageJson)) {
+      let pkg: Record<string, unknown>;
+      try {
+        pkg = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+      } catch {
+        return null;
+      }
+      if (!pkg.imports) return null;
+
+      // Same condition order as for "exports": prefer require (pkg transforms
+      // ESM to CJS), fall back to import for ESM-only targets
+      let resolved: string | string[] | undefined;
+      for (const require of [true, false]) {
+        try {
+          resolved = resolveImports(pkg, specifier, { require });
+        } catch {
+          resolved = undefined;
+        }
+        if (resolved) break;
+      }
+      if (!resolved) return null;
+
+      const targets = Array.isArray(resolved) ? resolved : [resolved];
+      for (const target of targets) {
+        if (target.startsWith('./') || target.startsWith('../')) {
+          const fullPath = path.join(dir, target);
+          if (fs.existsSync(fullPath)) {
+            return { target: fullPath, isBare: false, packageJson };
+          }
+        } else if (!path.isAbsolute(target)) {
+          return { target, isBare: true, packageJson };
+        }
+      }
+      return null;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
