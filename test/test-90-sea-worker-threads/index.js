@@ -26,6 +26,7 @@ function runWorker() {
       workerData: { message: 'ping', name: 'world' },
     });
 
+    // Generous: the worker spawns the packaged binary as a child.
     const timeout = setTimeout(() => {
       worker.terminate();
       reject(new Error('Worker timed out'));

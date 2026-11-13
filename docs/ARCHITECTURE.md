@@ -463,9 +463,9 @@ workerThreads.Worker(filename, options)
 
 **Worker Entry (`prelude/sea-worker-entry.js`):**
 
-The worker entry is minimal — it simply `require('./sea-vfs-setup')`, which sets up the same `SEAProvider` + `@roberts_lando/vfs` mount as the main thread. This means workers get the exact same VFS implementation (same archive blob, same `Buffer.subarray()` extraction, same 164+ fs function intercepts) with no code duplication.
+The worker entry calls `require('./sea-vfs-setup')`, which sets up the same `SEAProvider` + `@roberts_lando/vfs` mount as the main thread. This means workers get the exact same VFS implementation (same archive blob, same `Buffer.subarray()` extraction, same 164+ fs function intercepts) with no code duplication.
 
-Each worker thread also gets its own `process`, `Intl` and builtin modules, so the main-thread patches don't carry over. The entry reapplies them per thread: `setupProcessPkg`, `patchIntlSegmenter`, `patchDlopen` and `patchChildProcess` — the same set classic `bootstrap.js` applies in every thread.
+Each worker thread also gets its own `process`, `Intl` and builtin modules, so the main-thread patches don't carry over. Every per-thread patch `sea-bootstrap-core.js` applies from `bootstrap-shared.js` must also be applied in the worker entry, matching classic `bootstrap.js`, which runs in every thread.
 
 **Build-time bundling:**
 
@@ -679,7 +679,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
 | `prelude/sea-vfs-setup.js`       | ~648  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
-| `prelude/sea-worker-entry.js`    | ~11   | Worker thread entry: requires sea-vfs-setup.js for VFS in workers                            |
+| `prelude/sea-worker-entry.js`    | ~40   | Worker thread entry: VFS via sea-vfs-setup.js, plus the per-thread shared patches            |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |
 | `lib/walker.ts`                  | ~1318 | Dependency walker (with seaMode support)                                                     |

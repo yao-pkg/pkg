@@ -56,15 +56,24 @@ try {
   addonExtracted = 'ERROR:' + e.message;
 }
 
-// pkg rewrites spawn('node', ...) to the packaged binary. child_process is
-// per-thread, so the patch has to be reapplied in every worker.
+// pkg rewrites spawn('node', ...) to the packaged binary, which prints
+// `packaged-binary` (see index.js). Unpatched, system node prints its version.
 let spawnUsesExecPath;
 try {
   const child = spawnSync('node', ['--version'], {
     env: Object.assign({}, process.env, { PKG_TEST_90_CHILD: '1' }),
     encoding: 'utf8',
+    timeout: 10000,
   });
-  spawnUsesExecPath = (child.stdout || '').trim() === 'packaged-binary';
+  const out = (child.stdout || '').trim();
+  spawnUsesExecPath =
+    out === 'packaged-binary' ||
+    JSON.stringify({
+      stdout: out,
+      status: child.status,
+      error: child.error && child.error.code,
+      stderr: (child.stderr || '').slice(0, 200),
+    });
 } catch (e) {
   spawnUsesExecPath = 'ERROR:' + e.message;
 }
