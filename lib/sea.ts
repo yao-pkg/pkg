@@ -249,6 +249,7 @@ async function verifyChecksum(
 function getNodeOs(platform: string): NodeOs {
   const platformsMap: Record<string, string> = {
     macos: 'darwin',
+    alpine: 'linux',
   };
 
   const validatedPlatform = platformsMap[platform] || platform;
@@ -269,14 +270,44 @@ function getNodeArch(arch: string): NodeArch {
   return arch as NodeArch;
 }
 
+/** Where a target's node archive lives and how it is named. */
+interface NodeDist {
+  os: NodeOs;
+  /** Arch segment of the archive name, e.g. `x64` or `x64-musl`. */
+  arch: string;
+  /** Release root holding `index.json` and `<version>/<archive>`. */
+  baseUrl: string;
+}
+
+/**
+ * musl (`alpine`), riscv64 and loong64 builds are only published on
+ * unofficial-builds.nodejs.org; everything else is on nodejs.org/dist.
+ */
+export function getNodeDist(target: {
+  platform: string;
+  arch: string;
+}): NodeDist {
+  const os = getNodeOs(target.platform);
+  const arch = getNodeArch(target.arch);
+  const musl = target.platform === 'alpine';
+  const unofficial = musl || arch === 'riscv64' || arch === 'loong64';
+
+  return {
+    os,
+    arch: musl ? `${arch}-musl` : arch,
+    baseUrl: unofficial
+      ? 'https://unofficial-builds.nodejs.org/download/release'
+      : 'https://nodejs.org/dist',
+  };
+}
+
 /**
  * Get latest Node.js version covering a partial range. Accepts `22`,
  * `22.22`, or `22.22.2`; returns the canonical v-prefixed triple the
  * rest of the file expects.
  */
 async function getNodeVersion(
-  os: NodeOs,
-  arch: NodeArch,
+  { os, arch, baseUrl }: NodeDist,
   nodeVersion: string,
 ): Promise<NodeVersion> {
   // validate nodeVersion using regex. Allowed formats: 16, 16.0, 16.0.0
@@ -295,18 +326,7 @@ async function getNodeVersion(
     return `v${nodeVersion}` as NodeVersion;
   }
 
-  let url;
-  switch (arch) {
-    case 'riscv64':
-    case 'loong64':
-      url = 'https://unofficial-builds.nodejs.org/download/release/index.json';
-      break;
-    default:
-      url = 'https://nodejs.org/dist/index.json';
-      break;
-  }
-
-  const response = await fetch(url);
+  const response = await fetch(`${baseUrl}/index.json`);
 
   if (!response.ok) {
     throw new Error('Failed to fetch node versions');
@@ -349,9 +369,10 @@ async function resolveTargetNodeVersion(
     const { stdout } = await execFileAsync(opts.nodePath, ['--version']);
     return stdout.trim() as NodeVersion;
   }
-  const os = getNodeOs(target.platform);
-  const arch = getNodeArch(target.arch);
-  return getNodeVersion(os, arch, target.nodeRange.replace('node', ''));
+  return getNodeVersion(
+    getNodeDist(target),
+    target.nodeRange.replace('node', ''),
+  );
 }
 
 /** Fetch, validate and extract nodejs binary. Returns a path to it */
@@ -374,26 +395,13 @@ async function getNodejsExecutable(
     return process.execPath;
   }
 
-  const os = getNodeOs(target.platform);
-  const arch = getNodeArch(target.arch);
+  const { os, arch, baseUrl } = getNodeDist(target);
 
   const nodeVersion = await resolveTargetNodeVersion(target, opts);
 
   const fileName = `node-${nodeVersion}-${os}-${arch}.${os === 'win' ? 'zip' : 'tar.gz'}`;
-
-  let url;
-  let checksumUrl;
-  switch (arch) {
-    case 'riscv64':
-    case 'loong64':
-      url = `https://unofficial-builds.nodejs.org/download/release/${nodeVersion}/${fileName}`;
-      checksumUrl = `https://unofficial-builds.nodejs.org/download/release/${nodeVersion}/SHASUMS256.txt`;
-      break;
-    default:
-      url = `https://nodejs.org/dist/${nodeVersion}/${fileName}`;
-      checksumUrl = `https://nodejs.org/dist/${nodeVersion}/SHASUMS256.txt`;
-      break;
-  }
+  const url = `${baseUrl}/${nodeVersion}/${fileName}`;
+  const checksumUrl = `${baseUrl}/${nodeVersion}/SHASUMS256.txt`;
 
   const downloadDir = join(homedir(), '.pkg-cache', 'sea');
 
@@ -641,8 +649,8 @@ export function pickMatchingHostTargetIndex(
  *      only a macos-arm64 binary), download a host-platform/arch node
  *      binary at the same node range as the targets and use it purely
  *      as the generator.
- *   3. If the host-platform download fails (unsupported host such as
- *      alpine/musl, offline, checksum mismatch, …), fall back to
+ *   3. If the host-platform download fails (unsupported host arch,
+ *      offline, checksum mismatch, …), fall back to
  *      `process.execPath` only when its version exactly matches the
  *      resolved target version. Otherwise hard-fail — silently running
  *      the generator with a skewed node would reintroduce the same
