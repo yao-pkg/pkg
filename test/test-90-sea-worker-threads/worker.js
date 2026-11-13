@@ -1,6 +1,7 @@
 'use strict';
 
 const { parentPort, workerData } = require('worker_threads');
+const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -55,6 +56,28 @@ try {
   addonExtracted = 'ERROR:' + e.message;
 }
 
+// pkg rewrites spawn('node', ...) to the packaged binary, which prints
+// `packaged-binary` (see index.js). Unpatched, system node prints its version.
+let spawnUsesExecPath;
+try {
+  const child = spawnSync('node', ['--version'], {
+    env: Object.assign({}, process.env, { PKG_TEST_90_CHILD: '1' }),
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+  const out = (child.stdout || '').trim();
+  spawnUsesExecPath =
+    out === 'packaged-binary' ||
+    JSON.stringify({
+      stdout: out,
+      status: child.status,
+      error: child.error && child.error.code,
+      stderr: (child.stderr || '').slice(0, 200),
+    });
+} catch (e) {
+  spawnUsesExecPath = 'ERROR:' + e.message;
+}
+
 parentPort.postMessage({
   echo: workerData.message,
   hasFilename,
@@ -62,4 +85,5 @@ parentPort.postMessage({
   hasProcessPkg,
   helperResult,
   addonExtracted,
+  spawnUsesExecPath,
 });
