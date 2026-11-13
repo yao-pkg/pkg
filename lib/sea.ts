@@ -23,7 +23,6 @@ import {
   Target,
   SeaEnhancedOptions,
   NodeVersion,
-  NodeRange,
   NodeOs,
   NodeArch,
   NODE_OSES,
@@ -323,28 +322,26 @@ export function getNodeArchive(
 /**
  * Get the latest Node.js version covering a partial range that every
  * dist has a build for. Accepts `22`, `22.22`, or `22.22.2`; returns the
- * canonical v-prefixed triple the rest of the file expects. One version
- * for all dists, because one SEA blob is baked into every target and
- * unofficial-builds can lag nodejs.org (discussion #236).
+ * canonical v-prefixed triple the rest of the file expects.
  */
 export async function getNodeVersion(
   dists: readonly NodeDist[],
-  nodeVersion: string,
+  range: string,
 ): Promise<NodeVersion> {
-  // validate nodeVersion using regex. Allowed formats: 16, 16.0, 16.0.0
+  // validate range using regex. Allowed formats: 16, 16.0, 16.0.0
   const regex = /^\d{1,2}(\.\d{1,2}){0,2}$/;
-  if (!regex.test(nodeVersion)) {
+  if (!regex.test(range)) {
     throw new Error('Invalid node version format');
   }
 
-  const parts = nodeVersion.split('.');
+  const parts = range.split('.');
 
   if (parts.length > 3) {
     throw new Error('Invalid node version format');
   }
 
   if (parts.length === 3) {
-    return `v${nodeVersion}` as NodeVersion;
+    return `v${range}` as NodeVersion;
   }
 
   const indexes = new Map<string, Promise<NodeIndexEntry[]>>();
@@ -361,7 +358,8 @@ export async function getNodeVersion(
         versions
           .filter(
             (v) =>
-              v.version.startsWith(`v${nodeVersion}`) &&
+              // trailing dot: `22.1` must not match v22.10
+              v.version.startsWith(`v${range}.`) &&
               v.files.some((f) => f.startsWith(`${nodeOS}-${archiveArch}`)),
           )
           .map((v) => v.version),
@@ -374,9 +372,7 @@ export async function getNodeVersion(
 
   if (!latest) {
     throw new Error(
-      dists.length > 1
-        ? `Node version ${nodeVersion} not found with a build for every target`
-        : `Node version ${nodeVersion} not found`,
+      `Node version ${range} not found with a build for every target`,
     );
   }
 
@@ -400,11 +396,14 @@ async function fetchNodeIndex(baseUrl: string): Promise<NodeIndexEntry[]> {
 
 /**
  * Resolve the one concrete Node.js version (e.g. `v22.22.2`) pkg will
- * use for every target. All targets share one SEA blob, so they must
- * share one version. The range comes from the first target; all targets
- * share a major (see {@link assertSingleTargetMajor}).
+ * use for every target. One SEA blob is baked into every target, and
+ * the generator must match it to the patch, so all targets share one
+ * version — the newest every target's release root has, since
+ * unofficial-builds can lag nodejs.org (discussion #236). The range
+ * comes from the first target; all targets share a major (see
+ * {@link assertSingleTargetMajor}).
  */
-async function resolveTargetNodeVersion(
+async function resolveSharedNodeVersion(
   targets: readonly NodeTarget[],
   opts: GetNodejsExecutableOptions,
 ): Promise<NodeVersion> {
@@ -423,7 +422,7 @@ async function resolveTargetNodeVersion(
 
 /** Fetch, validate and extract nodejs binary. Returns a path to it */
 async function getNodejsExecutable(
-  target: NodeTarget,
+  target: { platform: string; arch: string },
   opts: GetNodejsExecutableOptions,
   nodeVersion: NodeVersion,
 ): Promise<string> {
@@ -719,13 +718,7 @@ async function pickBlobGeneratorBinary(
     return nodePaths[matchIdx];
   }
 
-  // No target is runnable on the host. Pin a host-platform download to
-  // the targets' resolved version so the blob generator and the SEA
-  // reader baked into each target share the same patch level — otherwise
-  // we regress into the discussion #236 crash on any host/target patch
-  // skew. The version was resolved against the targets' platform/arch
-  // (not host's): host and targets could otherwise land on different
-  // latest patches (unofficial builds, arch-specific availability).
+  // No target runs on the host: pin a host download to the shared version.
   if (targetVersion === process.version) {
     // Host already runs the exact target version; no download needed.
     return process.execPath;
@@ -737,15 +730,7 @@ async function pickBlobGeneratorBinary(
       `(avoids SEA header version skew — see discussion #236).`,
   );
   try {
-    // `hostPlatform` from pkg-fetch is wider than NodeTarget.platform
-    // (e.g. 'alpine', 'linuxstatic'); getNodejsExecutable only reads
-    // platform/arch to route the download, so the assertion is safe.
-    const nodeRange: NodeRange = `node${targetVersion.slice(1)}`;
-    const hostGeneratorTarget = {
-      platform: hostPlatform,
-      arch: hostArch,
-      nodeRange,
-    } as NodeTarget;
+    const hostGeneratorTarget = { platform: hostPlatform, arch: hostArch };
     // Drop user-supplied nodePath / useLocalNode: they'd short-circuit
     // the download in getNodejsExecutable and reintroduce version skew.
     const downloadOpts: GetNodejsExecutableOptions = {
@@ -864,7 +849,7 @@ export async function seaEnhanced(
     }
   }
 
-  const nodeVersion = await resolveTargetNodeVersion(opts.targets, opts);
+  const nodeVersion = await resolveSharedNodeVersion(opts.targets, opts);
   const nodePaths = await Promise.all(
     opts.targets.map((target) =>
       getNodejsExecutable(target, opts, nodeVersion),
@@ -962,7 +947,7 @@ export default async function sea(entryPoint: string, opts: SeaOptions) {
     throw new Error(`Entrypoint path "${entryPoint}" does not exist`);
   }
 
-  const nodeVersion = await resolveTargetNodeVersion(opts.targets, opts);
+  const nodeVersion = await resolveSharedNodeVersion(opts.targets, opts);
   const nodePaths = await Promise.all(
     opts.targets.map((target) =>
       getNodejsExecutable(target, opts, nodeVersion),

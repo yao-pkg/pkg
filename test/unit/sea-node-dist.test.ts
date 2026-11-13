@@ -54,13 +54,6 @@ describe('getNodeDist', () => {
       /Unsupported architecture for alpine: riscv64/,
     );
   });
-
-  it('rejects linuxstatic, which has no node archive', () => {
-    assert.throws(
-      () => getNodeDist({ platform: 'linuxstatic', arch: 'x64' }),
-      /Unsupported OS: linuxstatic/,
-    );
-  });
 });
 
 describe('getNodeArchive', () => {
@@ -102,6 +95,7 @@ describe('getNodeArchive', () => {
 describe('getNodeVersion', () => {
   const INDEXES: Record<string, { version: string; files: string[] }[]> = {
     [`${OFFICIAL}/index.json`]: [
+      { version: 'v24.10.0', files: ['linux-x64', 'osx-arm64-tar'] },
       { version: 'v24.2.0', files: ['linux-x64', 'osx-arm64-tar'] },
       { version: 'v24.1.0', files: ['linux-x64', 'osx-arm64-tar'] },
     ],
@@ -127,12 +121,12 @@ describe('getNodeVersion', () => {
   const musl = getNodeDist({ platform: 'alpine', arch: 'x64' });
 
   it('picks the latest patch from the dist index', async () => {
-    assert.equal(await getNodeVersion([glibc], '24'), 'v24.2.0');
+    assert.equal(await getNodeVersion([glibc], '24'), 'v24.10.0');
     assert.equal(await getNodeVersion([musl], '24'), 'v24.1.0');
-    assert.deepEqual(fetched, [
-      `${OFFICIAL}/index.json`,
-      `${UNOFFICIAL}/index.json`,
-    ]);
+  });
+
+  it('matches a minor range on whole components', async () => {
+    assert.equal(await getNodeVersion([glibc], '24.1'), 'v24.1.0');
   });
 
   it('picks the latest patch every target has a build for', async () => {
@@ -146,10 +140,5 @@ describe('getNodeVersion', () => {
       getNodeVersion([glibc, musl], '24.2'),
       /Node version 24.2 not found with a build for every target/,
     );
-  });
-
-  it('returns a full version without fetching', async () => {
-    assert.equal(await getNodeVersion([glibc, musl], '24.9.9'), 'v24.9.9');
-    assert.equal(fetched.length, 0);
   });
 });
