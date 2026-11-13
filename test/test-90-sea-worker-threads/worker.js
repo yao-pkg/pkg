@@ -1,6 +1,7 @@
 'use strict';
 
 const { parentPort, workerData } = require('worker_threads');
+const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -55,6 +56,19 @@ try {
   addonExtracted = 'ERROR:' + e.message;
 }
 
+// pkg rewrites spawn('node', ...) to the packaged binary. child_process is
+// per-thread, so the patch has to be reapplied in every worker.
+let spawnUsesExecPath;
+try {
+  const child = spawnSync('node', ['--version'], {
+    env: Object.assign({}, process.env, { PKG_TEST_90_CHILD: '1' }),
+    encoding: 'utf8',
+  });
+  spawnUsesExecPath = (child.stdout || '').trim() === 'packaged-binary';
+} catch (e) {
+  spawnUsesExecPath = 'ERROR:' + e.message;
+}
+
 parentPort.postMessage({
   echo: workerData.message,
   hasFilename,
@@ -62,4 +76,5 @@ parentPort.postMessage({
   hasProcessPkg,
   helperResult,
   addonExtracted,
+  spawnUsesExecPath,
 });

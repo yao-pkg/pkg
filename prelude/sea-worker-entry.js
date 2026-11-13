@@ -31,3 +31,7 @@ shared.patchIntlSegmenter();
 // so native addons would be handed the raw C:\snapshot path and fail with
 // ERR_DLOPEN_FAILED — see patchDlopen in bootstrap-shared.
 shared.patchDlopen(vfs.insideSnapshot);
+
+// child_process is per-thread too: without this, spawn('node') from a worker
+// runs the system node instead of the packaged binary.
+shared.patchChildProcess(vfs.toPlatformPath(vfs.manifest.entrypoint));

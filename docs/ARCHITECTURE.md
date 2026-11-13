@@ -461,9 +461,11 @@ workerThreads.Worker(filename, options)
        └─ Spawn with { eval: true } → worker runs in-memory
 ```
 
-**Worker Entry (`prelude/sea-worker-entry.js`, 11 lines):**
+**Worker Entry (`prelude/sea-worker-entry.js`):**
 
 The worker entry is minimal — it simply `require('./sea-vfs-setup')`, which sets up the same `SEAProvider` + `@roberts_lando/vfs` mount as the main thread. This means workers get the exact same VFS implementation (same archive blob, same `Buffer.subarray()` extraction, same 164+ fs function intercepts) with no code duplication.
+
+Each worker thread also gets its own `process`, `Intl` and builtin modules, so the main-thread patches don't carry over. The entry reapplies them per thread: `setupProcessPkg`, `patchIntlSegmenter`, `patchDlopen` and `patchChildProcess` — the same set classic `bootstrap.js` applies in every thread.
 
 **Build-time bundling:**
 
