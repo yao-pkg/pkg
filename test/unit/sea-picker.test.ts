@@ -52,18 +52,27 @@ describe('pickMatchingHostTargetIndex', () => {
     );
   });
 
-  it('returns -1 for alpine hosts (hostPlatform never matches a target platform)', () => {
+  it('returns -1 for alpine hosts building only glibc targets', () => {
     // @yao-pkg/pkg-fetch reports hostPlatform='alpine', which never equals
-    // any user-visible target ('linux', 'linuxstatic', 'macos', 'win').
-    // Alpine builds therefore go through the fallback, where the
-    // version-safety check in pickBlobGeneratorBinary accepts process.execPath
-    // (same version) or throws.
+    // 'linux' or 'linuxstatic'. These builds go through the host-platform
+    // download fallback in pickBlobGeneratorBinary.
     assert.equal(
       pickMatchingHostTargetIndex({ platform: 'alpine', arch: 'x64' }, [
         { platform: 'linux', arch: 'x64' },
         { platform: 'linuxstatic', arch: 'x64' },
       ]),
       -1,
+    );
+  });
+
+  it('matches an alpine target on an alpine host', () => {
+    // The musl target binary runs on the host, so it doubles as the generator.
+    assert.equal(
+      pickMatchingHostTargetIndex({ platform: 'alpine', arch: 'x64' }, [
+        { platform: 'linux', arch: 'x64' },
+        { platform: 'alpine', arch: 'x64' },
+      ]),
+      1,
     );
   });
 

@@ -110,6 +110,8 @@ To build executables for all supported architectures and platforms from a single
 
 The `alpine` platform targets glibc-less Alpine Linux / BusyBox environments. Use it for Alpine Docker images and similar musl-based distros. If you need a fully static binary that runs on any Linux kernel, prefer `linuxstatic`.
 
+In [SEA mode](/guide/sea-mode), `alpine` targets use the musl Node.js builds from [unofficial-builds.nodejs.org](https://unofficial-builds.nodejs.org/), which ship `x64` and `arm64` only. These builds link `libstdc++` dynamically, so the runtime image needs it (`apk add libstdc++`; the official `node:*-alpine` images already have it).
+
 ::: warning linuxstatic + native addons
 Fully static Node binaries cannot load native bindings. If your project uses `.node` addons, `linuxstatic` will not work — use `linux` instead. See [Native addons](/guide/native-addons).
 :::
