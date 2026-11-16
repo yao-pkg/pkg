@@ -394,20 +394,18 @@ async function fetchNodeIndex(baseUrl: string): Promise<NodeIndexEntry[]> {
   return (await response.json()) as NodeIndexEntry[];
 }
 
-/**
- * Resolve the one concrete Node.js version (e.g. `v22.22.2`) pkg will
- * use for every target. One SEA blob is baked into every target, and
- * the generator must match it to the patch, so all targets share one
- * version — the newest every target's release root has, since
- * unofficial-builds can lag nodejs.org (discussion #236). The range
- * is the same for every target (see {@link assertSingleTargetRange}).
- */
+/** Resolve the one Node.js version (e.g. `v22.22.2`) used by every target. */
 async function resolveSharedNodeVersion(
   targets: readonly NodeTarget[],
   opts: GetNodejsExecutableOptions,
 ): Promise<NodeVersion> {
   if (opts.useLocalNode) return process.version as NodeVersion;
   if (opts.nodePath) {
+    if (!(await exists(opts.nodePath))) {
+      throw new Error(
+        `Provided node executable path "${opts.nodePath}" does not exist`,
+      );
+    }
     // A user-supplied binary can be any version — don't assume it
     // matches the host. Ask it directly.
     const { stdout } = await execFileAsync(opts.nodePath, ['--version']);
@@ -425,16 +423,8 @@ async function getNodejsExecutable(
   opts: GetNodejsExecutableOptions,
   nodeVersion: NodeVersion,
 ): Promise<string> {
-  if (opts.nodePath) {
-    // check if the nodePath exists
-    if (!(await exists(opts.nodePath))) {
-      throw new Error(
-        `Priovided node executable path "${opts.nodePath}" does not exist`,
-      );
-    }
-
-    return opts.nodePath;
-  }
+  // resolveSharedNodeVersion already checked that nodePath exists
+  if (opts.nodePath) return opts.nodePath;
 
   if (opts.useLocalNode) {
     return process.execPath;
@@ -632,34 +622,20 @@ function resolveMinTargetMajor(
 /**
  * SEA prep blobs are Node-version specific (e.g. Node 25.8 added an
  * exec_argv_extension header field), so a single blob cannot be safely
- * baked into binaries of different Node versions. Reject mixed-major or
- * mixed-range target lists up front: one range resolves to one version
- * (see {@link resolveSharedNodeVersion}).
+ * baked into binaries of different Node versions. Reject mixed-range
+ * target lists up front: one range resolves to one version, the newest
+ * every target's release root has (unofficial-builds can lag nodejs.org).
  */
 export function assertSingleTargetRange(
   targets: (NodeTarget & Partial<Target>)[],
 ): void {
-  const hostMajor = parseInt(process.version.slice(1), 10);
-  const majors = new Set(
-    targets.map((t) => {
-      const v = parseInt(t.nodeRange.replace('node', ''), 10);
-      return Number.isNaN(v) ? hostMajor : v;
-    }),
-  );
-  if (majors.size > 1) {
-    throw wasReported(
-      `SEA mode cannot mix Node.js majors in a single run ` +
-        `(got ${[...majors].sort((a, b) => a - b).join(', ')}). ` +
-        `Run pkg once per Node major.`,
-    );
-  }
-
   const ranges = new Set(targets.map((t) => t.nodeRange));
   if (ranges.size > 1) {
     throw wasReported(
       `SEA mode needs one Node.js range for all targets ` +
         `(got ${[...ranges].join(', ')}): one blob is baked into every ` +
-        `binary. Use the same range for every target.`,
+        `binary. Use the same range for every target, and run pkg once ` +
+        `per Node major.`,
     );
   }
 }
@@ -698,8 +674,8 @@ export function pickMatchingHostTargetIndex(
  *      host — already downloaded, guaranteed version-matched.
  *   2. Otherwise (pure cross-platform build, e.g. Linux host producing
  *      only a macos-arm64 binary), download a host-platform/arch node
- *      binary at the same node range as the targets and use it purely
- *      as the generator.
+ *      binary at the targets' shared version and use it purely as the
+ *      generator.
  *   3. If the host-platform download fails (unsupported host arch,
  *      offline, checksum mismatch, …), fall back to
  *      `process.execPath` only when its version exactly matches the
@@ -714,7 +690,7 @@ async function pickBlobGeneratorBinary(
   targets: (NodeTarget & Partial<Target>)[],
   nodePaths: string[],
   opts: GetNodejsExecutableOptions,
-  targetVersion: NodeVersion,
+  nodeVersion: NodeVersion,
 ): Promise<string> {
   const matchIdx = pickMatchingHostTargetIndex(
     { platform: hostPlatform, arch: hostArch },
@@ -728,14 +704,14 @@ async function pickBlobGeneratorBinary(
   }
 
   // No target runs on the host: pin a host download to the shared version.
-  if (targetVersion === process.version) {
+  if (nodeVersion === process.version) {
     // Host already runs the exact target version; no download needed.
     return process.execPath;
   }
 
   log.info(
     `No target matches host ${hostPlatform}-${hostArch}; downloading a ` +
-      `host-platform node ${targetVersion} to generate the SEA blob ` +
+      `host-platform node ${nodeVersion} to generate the SEA blob ` +
       `(avoids SEA header version skew — see discussion #236).`,
   );
   try {
@@ -750,17 +726,17 @@ async function pickBlobGeneratorBinary(
     return await getNodejsExecutable(
       hostGeneratorTarget,
       downloadOpts,
-      targetVersion,
+      nodeVersion,
     );
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     throw wasReported(
       `Cannot generate SEA blob: host node ${process.version} differs ` +
-        `from target ${targetVersion} and the host-platform download ` +
+        `from target ${nodeVersion} and the host-platform download ` +
         `failed (${reason}). Running the generator with a skewed node ` +
         `would crash the final binary at startup with EXC_BAD_ACCESS in ` +
         `node::sea::FindSingleExecutableResource (see discussion #236). ` +
-        `Install node ${targetVersion} locally (e.g. via nvm) or pass ` +
+        `Install node ${nodeVersion} locally (e.g. via nvm) or pass ` +
         `nodePath pointing to a host-runnable node binary of that version.`,
     );
   }

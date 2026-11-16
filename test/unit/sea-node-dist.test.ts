@@ -175,17 +175,14 @@ describe('assertSingleTargetRange', () => {
     );
   });
 
-  it('rejects mixed majors', () => {
-    assert.throws(
-      () => assertSingleTargetRange([target('node22'), target('node24')]),
-      /cannot mix Node.js majors/,
-    );
-  });
-
-  it('rejects mixed ranges within a major', () => {
+  it('rejects mixed ranges', () => {
     assert.throws(
       () => assertSingleTargetRange([target('node22.1'), target('node22')]),
       /needs one Node.js range for all targets \(got node22.1, node22\)/,
+    );
+    assert.throws(
+      () => assertSingleTargetRange([target('node22'), target('node24')]),
+      /got node22, node24\).*run pkg once per Node major/,
     );
   });
 });
