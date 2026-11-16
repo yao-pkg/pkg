@@ -6,6 +6,7 @@ import {
   getNodeArchive,
   getNodeDist,
   getNodeVersion,
+  resolveSharedNodeVersion,
 } from '../../lib/sea';
 import type { NodeTarget } from '../../lib/types';
 
@@ -109,6 +110,7 @@ describe('getNodeVersion', () => {
     ],
     // unofficial-builds lags: v24.2.0 has a glibc build but no musl one yet
     [`${UNOFFICIAL}/index.json`]: [
+      { version: 'v24.9.0/../../x', files: ['linux-x64-musl'] },
       { version: 'v24.2.0', files: ['linux-x64-glibc-217'] },
       { version: 'v24.1.0', files: ['linux-x64-musl'] },
       { version: 'v24.0.0', files: ['linux-x64-musl'] },
@@ -131,7 +133,7 @@ describe('getNodeVersion', () => {
 
   it('picks the latest patch from the dist index', async () => {
     assert.equal(await getNodeVersion([glibc], '24'), 'v24.10.0');
-    // skips v24.2.0, which lists only a glibc build
+    // skips the malformed entry, and v24.2.0, which lists only glibc
     assert.equal(await getNodeVersion([musl], '24'), 'v24.1.0');
   });
 
@@ -162,6 +164,55 @@ describe('getNodeVersion', () => {
       getNodeVersion([glibc, musl], '24'),
       /Failed to fetch node versions/,
     );
+  });
+});
+
+describe('resolveSharedNodeVersion', () => {
+  const targets = [
+    { nodeRange: 'node24', platform: 'linux', arch: 'x64' },
+    { nodeRange: 'node24', platform: 'alpine', arch: 'x64' },
+  ] as NodeTarget[];
+
+  afterEach(() => mock.restoreAll());
+
+  it('uses the host version with useLocalNode', async () => {
+    assert.equal(
+      await resolveSharedNodeVersion(targets, { useLocalNode: true }),
+      process.version,
+    );
+  });
+
+  it('asks a user-supplied nodePath for its version', async () => {
+    assert.equal(
+      await resolveSharedNodeVersion(targets, { nodePath: process.execPath }),
+      process.version,
+    );
+  });
+
+  it('rejects a nodePath that does not exist', async () => {
+    await assert.rejects(
+      resolveSharedNodeVersion(targets, { nodePath: '/no/such/node' }),
+      /Provided node executable path "\/no\/such\/node" does not exist/,
+    );
+  });
+
+  it('resolves one version for glibc and musl targets', async () => {
+    mock.method(
+      globalThis,
+      'fetch',
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.startsWith(UNOFFICIAL)
+              ? [{ version: 'v24.1.0', files: ['linux-x64-musl'] }]
+              : [
+                  { version: 'v24.2.0', files: ['linux-x64'] },
+                  { version: 'v24.1.0', files: ['linux-x64'] },
+                ],
+          ),
+        ),
+    );
+    assert.equal(await resolveSharedNodeVersion(targets, {}), 'v24.1.0');
   });
 });
 

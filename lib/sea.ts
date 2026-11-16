@@ -269,6 +269,9 @@ function getNodeArch(arch: string): NodeArch {
   return arch as NodeArch;
 }
 
+/** Wider than NodeTarget: host platforms include e.g. `linuxstatic`. */
+type PlatformArch = { platform: string; arch: string };
+
 /** Where a target's node archive lives and how it is named. */
 interface NodeDist {
   os: NodeOs;
@@ -285,10 +288,7 @@ const MUSL_ARCHS: readonly NodeArch[] = ['x64', 'arm64'];
  * musl (`alpine`), riscv64 and loong64 builds are only published on
  * unofficial-builds.nodejs.org; everything else is on nodejs.org/dist.
  */
-export function getNodeDist(target: {
-  platform: string;
-  arch: string;
-}): NodeDist {
+export function getNodeDist(target: PlatformArch): NodeDist {
   const os = getNodeOs(target.platform);
   const arch = getNodeArch(target.arch);
   const musl = target.platform === 'alpine';
@@ -358,6 +358,8 @@ export async function getNodeVersion(
         versions
           .filter(
             (v) =>
+              // the version lands in a cache path, so require a plain triple
+              /^v\d+\.\d+\.\d+$/.test(v.version) &&
               // trailing dot: `22.1` must not match v22.10
               v.version.startsWith(`v${range}.`) &&
               v.files.some((f) => f.startsWith(`${nodeOS}-${archiveArch}`)),
@@ -395,7 +397,7 @@ async function fetchNodeIndex(baseUrl: string): Promise<NodeIndexEntry[]> {
 }
 
 /** Resolve the one Node.js version (e.g. `v22.22.2`) used by every target. */
-async function resolveSharedNodeVersion(
+export async function resolveSharedNodeVersion(
   targets: readonly NodeTarget[],
   opts: GetNodejsExecutableOptions,
 ): Promise<NodeVersion> {
@@ -419,7 +421,7 @@ async function resolveSharedNodeVersion(
 
 /** Fetch, validate and extract nodejs binary. Returns a path to it */
 async function getNodejsExecutable(
-  target: { platform: string; arch: string },
+  target: PlatformArch,
   opts: GetNodejsExecutableOptions,
   nodeVersion: NodeVersion,
 ): Promise<string> {
@@ -647,8 +649,8 @@ export function assertSingleTargetRange(
  * spinning up a full pkg invocation.
  */
 export function pickMatchingHostTargetIndex(
-  host: { platform: string; arch: string },
-  targets: readonly { platform: string; arch: string }[],
+  host: PlatformArch,
+  targets: readonly PlatformArch[],
 ): number {
   return targets.findIndex(
     (t) => t.platform === host.platform && t.arch === host.arch,
