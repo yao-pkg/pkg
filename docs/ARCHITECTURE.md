@@ -679,7 +679,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
 | `prelude/sea-vfs-setup.js`       | ~660  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches, per-thread patches   |
-| `prelude/sea-worker-entry.js`    | ~16   | Worker thread entry: VFS + per-thread patches via sea-vfs-setup.js                           |
+| `prelude/sea-worker-entry.js`    | ~14   | Worker thread entry: VFS + per-thread patches via sea-vfs-setup.js                           |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |
 | `lib/walker.ts`                  | ~1318 | Dependency walker (with seaMode support)                                                     |

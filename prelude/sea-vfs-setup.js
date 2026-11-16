@@ -660,5 +660,4 @@ module.exports = {
   perf,
   SNAPSHOT_PREFIX,
   insideSnapshot,
-  toPlatformPath,
 };

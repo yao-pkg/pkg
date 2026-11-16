@@ -65,6 +65,7 @@ const childOpts = {
   timeout: 10000,
 };
 
+// true when the child was the packaged binary, else a JSON diagnostic string.
 function childVerdict(child) {
   const out = (child.stdout || '').trim();
   if (out === 'packaged-binary') return true;

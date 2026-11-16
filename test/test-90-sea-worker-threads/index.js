@@ -26,11 +26,12 @@ function runWorker() {
       workerData: { message: 'ping', name: 'world' },
     });
 
-    // Generous: the worker spawns the packaged binary as a child.
+    // Above the worker's two sequential 10s child probes, so a hung probe
+    // reports its own ETIMEDOUT instead of this generic timeout.
     const timeout = setTimeout(() => {
       worker.terminate();
       reject(new Error('Worker timed out'));
-    }, 15000);
+    }, 30000);
 
     worker.on('message', (msg) => {
       clearTimeout(timeout);
