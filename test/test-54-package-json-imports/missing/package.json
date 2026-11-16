@@ -1,0 +1,9 @@
+{
+  "name": "test-54-missing-import",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js",
+  "imports": {
+    "#defined": "./index.js"
+  }
+}
