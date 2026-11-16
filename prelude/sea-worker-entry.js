@@ -10,7 +10,5 @@
 
 var vfs = require('./sea-vfs-setup');
 
-// Main-thread patches don't carry over to workers. Without them, `process.pkg`
-// is missing, native addons fail with ERR_DLOPEN_FAILED and spawn('node') runs
-// the system node.
+// See applyThreadPatches in sea-vfs-setup for why every thread needs these.
 vfs.applyThreadPatches();

@@ -66,14 +66,16 @@ try {
     timeout: 10000,
   });
   const out = (child.stdout || '').trim();
-  spawnUsesExecPath =
-    out === 'packaged-binary' ||
-    JSON.stringify({
+  if (out === 'packaged-binary') {
+    spawnUsesExecPath = true;
+  } else {
+    spawnUsesExecPath = JSON.stringify({
       stdout: out,
       status: child.status,
       error: child.error && child.error.code,
       stderr: (child.stderr || '').slice(0, 200),
     });
+  }
 } catch (e) {
   spawnUsesExecPath = 'ERROR:' + e.message;
 }

@@ -358,7 +358,7 @@ The SEA bootstrap is a shared core plus a single CJS wrapper, both bundled by es
 - **`prelude/sea-bootstrap.js`** — CJS wrapper. Requires the core, then dispatches based on `manifest.entryIsESM`:
   - **CJS entry** → `Module.runMain()` (goes through the real CJS loader; `require(esm)` on Node 22.12+ transparently handles trivial ESM entries)
   - **ESM entry** → compiles a one-liner `import("file:///path/to/entry")` via `vm.Script` with `importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER`. Dynamic `import()` inside that script is routed to the **default** ESM loader rather than the embedder callback, so file URLs resolve and top-level await in the user entry works. The `ExperimentalWarning` for `USE_MAIN_CONTEXT_DEFAULT_LOADER` is filtered out via a `process.emitWarning` shim so it doesn't leak into packaged-app stderr
-- **`prelude/sea-vfs-setup.js`** — VFS core module consumed by `sea-bootstrap-core.js`: manifest parsing, `SEAProvider` class, archive loading, VFS mount, Windows path normalization. Shared by main thread and worker threads
+- **`prelude/sea-vfs-setup.js`** — VFS core module consumed by `sea-bootstrap-core.js`: manifest parsing, `SEAProvider` class, archive loading, VFS mount, Windows path normalization, and `applyThreadPatches()` (the per-thread `bootstrap-shared.js` patches). Shared by main thread and worker threads
 
 **Top-level await (TLA):** ESM entrypoints with TLA work on every supported target (Node ≥ 22) via the `vm.Script` + `USE_MAIN_CONTEXT_DEFAULT_LOADER` path. There is no Node-version split and no build-time warning — the CJS `Module.runMain()` path is reserved for CJS entries only, so the `ERR_REQUIRE_ASYNC_MODULE` constraint that blocks `require(esm-with-TLA)` never applies to the main module. `perf.finalize()` runs in the dispatcher's `finally` block so module-loading timings reflect the real entrypoint completion (including async / TLA apps) and still print when the entry throws. Errors on the ESM path set `process.exitCode = 1` instead of calling `process.exit()` so the `finally` runs.
 
@@ -367,7 +367,7 @@ The SEA bootstrap is a shared core plus a single CJS wrapper, both bundled by es
 Execution flow (main thread):
 
 1. **VFS setup** (via `require('./sea-vfs-setup')`) — Loads manifest from `sea.getAsset('__pkg_manifest__', 'utf8')`, creates `SEAProvider` (extends `MemoryProvider`), loads `__pkg_archive__` blob, mounts at `/snapshot`. On Windows, patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to convert backslashes to POSIX
-2. **Apply shared patches** — `vfs.applyThreadPatches()` calls `patchDlopen()`, `patchChildProcess()`, `patchIntlSegmenter()` and `setupProcessPkg()` from `bootstrap-shared.js`
+2. **Apply thread patches** — `vfs.applyThreadPatches()` calls `patchDlopen()`, `patchChildProcess()`, `patchIntlSegmenter()` and `setupProcessPkg()` from `bootstrap-shared.js`
 3. **Diagnostics** — If `manifest.debug` is set (built with `--debug`), calls `installDiagnostic()`
 4. **Patch Worker threads** — Wraps `workerThreads.Worker` so workers spawned with `/snapshot/...` paths get the same VFS setup (see [Worker Thread Support](#worker-thread-support))
 5. **Start `module loading` perf phase**, set `process.argv[1]`, clear `Module._cache`
@@ -678,7 +678,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `prelude/bootstrap-shared.js`    | ~859  | Shared runtime patches (dlopen, child_process, process.pkg, diagnostics, symlink resolution) |
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
-| `prelude/sea-vfs-setup.js`       | ~648  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
+| `prelude/sea-vfs-setup.js`       | ~660  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches, per-thread patches   |
 | `prelude/sea-worker-entry.js`    | ~16   | Worker thread entry: VFS + per-thread patches via sea-vfs-setup.js                           |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |

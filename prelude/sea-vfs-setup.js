@@ -1,7 +1,8 @@
 'use strict';
 
 // Shared VFS setup for SEA main thread and worker threads.
-// Both import this module to avoid duplicating the SEAProvider + mount logic.
+// Both import this module to avoid duplicating the SEAProvider + mount logic
+// and the per-thread patches (applyThreadPatches).
 
 var sea = require('node:sea');
 var shared = require('./bootstrap-shared');
