@@ -4,6 +4,13 @@ const { Worker } = require('worker_threads');
 const os = require('os');
 const path = require('path');
 
+// The worker spawns `node` with this set. If pkg rewrote the spawn to the
+// packaged binary, we land here instead of in system node.
+if (process.env.PKG_TEST_90_CHILD) {
+  console.log('packaged-binary');
+  process.exit(0);
+}
+
 // Redirect the native addon cache so the worker's dlopen check writes to a
 // throwaway directory instead of the real ~/.cache. Must be set before the
 // Worker is created — the worker copies process.env at spawn time and its
@@ -19,10 +26,12 @@ function runWorker() {
       workerData: { message: 'ping', name: 'world' },
     });
 
+    // Above the worker's two sequential 10s child probes, so a hung probe
+    // reports its own ETIMEDOUT instead of this generic timeout.
     const timeout = setTimeout(() => {
       worker.terminate();
       reject(new Error('Worker timed out'));
-    }, 5000);
+    }, 30000);
 
     worker.on('message', (msg) => {
       clearTimeout(timeout);
@@ -53,6 +62,8 @@ async function main() {
     console.log('hasProcessPkg:' + result.hasProcessPkg);
     console.log('helperResult:' + result.helperResult);
     console.log('addonExtracted:' + result.addonExtracted);
+    console.log('spawnUsesExecPath:' + result.spawnUsesExecPath);
+    console.log('execUsesExecPath:' + result.execUsesExecPath);
   } catch (e) {
     console.log('worker-error:' + e.message);
   }

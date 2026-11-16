@@ -1,7 +1,8 @@
 'use strict';
 
 // Shared VFS setup for SEA main thread and worker threads.
-// Both import this module to avoid duplicating the SEAProvider + mount logic.
+// Both import this module to avoid duplicating the SEAProvider + mount logic
+// and the per-thread patches (applyThreadPatches).
 
 var sea = require('node:sea');
 var shared = require('./bootstrap-shared');
@@ -639,12 +640,24 @@ function insideSnapshot(f) {
   return false;
 }
 
+var entrypoint = toPlatformPath(manifest.entrypoint);
+
+// Each thread gets its own `process`, `Intl` and builtin modules, so the main
+// thread and every worker must call this. Classic bootstrap.js runs per thread.
+function applyThreadPatches() {
+  shared.patchDlopen(insideSnapshot);
+  shared.patchChildProcess(entrypoint);
+  shared.patchIntlSegmenter();
+  shared.setupProcessPkg(entrypoint, manifest.entrypoint);
+}
+
 module.exports = {
+  applyThreadPatches,
+  entrypoint,
   manifest,
   virtualFs,
   provider,
   perf,
   SNAPSHOT_PREFIX,
   insideSnapshot,
-  toPlatformPath,
 };
