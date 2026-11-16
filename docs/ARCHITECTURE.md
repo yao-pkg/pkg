@@ -367,7 +367,7 @@ The SEA bootstrap is a shared core plus a single CJS wrapper, both bundled by es
 Execution flow (main thread):
 
 1. **VFS setup** (via `require('./sea-vfs-setup')`) — Loads manifest from `sea.getAsset('__pkg_manifest__', 'utf8')`, creates `SEAProvider` (extends `MemoryProvider`), loads `__pkg_archive__` blob, mounts at `/snapshot`. On Windows, patches `VirtualFileSystem.prototype.shouldHandle` and `resolvePath` to convert backslashes to POSIX
-2. **Apply shared patches** — Calls `patchDlopen()`, `patchChildProcess()`, `setupProcessPkg()` from `bootstrap-shared.js`
+2. **Apply shared patches** — `vfs.applyThreadPatches()` calls `patchDlopen()`, `patchChildProcess()`, `patchIntlSegmenter()` and `setupProcessPkg()` from `bootstrap-shared.js`
 3. **Diagnostics** — If `manifest.debug` is set (built with `--debug`), calls `installDiagnostic()`
 4. **Patch Worker threads** — Wraps `workerThreads.Worker` so workers spawned with `/snapshot/...` paths get the same VFS setup (see [Worker Thread Support](#worker-thread-support))
 5. **Start `module loading` perf phase**, set `process.argv[1]`, clear `Module._cache`
@@ -465,7 +465,7 @@ workerThreads.Worker(filename, options)
 
 The worker entry calls `require('./sea-vfs-setup')`, which sets up the same `SEAProvider` + `@roberts_lando/vfs` mount as the main thread. This means workers get the exact same VFS implementation (same archive blob, same `Buffer.subarray()` extraction, same 164+ fs function intercepts) with no code duplication.
 
-Each worker thread also gets its own `process`, `Intl` and builtin modules, so the main-thread patches don't carry over. Every per-thread patch `sea-bootstrap-core.js` applies from `bootstrap-shared.js` must also be applied in the worker entry, matching classic `bootstrap.js`, which runs in every thread.
+Each worker thread also gets its own `process`, `Intl` and builtin modules, so the main-thread patches don't carry over. Both entries call `applyThreadPatches()` from `sea-vfs-setup.js`, so a patch added there reaches every thread — matching classic `bootstrap.js`, which runs in every thread.
 
 **Build-time bundling:**
 
@@ -679,7 +679,7 @@ With `node:vfs` and `"useVfs": true` in the SEA config, assets will be auto-moun
 | `prelude/sea-bootstrap.js`       | ~74   | CJS wrapper: Module.runMain() (CJS) or vm.Script + USE_MAIN_CONTEXT_DEFAULT_LOADER (ESM/TLA) |
 | `prelude/sea-bootstrap-core.js`  | ~121  | Shared setup: VFS, patches, worker interception, diagnostics, perf start                     |
 | `prelude/sea-vfs-setup.js`       | ~648  | SEA VFS core: SEAProvider, archive loading, VFS mount, Windows patches                       |
-| `prelude/sea-worker-entry.js`    | ~40   | Worker thread entry: VFS via sea-vfs-setup.js, plus the per-thread shared patches            |
+| `prelude/sea-worker-entry.js`    | ~16   | Worker thread entry: VFS + per-thread patches via sea-vfs-setup.js                           |
 | `scripts/build-sea-bootstrap.js` | ~50   | Build script: 2-step esbuild bundling (worker string + CJS main)                             |
 | `lib/index.ts`                   | ~704  | CLI entry point, mode routing                                                                |
 | `lib/walker.ts`                  | ~1318 | Dependency walker (with seaMode support)                                                     |
