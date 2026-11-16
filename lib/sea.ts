@@ -400,8 +400,7 @@ async function fetchNodeIndex(baseUrl: string): Promise<NodeIndexEntry[]> {
  * the generator must match it to the patch, so all targets share one
  * version — the newest every target's release root has, since
  * unofficial-builds can lag nodejs.org (discussion #236). The range
- * comes from the first target; all targets share a major (see
- * {@link assertSingleTargetMajor}).
+ * is the same for every target (see {@link assertSingleTargetRange}).
  */
 async function resolveSharedNodeVersion(
   targets: readonly NodeTarget[],
@@ -631,12 +630,13 @@ function resolveMinTargetMajor(
 }
 
 /**
- * SEA prep blobs are Node-major specific (e.g. Node 25.8 added an
+ * SEA prep blobs are Node-version specific (e.g. Node 25.8 added an
  * exec_argv_extension header field), so a single blob cannot be safely
- * baked into binaries of different Node majors. Reject mixed-major target
- * lists up front instead of silently producing broken executables.
+ * baked into binaries of different Node versions. Reject mixed-major or
+ * mixed-range target lists up front: one range resolves to one version
+ * (see {@link resolveSharedNodeVersion}).
  */
-function assertSingleTargetMajor(
+export function assertSingleTargetRange(
   targets: (NodeTarget & Partial<Target>)[],
 ): void {
   const hostMajor = parseInt(process.version.slice(1), 10);
@@ -651,6 +651,15 @@ function assertSingleTargetMajor(
       `SEA mode cannot mix Node.js majors in a single run ` +
         `(got ${[...majors].sort((a, b) => a - b).join(', ')}). ` +
         `Run pkg once per Node major.`,
+    );
+  }
+
+  const ranges = new Set(targets.map((t) => t.nodeRange));
+  if (ranges.size > 1) {
+    throw wasReported(
+      `SEA mode needs one Node.js range for all targets ` +
+        `(got ${[...ranges].join(', ')}): one blob is baked into every ` +
+        `binary. Use the same range for every target.`,
     );
   }
 }
@@ -698,8 +707,8 @@ export function pickMatchingHostTargetIndex(
  *      the generator with a skewed node would reintroduce the same
  *      EXC_BAD_ACCESS this function exists to prevent.
  *
- * All targets share a single node major (enforced by
- * {@link assertSingleTargetMajor}).
+ * All targets share a single node range (enforced by
+ * {@link assertSingleTargetRange}).
  */
 async function pickBlobGeneratorBinary(
   targets: (NodeTarget & Partial<Target>)[],
@@ -801,7 +810,7 @@ export async function seaEnhanced(
     );
   }
 
-  assertSingleTargetMajor(opts.targets);
+  assertSingleTargetRange(opts.targets);
 
   const minTargetMajor = resolveMinTargetMajor(opts.targets);
   if (minTargetMajor < 22) {
@@ -939,7 +948,7 @@ export async function seaEnhanced(
 /** Create NodeJS executable using sea */
 export default async function sea(entryPoint: string, opts: SeaOptions) {
   assertHostSeaNodeVersion();
-  assertSingleTargetMajor(opts.targets);
+  assertSingleTargetRange(opts.targets);
 
   entryPoint = resolve(process.cwd(), entryPoint);
 

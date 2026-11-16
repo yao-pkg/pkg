@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
-import { getNodeArchive, getNodeDist, getNodeVersion } from '../../lib/sea';
+import {
+  assertSingleTargetRange,
+  getNodeArchive,
+  getNodeDist,
+  getNodeVersion,
+} from '../../lib/sea';
+import type { NodeTarget } from '../../lib/types';
 
 const OFFICIAL = 'https://nodejs.org/dist';
 const UNOFFICIAL = 'https://unofficial-builds.nodejs.org/download/release';
@@ -49,10 +55,12 @@ describe('getNodeDist', () => {
   });
 
   it('rejects alpine on archs with no musl build', () => {
-    assert.throws(
-      () => getNodeDist({ platform: 'alpine', arch: 'riscv64' }),
-      /Unsupported architecture for alpine: riscv64/,
-    );
+    for (const arch of ['riscv64', 'loong64']) {
+      assert.throws(
+        () => getNodeDist({ platform: 'alpine', arch }),
+        new RegExp(`Unsupported architecture for alpine: ${arch}`),
+      );
+    }
   });
 });
 
@@ -99,8 +107,9 @@ describe('getNodeVersion', () => {
       { version: 'v24.2.0', files: ['linux-x64', 'osx-arm64-tar'] },
       { version: 'v24.1.0', files: ['linux-x64', 'osx-arm64-tar'] },
     ],
-    // unofficial-builds lags: no v24.2.0 yet
+    // unofficial-builds lags: v24.2.0 has a glibc build but no musl one yet
     [`${UNOFFICIAL}/index.json`]: [
+      { version: 'v24.2.0', files: ['linux-x64-glibc-217'] },
       { version: 'v24.1.0', files: ['linux-x64-musl'] },
       { version: 'v24.0.0', files: ['linux-x64-musl'] },
     ],
@@ -122,6 +131,7 @@ describe('getNodeVersion', () => {
 
   it('picks the latest patch from the dist index', async () => {
     assert.equal(await getNodeVersion([glibc], '24'), 'v24.10.0');
+    // skips v24.2.0, which lists only a glibc build
     assert.equal(await getNodeVersion([musl], '24'), 'v24.1.0');
   });
 
@@ -139,6 +149,43 @@ describe('getNodeVersion', () => {
     await assert.rejects(
       getNodeVersion([glibc, musl], '24.2'),
       /Node version 24.2 not found with a build for every target/,
+    );
+  });
+
+  it('fails when a release index cannot be fetched', async () => {
+    mock.method(globalThis, 'fetch', async (url: string) =>
+      url.startsWith(UNOFFICIAL)
+        ? new Response('', { status: 503 })
+        : new Response(JSON.stringify(INDEXES[url])),
+    );
+    await assert.rejects(
+      getNodeVersion([glibc, musl], '24'),
+      /Failed to fetch node versions/,
+    );
+  });
+});
+
+describe('assertSingleTargetRange', () => {
+  const target = (nodeRange: string) =>
+    ({ nodeRange, platform: 'linux', arch: 'x64' }) as NodeTarget;
+
+  it('accepts targets that share one range', () => {
+    assert.doesNotThrow(() =>
+      assertSingleTargetRange([target('node24'), target('node24')]),
+    );
+  });
+
+  it('rejects mixed majors', () => {
+    assert.throws(
+      () => assertSingleTargetRange([target('node22'), target('node24')]),
+      /cannot mix Node.js majors/,
+    );
+  });
+
+  it('rejects mixed ranges within a major', () => {
+    assert.throws(
+      () => assertSingleTargetRange([target('node22.1'), target('node22')]),
+      /needs one Node.js range for all targets \(got node22.1, node22\)/,
     );
   });
 });
