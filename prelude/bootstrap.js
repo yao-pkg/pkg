@@ -1922,113 +1922,68 @@ function payloadFileSync(pointer) {
     throw new Error('UNEXPECTED-55');
   };
 
-  // package.json "imports" (subpath imports, e.g. `#ansi-styles` in chalk 5+).
-  // Node's own resolver reads package.json scopes outside of our patched fs,
-  // so it can't see the snapshot. Resolve them here the same way the walker
-  // did at build time (lib/resolver.ts resolvePackageImport): nearest
-  // package.json only, "require" conditions first, then "import".
-  const PACKAGE_IMPORT_CONDITIONS = [
-    ['default', 'require', 'node'],
-    ['default', 'import', 'node'],
-  ];
+  // package.json "imports" (`#name`): Node's resolver can't see package.json
+  // scopes in the snapshot. Same rules as resolvePackageImport() in
+  // lib/resolver.ts, see resolveImportsTargets() in bootstrap-shared.js.
+  function resolveSnapshotImport(request, parent, isMain, options) {
+    const notFound = (reason) => {
+      const error = new Error(
+        `Cannot find module '${request}' imported from ${parent.filename}: ${reason}`,
+      );
+      error.code = 'MODULE_NOT_FOUND';
+      return error;
+    };
 
-  function matchPackageImport(imports, request) {
-    if (Object.prototype.hasOwnProperty.call(imports, request)) {
-      return { target: imports[request], match: null };
-    }
-    let bestKey = null;
-    let bestMatch = null;
-    for (const key of Object.keys(imports)) {
-      const star = key.indexOf('*');
-      if (star === -1 || key.indexOf('*', star + 1) !== -1) continue;
-      const prefix = key.slice(0, star);
-      const suffix = key.slice(star + 1);
-      if (
-        request.length >= key.length &&
-        request.startsWith(prefix) &&
-        request.endsWith(suffix) &&
-        (bestKey === null || prefix.length > bestKey.indexOf('*'))
-      ) {
-        bestKey = key;
-        bestMatch = request.slice(
-          prefix.length,
-          request.length - suffix.length,
-        );
-      }
-    }
-    return bestKey === null
-      ? null
-      : { target: imports[bestKey], match: bestMatch };
-  }
-
-  function pickPackageImportTarget(target, conditions) {
-    if (typeof target === 'string') return [target];
-    if (Array.isArray(target)) {
-      const all = [];
-      for (const t of target)
-        all.push(...pickPackageImportTarget(t, conditions));
-      return all;
-    }
-    if (target && typeof target === 'object') {
-      for (const key of Object.keys(target)) {
-        if (conditions.includes(key)) {
-          const picked = pickPackageImportTarget(target[key], conditions);
-          if (picked.length) return picked;
-        }
-      }
-    }
-    return [];
-  }
-
-  function resolvePackageImport(request, parent, isMain, options) {
     let dir = path.dirname(parent.filename);
-    let pkgDir = null;
-    let pkg = null;
-    while (insideSnapshot(dir)) {
-      const pjson = path.join(dir, 'package.json');
-      if (fs.existsSync(pjson)) {
-        try {
-          pkg = JSON.parse(fs.readFileSync(pjson, 'utf8'));
-        } catch (_) {
-          return null;
-        }
-        pkgDir = dir;
-        break;
-      }
+    let packageJson = path.join(dir, 'package.json');
+    while (!fs.existsSync(packageJson)) {
       const up = path.dirname(dir);
-      if (up === dir) break;
+      if (up === dir || !insideSnapshot(up)) {
+        throw notFound('no package.json in the snapshot');
+      }
       dir = up;
+      packageJson = path.join(dir, 'package.json');
     }
-    if (!pkg || !pkg.imports || typeof pkg.imports !== 'object') return null;
-    const found = matchPackageImport(pkg.imports, request);
-    if (!found) return null;
 
-    for (const conditions of PACKAGE_IMPORT_CONDITIONS) {
-      for (let t of pickPackageImportTarget(found.target, conditions)) {
-        if (found.match !== null) t = t.split('*').join(found.match);
-        if (t.startsWith('./') || t.startsWith('../')) {
-          const full = path.join(pkgDir, t);
-          if (fs.existsSync(full)) return full;
-        } else if (!path.isAbsolute(t) && !t.startsWith('#')) {
-          // bare specifier target, e.g. "#dep": "some-package"
-          return Module._resolveFilename(t, parent, isMain, options);
-        }
+    let imports;
+    try {
+      imports = JSON.parse(fs.readFileSync(packageJson, 'utf8')).imports;
+    } catch (error) {
+      throw notFound(`cannot read ${packageJson}: ${error.message}`);
+    }
+    const found =
+      imports && typeof imports === 'object'
+        ? REQUIRE_SHARED.resolveImportsTargets(imports, request)
+        : null;
+    if (!found) throw notFound(`not defined in "imports" of ${packageJson}`);
+
+    for (const target of found.targets) {
+      if (target.startsWith('./') || target.startsWith('../')) {
+        const file = path.join(dir, target);
+        if (fs.existsSync(file)) return file;
+      } else if (!target.startsWith('#') && !path.isAbsolute(target)) {
+        // bare specifier or builtin, e.g. "#dep": "some-package"
+        return Module._resolveFilename(target, parent, isMain, options);
       }
     }
-    return null;
+    throw notFound(
+      `no usable target for "${found.key}" in "imports" of ${packageJson} ` +
+        `(${found.targets.join(', ') || 'no condition matches'})`,
+    );
   }
 
   Module._resolveFilename = function _resolveFilename() {
     const [request, parent] = arguments;
     if (
-      typeof request === 'string' &&
-      request[0] === '#' &&
+      request.startsWith('#') &&
       parent &&
       typeof parent.filename === 'string' &&
       insideSnapshot(parent.filename)
     ) {
-      const resolved = resolvePackageImport.apply(this, arguments);
-      if (resolved) return resolved;
+      // The rest of this override only changes a result that was found
+      // through the project fallback (flagWasOn), which is not used here.
+      // Bare targets pass through it in their own Module._resolveFilename call.
+      return resolveSnapshotImport.apply(this, arguments);
     }
 
     let filename;

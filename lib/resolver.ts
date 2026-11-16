@@ -4,8 +4,9 @@ import {
   imports as resolveImports,
 } from 'resolve.exports';
 import fs from 'fs';
+import { isBuiltin } from 'module';
 import path from 'path';
-import { isESMFile } from './common';
+import { findNearestPackageJsonFromDir, isESMFile } from './common';
 import { log } from './log';
 
 import type { PackageJson } from './types';
@@ -24,6 +25,25 @@ interface ResolveOptions {
 interface ResolveResult {
   resolved: string;
   isESM: boolean;
+}
+
+type ResolvedTargets = string | string[] | undefined;
+
+/**
+ * Resolve "exports" or "imports" targets with the condition order pkg uses
+ * for both: pkg bundles CJS code, so the `require` condition is tried first,
+ * then `import` for ESM-only targets.
+ * @param resolveTargets - Runs resolve.exports with the given options
+ * @returns The first non-empty result
+ */
+function resolveInConditionOrder(
+  resolveTargets: (options: { require: boolean }) => ResolvedTargets,
+): ResolvedTargets {
+  for (const preferRequire of [true, false]) {
+    const resolved = resolveTargets({ require: preferRequire });
+    if (resolved) return resolved;
+  }
+  return undefined;
 }
 
 /**
@@ -56,18 +76,9 @@ function resolveWithExports(
     }
 
     // Use resolve.exports to handle the exports field
-    // For pkg's context, we're bundling CJS code, so try 'require' condition first
-    // Then fallback to 'import' for ESM-only packages
-    let resolved = resolveExports(pkgAny, subpath, {
-      require: true, // Try require first
-    });
-
-    // Fallback to import condition for ESM-only packages
-    if (!resolved) {
-      resolved = resolveExports(pkgAny, subpath, {
-        require: false, // This enables import condition
-      });
-    }
+    const resolved = resolveInConditionOrder((options) =>
+      resolveExports(pkgAny, subpath, options),
+    );
 
     if (resolved) {
       // resolved can be a string or array
@@ -176,69 +187,82 @@ export function resolveModule(
   };
 }
 
-interface PackageImportResult {
-  /** Absolute path of the resolved file, or the bare target specifier */
+export interface PackageImportResult {
+  /** Absolute path of the resolved file, or the bare/builtin target specifier */
   target: string;
-  /** True if `target` is a bare specifier (e.g. "#dep": "some-pkg") */
-  isBare: boolean;
+  /**
+   * `file`: a file of the declaring package, `bare`: another package
+   * (e.g. "#dep": "some-pkg"), `builtin`: a Node.js builtin ("#fs": "node:fs")
+   */
+  kind: 'file' | 'bare' | 'builtin';
   /** package.json that declares the "imports" field */
   packageJson: string;
+  /** Parsed content of `packageJson` */
+  config: PackageJson;
 }
 
 /**
  * Resolve a package.json "imports" specifier (subpath import, e.g.
  * `#ansi-styles`). Like Node.js, only the nearest package.json of
  * `basedir` (the package scope) is consulted.
+ *
+ * The packaged binary resolves the specifier again at runtime with
+ * `resolveImportsTargets` in prelude/bootstrap-shared.js (the prelude can't
+ * load `resolve.exports`). Both must follow the same rules, otherwise the
+ * binary looks for files that were never bundled.
+ * test/unit/package-imports.test.ts compares the two.
  * @param specifier - Specifier starting with '#'
  * @param basedir - Directory of the importing file
- * @returns Resolution result or null if the specifier is not defined
+ * @returns Resolution result
+ * @throws If the specifier can't be resolved; the message names the reason
  */
 export function resolvePackageImport(
   specifier: string,
   basedir: string,
-): PackageImportResult | null {
-  if (!specifier.startsWith('#')) return null;
+): PackageImportResult {
+  const notFound = (reason: string) =>
+    new Error(`Cannot find module '${specifier}' from '${basedir}': ${reason}`);
 
-  let dir = path.resolve(basedir);
-  while (true) {
-    const packageJson = path.join(dir, 'package.json');
-    if (fs.existsSync(packageJson)) {
-      let pkg: Record<string, unknown>;
-      try {
-        pkg = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
-      } catch {
-        return null;
-      }
-      if (!pkg.imports) return null;
+  const packageJson = findNearestPackageJsonFromDir(path.resolve(basedir));
+  if (!packageJson) throw notFound('no package.json found');
 
-      // Same condition order as for "exports": prefer require (pkg transforms
-      // ESM to CJS), fall back to import for ESM-only targets
-      let resolved: string | string[] | undefined;
-      for (const require of [true, false]) {
-        try {
-          resolved = resolveImports(pkg, specifier, { require });
-        } catch {
-          resolved = undefined;
-        }
-        if (resolved) break;
-      }
-      if (!resolved) return null;
-
-      const targets = Array.isArray(resolved) ? resolved : [resolved];
-      for (const target of targets) {
-        if (target.startsWith('./') || target.startsWith('../')) {
-          const fullPath = path.join(dir, target);
-          if (fs.existsSync(fullPath)) {
-            return { target: fullPath, isBare: false, packageJson };
-          }
-        } else if (!path.isAbsolute(target)) {
-          return { target, isBare: true, packageJson };
-        }
-      }
-      return null;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
+  let config: PackageJson;
+  try {
+    config = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+  } catch (error) {
+    throw notFound(`cannot read ${packageJson}: ${(error as Error).message}`);
   }
+
+  const resolved = resolveInConditionOrder((options) => {
+    try {
+      return resolveImports(
+        config as Record<string, unknown>,
+        specifier,
+        options,
+      );
+    } catch {
+      // resolve.exports throws for an unknown key and for unmatched conditions
+      return undefined;
+    }
+  });
+  if (!resolved) {
+    throw notFound(`not defined in "imports" of ${packageJson}`);
+  }
+
+  const targets = Array.isArray(resolved) ? resolved : [resolved];
+  for (const target of targets) {
+    if (target.startsWith('./') || target.startsWith('../')) {
+      const file = path.join(path.dirname(packageJson), target);
+      if (fs.existsSync(file)) {
+        return { target: file, kind: 'file', packageJson, config };
+      }
+    } else if (!target.startsWith('#') && !path.isAbsolute(target)) {
+      // Another `#` specifier is not a valid target (and could loop forever)
+      const kind = isBuiltin(target) ? 'builtin' : 'bare';
+      return { target, kind, packageJson, config };
+    }
+  }
+  throw notFound(
+    `no usable target in "imports" of ${packageJson} (${targets.join(', ')})`,
+  );
 }

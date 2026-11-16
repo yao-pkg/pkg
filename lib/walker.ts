@@ -944,6 +944,12 @@ class Walker {
       }
     }
 
+    // package.json "imports" can map to a builtin ("#fs": "node:fs"). Only
+    // the declaring package.json (added above) goes into the snapshot then
+    if (isBuiltin(newFile)) {
+      return;
+    }
+
     // Keep the original logic for determining the marker for the resolved file
     if (newPackageForNewRecords) {
       if (strictVerify) {
