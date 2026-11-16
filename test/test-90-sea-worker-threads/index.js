@@ -62,6 +62,7 @@ async function main() {
     console.log('helperResult:' + result.helperResult);
     console.log('addonExtracted:' + result.addonExtracted);
     console.log('spawnUsesExecPath:' + result.spawnUsesExecPath);
+    console.log('execUsesExecPath:' + result.execUsesExecPath);
   } catch (e) {
     console.log('worker-error:' + e.message);
   }

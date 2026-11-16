@@ -18,7 +18,7 @@ var shared = require('./bootstrap-shared');
 var vfs = require('./sea-vfs-setup');
 var perf = vfs.perf;
 var manifest = vfs.manifest;
-var entrypoint = vfs.toPlatformPath(manifest.entrypoint);
+var entrypoint = vfs.entrypoint;
 var insideSnapshot = vfs.insideSnapshot;
 var SNAPSHOT_PREFIX = vfs.SNAPSHOT_PREFIX;
 

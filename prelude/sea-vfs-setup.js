@@ -640,10 +640,11 @@ function insideSnapshot(f) {
   return false;
 }
 
+var entrypoint = toPlatformPath(manifest.entrypoint);
+
 // Each thread gets its own `process`, `Intl` and builtin modules, so the main
 // thread and every worker must call this. Classic bootstrap.js runs per thread.
 function applyThreadPatches() {
-  var entrypoint = toPlatformPath(manifest.entrypoint);
   shared.patchDlopen(insideSnapshot);
   shared.patchChildProcess(entrypoint);
   shared.patchIntlSegmenter();
@@ -652,6 +653,7 @@ function applyThreadPatches() {
 
 module.exports = {
   applyThreadPatches,
+  entrypoint,
   manifest,
   virtualFs,
   provider,

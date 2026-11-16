@@ -1,7 +1,7 @@
 'use strict';
 
 const { parentPort, workerData } = require('worker_threads');
-const { spawnSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -56,28 +56,38 @@ try {
   addonExtracted = 'ERROR:' + e.message;
 }
 
-// pkg rewrites spawn('node', ...) to the packaged binary, which prints
-// `packaged-binary` (see index.js). Unpatched, system node prints its version.
-let spawnUsesExecPath;
-try {
-  const child = spawnSync('node', ['--version'], {
-    env: Object.assign({}, process.env, { PKG_TEST_90_CHILD: '1' }),
-    encoding: 'utf8',
-    timeout: 10000,
-  });
+// pkg rewrites `node` to the packaged binary, which prints `packaged-binary`
+// (see index.js). Unpatched, system node prints its version. spawnSync and
+// execSync take different rewrite paths, so both are checked.
+const childOpts = {
+  env: Object.assign({}, process.env, { PKG_TEST_90_CHILD: '1' }),
+  encoding: 'utf8',
+  timeout: 10000,
+};
+
+function childVerdict(child) {
   const out = (child.stdout || '').trim();
-  if (out === 'packaged-binary') {
-    spawnUsesExecPath = true;
-  } else {
-    spawnUsesExecPath = JSON.stringify({
-      stdout: out,
-      status: child.status,
-      error: child.error && child.error.code,
-      stderr: (child.stderr || '').slice(0, 200),
-    });
-  }
+  if (out === 'packaged-binary') return true;
+  return JSON.stringify({
+    stdout: out,
+    status: child.status,
+    error: child.error ? child.error.code : child.code,
+    stderr: String(child.stderr || '').slice(0, 200),
+  });
+}
+
+const spawnUsesExecPath = childVerdict(
+  spawnSync('node', ['--version'], childOpts),
+);
+
+let execUsesExecPath;
+try {
+  execUsesExecPath = childVerdict({
+    stdout: execSync('node --version', childOpts),
+  });
 } catch (e) {
-  spawnUsesExecPath = 'ERROR:' + e.message;
+  // execSync throws on a non-zero exit; e carries stdout/stderr/status
+  execUsesExecPath = childVerdict(e);
 }
 
 parentPort.postMessage({
@@ -88,4 +98,5 @@ parentPort.postMessage({
   helperResult,
   addonExtracted,
   spawnUsesExecPath,
+  execUsesExecPath,
 });

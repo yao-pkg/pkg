@@ -35,7 +35,8 @@ const expected =
   'hasProcessPkg:true\n' +
   'helperResult:hello world\n' +
   'addonExtracted:true\n' +
-  'spawnUsesExecPath:true\n';
+  'spawnUsesExecPath:true\n' +
+  'execUsesExecPath:true\n';
 
 utils.assertSeaOutput(testName, expected);
 
