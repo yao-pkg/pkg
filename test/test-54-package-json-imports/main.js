@@ -9,55 +9,58 @@ const utils = require('../utils.js');
 assert(!module.parent);
 assert(__dirname === process.cwd());
 
-// package.json "imports" (subpath imports, `#name`): exact keys, conditions,
-// `*` patterns and their precedence, array, bare and builtin targets, used
-// from an ESM package, a CJS package and the app itself.
-// Standard mode only: SEA mode doesn't resolve `#` specifiers yet.
+// package.json "imports" (subpath imports, `#name`) in an ESM package, a CJS
+// package and the app. The entry is in a subdirectory, so the app's
+// package.json is above it.
 
 const target = process.argv[2] || 'host';
+const input = './bin/index.js';
 const output = './run-time/test-output.exe';
-const outputMissing = './run-time/test-output-missing.exe';
+const outputSea = './run-time/test-output-sea.exe';
 
 utils.mkdirp.sync(path.dirname(output));
 
 const expected =
-  'plain,node,internal,exact,tie,array,bare,builtin\ncjs:util,scope\napp\n';
+  'plain,node,internal,bare,builtin\ncjs:util,scope\napp\n' +
+  'ERR_PACKAGE_IMPORT_NOT_DEFINED ERR_PACKAGE_IMPORT_NOT_DEFINED ' +
+  'MODULE_NOT_FOUND ERR_INVALID_PACKAGE_TARGET\n';
 
-const left = utils.spawn.sync('node', ['index.js']);
+const left = utils.spawn.sync('node', [input]);
 assert.strictEqual(left, expected);
 
-const log = utils.pkg.sync(
-  ['--target', target, '--output', output, './package.json'],
-  { stdio: 'pipe' },
+const log = utils.pkg.sync(['--target', target, '--output', output, input], {
+  stdio: 'pipe',
+});
+// the entry's four broken imports are expected to be reported
+const unresolved = (log.stdout + log.stderr).match(
+  /Cannot find module '#[^']+'/g,
 );
-assert(
-  !/Cannot find module '#/.test(log.stdout + log.stderr),
-  `pkg should resolve package.json imports, got:\n${log.stdout}${log.stderr}`,
+assert.deepStrictEqual(
+  [...new Set(unresolved)].sort(),
+  ['#browser-only', '#invalid-target', '#missing-file', '#undefined'].map(
+    (specifier) => `Cannot find module '${specifier}'`,
+  ),
 );
 
 const right = utils.spawn.sync(output, []);
 assert.strictEqual(right, expected);
 
-// An import that is not defined: a warning with the reason when packaging,
-// and an error that names the package.json when the binary runs
+// SEA mode shares the walker, but resolves `#` imports in its own VFS layer,
+// which reports every failure as MODULE_NOT_FOUND: compare the resolved part
 
-const logMissing = utils.pkg.sync(
-  ['--target', target, '--output', outputMissing, './missing/package.json'],
+utils.pkg.sync(
+  ['./package.json', '--sea', '--target', 'host', '--output', outputSea],
   { stdio: 'pipe' },
 );
-assert.match(
-  logMissing.stdout + logMissing.stderr,
-  /Cannot find module '#undefined' from .*: not defined in "imports" of .*package\.json/,
+const sea = utils.spawn.sync(outputSea, []).replace(/\r\n/g, '\n');
+assert.strictEqual(
+  sea.split('\n').slice(0, 3).join('\n'),
+  expected.split('\n').slice(0, 3).join('\n'),
 );
 
-const missing = utils.spawn.sync(outputMissing, [], {
-  stdio: 'pipe',
-  expect: 1,
-});
-assert.match(
-  missing.stderr,
-  /Cannot find module '#undefined' imported from .*index\.js: not defined in "imports" of .*package\.json/,
-);
-assert.match(missing.stderr, /code: 'MODULE_NOT_FOUND'/);
-
-utils.vacuum.sync(path.dirname(output));
+try {
+  utils.vacuum.sync(path.dirname(output));
+} catch (error) {
+  // Windows briefly keeps a lock on a SEA binary that just ran
+  if (process.platform !== 'win32' || error.code !== 'EBUSY') throw error;
+}

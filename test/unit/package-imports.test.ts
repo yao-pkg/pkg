@@ -4,110 +4,170 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { imports as resolveExportsImports } from 'resolve.exports';
 
 import { resolvePackageImport } from '../../lib/resolver';
 
-const shared = createRequire(__filename)('../../prelude/bootstrap-shared.js');
-const resolveImportsTargets = shared.resolveImportsTargets as (
-  _imports: Record<string, unknown>,
-  _request: string,
-) => { key: string; targets: string[] } | null;
+// resolvePackageImport() must pick the file that plain `node` picks. The
+// packaged binary uses the same rules (resolveImportsTarget in
+// lib/common.ts); test-54-package-json-imports runs it.
 
-// package.json "imports" are resolved twice: by resolvePackageImport() when
-// packaging and by resolveImportsTargets() in the packaged binary.
-// test-54-package-json-imports covers the common cases end to end.
+const imports = {
+  '#exact': './lib/a.js',
+  '#dir/exact': './lib/a.js',
+  '#dir/*': './lib/dir/*.js',
+  '#fixed/*': './lib/a.js',
+  // Node ranks patterns by the part before `*`, then by key length
+  '#ab*': './lib/one/*.js',
+  '#a*bc': './lib/two/*.js',
+  '#tie/*': './lib/short/*',
+  '#tie/*.js': './lib/long/*.js',
+  '#two/*/*': './lib/a.js',
+  '#cond': { node: './lib/a.js', default: './lib/b.js' },
+  '#require': { require: './lib/a.js', import: './lib/b.js' },
+  '#default-first': { default: './lib/b.js', require: './lib/a.js' },
+  // a nested branch without a match falls through to the next condition
+  '#nested': { node: { browser: './lib/a.js' }, default: './lib/b.js' },
+  '#array': [{ browser: './lib/a.js' }, './lib/b.js'],
+  '#array-invalid-first': ['../outside.js', './lib/b.js'],
+  // the first valid target of an array counts, existing or not
+  '#array-missing-first': ['./lib/missing.js', './lib/b.js'],
+  '#browser': { browser: './lib/a.js' },
+  '#null': null,
+  '#missing': './lib/missing.js',
+  '#directory': './lib/dir',
+  '#parent': '../outside.js',
+  '#absolute': '/outside.js',
+  '#url': 'node:fs',
+  '#node-modules': './node_modules/dep/index.js',
+  '#legacy/': './lib/',
+};
+
+const requests = [
+  ...Object.keys(imports).filter((key) => !/[*/]$|\*/.test(key)),
+  '#dir/b',
+  '#dir/deep/c',
+  '#dir/../a',
+  '#fixed/anything',
+  '#abbc',
+  '#tie/x.js',
+  '#tie/x.ts',
+  '#two/x/y',
+  '#legacy/a.js',
+  '#unknown',
+  '#',
+];
+
+const files = [
+  'lib/a.js',
+  'lib/b.js',
+  'lib/dir/b.js',
+  'lib/dir/deep/c.js',
+  'lib/one/bc.js',
+  'lib/two/b.js',
+  'lib/short/x.js',
+  'lib/short/x.ts',
+  'lib/long/x.js',
+  'scope/own.js',
+  'outside.js',
+];
 
 describe('resolvePackageImport', () => {
   let root: string;
+  const app = (...parts: string[]) => path.join(root, 'app', ...parts);
 
-  /** Writes files below the temp dir, objects as JSON */
-  function write(files: Record<string, unknown>) {
-    for (const [file, content] of Object.entries(files)) {
-      const full = path.join(root, file);
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(
-        full,
-        typeof content === 'string' ? content : JSON.stringify(content),
-      );
+  function write(file: string, content: unknown = '') {
+    const full = path.join(root, file);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(
+      full,
+      typeof content === 'string' ? content : JSON.stringify(content),
+    );
+  }
+
+  /** The file plain `node` resolves `request` to, or the error code */
+  function nodeResolve(request: string): string {
+    try {
+      return createRequire(app('index.js')).resolve(request);
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code as string;
     }
   }
 
   before(() => {
-    root = fs.realpathSync(
+    root = fs.realpathSync.native(
       fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-imports-')),
     );
-    write({
-      'app/package.json': {
-        name: 'app',
-        imports: {
-          '#file': './lib/file.js',
-          '#esm-only': { import: './lib/file.js' },
-          '#both': { require: './lib/file.js', import: './lib/other.js' },
-          '#array': ['./lib/missing.js', './lib/other.js'],
-          '#bare': 'some-package',
-          '#builtin': 'fs',
-          '#loop': '#file',
-          '#gone': './lib/missing.js',
-          '#browser': { browser: './lib/file.js' },
-        },
+    write('app/package.json', {
+      name: 'app',
+      imports: {
+        ...imports,
+        '#esm-only': { import: './lib/b.js' },
+        '#bare': 'some-package',
+        '#builtin': 'fs',
+        '#hash': '#exact',
       },
-      'app/lib/file.js': '',
-      'app/lib/other.js': '',
-      'app/lib/deep/index.js': '',
-      'app/scope/package.json': { imports: { '#file': './own.js' } },
-      'app/scope/own.js': '',
-      'broken/package.json': '{ "imports": ',
-      'broken/index.js': '',
     });
+    for (const file of files) write(`app/${file}`);
+    write('app/scope/package.json', { imports: { '#exact': './own.js' } });
+    write('no-imports/package.json', { name: 'no-imports' });
+    write('broken/package.json', '{ "imports": ');
   });
 
   after(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  const app = (...parts: string[]) => path.join(root, 'app', ...parts);
+  for (const request of requests) {
+    it(`resolves ${request} like node`, () => {
+      const expected = nodeResolve(request);
+      if (path.isAbsolute(expected)) {
+        const result = resolvePackageImport(request, app());
+        assert.equal(result.kind, 'file');
+        assert.equal(result.target, expected);
+      } else {
+        assert.throws(() => resolvePackageImport(request, app()));
+      }
+    });
+  }
 
-  it('resolves a file target and returns the declaring package.json', () => {
-    const result = resolvePackageImport('#file', app('lib'));
-    assert.equal(result.kind, 'file');
-    assert.equal(result.target, app('lib', 'file.js'));
-    assert.equal(result.packageJson, app('package.json'));
-    assert.equal(result.config.name, 'app');
+  it('covers resolved imports and each kind of failure', () => {
+    // guards the comparison above against a table that only fails
+    const outcomes = new Set(
+      requests.map((request) => {
+        const result = nodeResolve(request);
+        return path.isAbsolute(result) ? 'resolved' : result;
+      }),
+    );
+    for (const outcome of [
+      'resolved',
+      'ERR_PACKAGE_IMPORT_NOT_DEFINED',
+      'ERR_INVALID_PACKAGE_TARGET',
+      'MODULE_NOT_FOUND',
+    ]) {
+      assert.ok(outcomes.has(outcome), `no request with outcome ${outcome}`);
+    }
   });
 
-  it('uses the nearest package.json only', () => {
-    assert.equal(
-      resolvePackageImport('#file', app('lib', 'deep')).target,
-      app('lib', 'file.js'),
-    );
+  it('ranks patterns and conditions like node', () => {
+    const target = (request: string) =>
+      path
+        .relative(app(), resolvePackageImport(request, app()).target)
+        .replace(/\\/g, '/');
 
-    const scoped = resolvePackageImport('#file', app('scope'));
-    assert.equal(scoped.target, app('scope', 'own.js'));
-    assert.equal(scoped.packageJson, app('scope', 'package.json'));
-
-    // defined in the parent scope, but not in the nearest one
-    assert.throws(
-      () => resolvePackageImport('#bare', app('scope')),
-      /not defined in "imports"/,
-    );
+    assert.equal(target('#dir/exact'), 'lib/a.js');
+    assert.equal(target('#abbc'), 'lib/one/bc.js');
+    assert.equal(target('#tie/x.js'), 'lib/long/x.js');
+    assert.equal(target('#tie/x.ts'), 'lib/short/x.ts');
+    assert.equal(target('#nested'), 'lib/b.js');
+    assert.equal(target('#default-first'), 'lib/b.js');
+    assert.equal(target('#array-invalid-first'), 'lib/b.js');
   });
 
-  it('prefers the require condition and falls back to import', () => {
-    assert.equal(
-      resolvePackageImport('#both', app()).target,
-      app('lib', 'file.js'),
-    );
+  it('falls back to the import condition (pkg bundles ESM as CJS)', () => {
+    assert.equal(nodeResolve('#esm-only'), 'ERR_PACKAGE_IMPORT_NOT_DEFINED');
     assert.equal(
       resolvePackageImport('#esm-only', app()).target,
-      app('lib', 'file.js'),
-    );
-  });
-
-  it('takes the first array target that exists', () => {
-    assert.equal(
-      resolvePackageImport('#array', app()).target,
-      app('lib', 'other.js'),
+      app('lib', 'b.js'),
     );
   });
 
@@ -121,107 +181,33 @@ describe('resolvePackageImport', () => {
     assert.equal(builtin.target, 'fs');
   });
 
+  it('returns the declaring package.json of the nearest scope', () => {
+    const result = resolvePackageImport('#exact', app('lib', 'dir'));
+    assert.equal(result.packageJson, app('package.json'));
+    assert.equal(result.config.name, 'app');
+
+    const scoped = resolvePackageImport('#exact', app('scope'));
+    assert.equal(scoped.target, app('scope', 'own.js'));
+    assert.equal(scoped.packageJson, app('scope', 'package.json'));
+    assert.throws(() => resolvePackageImport('#bare', app('scope')));
+  });
+
   it('names the reason when the specifier cannot be resolved', () => {
     const cases: [string, string, RegExp][] = [
-      ['#nope', app(), /'#nope' from .*: not defined in "imports" of .*app/],
-      ['#browser', app(), /not defined in "imports"/],
-      ['#gone', app(), /no usable target in "imports" of .*missing\.js/],
-      ['#loop', app(), /no usable target in "imports" of .*#file/],
-      ['#file', path.join(root, 'broken'), /cannot read .*broken/],
+      ['#unknown', 'app', /'#unknown' from .*: not defined in "imports" of/],
+      ['#browser', 'app', /not defined in "imports" of .*package\.json/],
+      ['#missing', 'app', /missing\.js is not a file/],
+      ['#directory', 'app', /dir is not a file/],
+      ['#parent', 'app', /Invalid "imports" target "\.\.\/outside\.js" in/],
+      ['#hash', 'app', /Invalid "imports" target "#exact" in/],
+      ['#exact', 'no-imports', /not defined in "imports" of/],
+      ['#exact', 'broken', /JSON.* in .*broken/],
     ];
-    for (const [specifier, basedir, message] of cases) {
-      assert.throws(() => resolvePackageImport(specifier, basedir), message);
+    for (const [specifier, dir, message] of cases) {
+      assert.throws(
+        () => resolvePackageImport(specifier, path.join(root, dir)),
+        message,
+      );
     }
-  });
-});
-
-describe('resolveImportsTargets (runtime)', () => {
-  const imports = {
-    '#exact': './exact.js',
-    '#dir/exact': './dir-exact.js',
-    '#dir/*': './dir/*.js',
-    '#tie/*': './tie-short/*',
-    '#tie/*.js': './tie-long/*.js',
-    '#late/*.js': './late-long/*.js',
-    '#late/*': './late-short/*',
-    '#same/*x': './same-first/*',
-    '#same/x*': './same-last/*',
-    '#legacy/': './legacy/',
-    '#fixed/*': './fixed.js',
-    '#cond': { node: './node.js', default: './default.js' },
-    '#require': { require: './cjs.js', import: './esm.js' },
-    '#import': { import: './esm.js' },
-    '#nested': { node: { import: './esm.js' }, default: './default.js' },
-    '#array': ['./a.js', { browser: './browser.js' }, ['./b.js', './a.js']],
-    '#browser': { browser: './browser.js' },
-    '#bare': 'some-package',
-    '#null': null,
-  };
-
-  const requests = [
-    '#exact',
-    '#dir/exact',
-    '#dir/other',
-    '#dir/deep/file',
-    '#dir/',
-    '#tie/value.js',
-    '#tie/value.ts',
-    '#late/value.js',
-    '#same/xx',
-    '#legacy/file.js',
-    '#fixed/anything',
-    '#cond',
-    '#require',
-    '#import',
-    '#nested',
-    '#array',
-    '#browser',
-    '#bare',
-    '#null',
-    '#unknown',
-  ];
-
-  // Not compared: keys with more than one `*`. Node.js doesn't treat them as
-  // patterns and neither does the runtime, resolve.exports matches some.
-
-  /** What resolvePackageImport() gets from resolve.exports at build time */
-  function buildTimeTargets(request: string): string[] {
-    for (const preferRequire of [true, false]) {
-      try {
-        const resolved = resolveExportsImports({ imports }, request, {
-          require: preferRequire,
-        });
-        if (resolved) return ([] as string[]).concat(resolved);
-      } catch {
-        // unknown key or no matching condition
-      }
-    }
-    return [];
-  }
-
-  for (const request of requests) {
-    it(`agrees with the build-time resolution of ${request}`, () => {
-      const found = resolveImportsTargets(imports, request);
-      assert.deepEqual(found ? found.targets : [], buildTimeTargets(request));
-    });
-  }
-
-  it('prefers an exact key, then the longest pattern key', () => {
-    const targets = (request: string) =>
-      resolveImportsTargets(imports, request)?.targets;
-
-    assert.deepEqual(targets('#dir/exact'), ['./dir-exact.js']);
-    assert.deepEqual(targets('#dir/other'), ['./dir/other.js']);
-    assert.deepEqual(targets('#tie/value.js'), ['./tie-long/value.js']);
-    assert.deepEqual(targets('#late/value.js'), ['./late-long/value.js']);
-    assert.deepEqual(targets('#tie/value.ts'), ['./tie-short/value.ts']);
-  });
-
-  it('tells an unknown key from a key without a matching condition', () => {
-    assert.equal(resolveImportsTargets(imports, '#unknown'), null);
-    assert.deepEqual(resolveImportsTargets(imports, '#browser'), {
-      key: '#browser',
-      targets: [],
-    });
   });
 });
