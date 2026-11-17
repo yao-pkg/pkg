@@ -932,8 +932,11 @@ class Walker {
           `${path.sep}node_modules${path.sep}`,
         );
         const isInMarkerBase = marker.base && file.startsWith(marker.base);
+        // The runtime reads the package.json that declares a "#" import,
+        // also when it is above the entry file (e.g. `pkg dist/cli.js`)
+        const declaresImports = derivative.alias.startsWith('#');
 
-        if (isInNodeModules || isInMarkerBase) {
+        if (isInNodeModules || isInMarkerBase || declaresImports) {
           await this.appendBlobOrContent({
             file,
             marker: newPackage.marker,
@@ -944,7 +947,7 @@ class Walker {
       }
     }
 
-    // package.json "imports" can map to a builtin ("#fs": "node:fs"). Only
+    // package.json "imports" can map to a builtin ("#fs": "fs"). Only
     // the declaring package.json (added above) goes into the snapshot then
     if (isBuiltin(newFile)) {
       return;

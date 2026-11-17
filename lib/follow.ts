@@ -64,15 +64,19 @@ async function followPackageImport(
 ): Promise<string> {
   const result = resolvePackageImport(x, opts.basedir || process.cwd());
   const dir = path.dirname(result.packageJson);
-  const resolved =
-    result.kind === 'bare'
-      ? await follow(result.target, { ...opts, basedir: dir })
-      : result.target;
+  let resolved = result.target;
 
-  // The declaring package.json must be in the snapshot, the runtime resolver
-  // in the prelude reads its "imports" field. Report it only now that the
-  // target is resolved: after a failure the walker would blame this package
-  // for a missing "main".
+  if (result.kind === 'bare') {
+    try {
+      resolved = await follow(result.target, { ...opts, basedir: dir });
+    } catch (error) {
+      throw new Error(
+        `${(error as Error).message} (target of '${x}' in ${result.packageJson})`,
+      );
+    }
+  }
+
+  // Reported after resolving, so a failure isn't blamed on this package's "main"
   if (opts.catchReadFile) {
     opts.catchReadFile(result.packageJson);
     if (opts.catchPackageFilter) {

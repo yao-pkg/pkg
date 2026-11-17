@@ -303,11 +303,7 @@ export function findNearestPackageJsonFromDir(dir: string): string | null {
   return null;
 }
 
-/**
- * Find the nearest package.json file by walking up the directory tree
- * @param filePath - Starting file path
- * @returns Path to package.json or null if not found
- */
+/** Like findNearestPackageJsonFromDir, starting at the directory of a file */
 function findNearestPackageJson(filePath: string): string | null {
   return findNearestPackageJsonFromDir(path.dirname(filePath));
 }
@@ -380,4 +376,162 @@ export function isESMFile(filePath: string): boolean {
   }
 
   return false;
+}
+
+// /////////////////////////////////////////////////////////////////
+// PACKAGE.JSON "IMPORTS" //////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// The rules for package.json "imports" specifiers (`#name`). The walker
+// (resolvePackageImport in resolver.ts) and the prelude (resolveSnapshotImport
+// in bootstrap.js, which gets this file as REQUIRE_COMMON) both call
+// resolveImportsTarget, so the binary looks for exactly the files that were
+// bundled. The rules are those of Node.js (PACKAGE_IMPORTS_RESOLVE), with one
+// addition: pkg bundles CJS, so the `require` conditions are tried first and
+// the `import` conditions only if they give nothing.
+const IMPORTS_CONDITIONS = [
+  ['node', 'require', 'module-sync', 'node-addons'],
+  ['node', 'import', 'module-sync', 'node-addons'],
+];
+
+const INVALID_IMPORTS_SEGMENT = /(^|[\\/])(\.\.?|node_modules)([\\/]|$)/i;
+
+function invalidImportsTarget(target: unknown) {
+  return Object.assign(
+    new Error(`Invalid "imports" target ${JSON.stringify(target)}`),
+    { code: 'ERR_INVALID_PACKAGE_TARGET' },
+  );
+}
+
+function parsesAsUrl(target: string) {
+  try {
+    return Boolean(new URL(target));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Node's PATTERN_KEY_COMPARE for two keys with a `*`: the longer part before
+ * the `*` ranks first, then the longer key.
+ */
+function ranksBefore(key: string, other: string) {
+  const base = key.indexOf('*');
+  const otherBase = other.indexOf('*');
+  return base !== otherBase ? base > otherBase : key.length > other.length;
+}
+
+/**
+ * The key of `imports` for `request`: the exact key, else the best-ranked key
+ * with a single `*` that matches. `match` is what the `*` stands for.
+ */
+function matchImportsKey(imports: Record<string, unknown>, request: string) {
+  if (Object.hasOwn(imports, request) && !request.includes('*')) {
+    return { key: request, match: null };
+  }
+
+  let best: { key: string; match: string } | null = null;
+  for (const key of Object.keys(imports)) {
+    const star = key.indexOf('*');
+    if (star === -1 || key.lastIndexOf('*') !== star) continue;
+
+    const suffix = key.slice(star + 1);
+    if (
+      request.length >= key.length &&
+      request.startsWith(key.slice(0, star)) &&
+      request.endsWith(suffix) &&
+      (!best || ranksBefore(key, best.key))
+    ) {
+      best = {
+        key,
+        match: request.slice(star, request.length - suffix.length),
+      };
+    }
+  }
+  return best;
+}
+
+/**
+ * Node's PACKAGE_TARGET_RESOLVE. Returns a `./` path, a bare specifier, or
+ * null/undefined when the target leads nowhere; throws for an invalid target.
+ */
+function resolveImportsValue(
+  value: unknown,
+  match: string | null,
+  conditions: string[],
+): string | null | undefined {
+  if (typeof value === 'string') {
+    const target = match === null ? value : value.split('*').join(match);
+    if (!value.startsWith('./')) {
+      const bare = !/^(\.\.\/|\/|#)/.test(value) && !parsesAsUrl(value);
+      if (!bare) throw invalidImportsTarget(value);
+      return target;
+    }
+    if (INVALID_IMPORTS_SEGMENT.test(target.slice(2))) {
+      throw invalidImportsTarget(value);
+    }
+    return target;
+  }
+
+  if (Array.isArray(value)) {
+    let lastError: Error | null | undefined;
+    for (const item of value) {
+      let resolved;
+      try {
+        resolved = resolveImportsValue(item, match, conditions);
+      } catch (error) {
+        const { code } = error as NodeJS.ErrnoException;
+        if (code !== 'ERR_INVALID_PACKAGE_TARGET') throw error;
+        lastError = error as Error;
+        continue;
+      }
+      if (resolved === undefined) continue;
+      if (resolved !== null) return resolved;
+      lastError = null;
+    }
+    if (lastError) throw lastError;
+    return lastError;
+  }
+
+  if (value === null) return null;
+  if (typeof value !== 'object') throw invalidImportsTarget(value);
+
+  for (const [condition, branch] of Object.entries(value)) {
+    if (condition === 'default' || conditions.includes(condition)) {
+      const resolved = resolveImportsValue(branch, match, conditions);
+      if (resolved !== undefined) return resolved;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Map a package.json "imports" specifier to its target
+ * @param imports - "imports" field of the nearest package.json
+ * @param request - Specifier starting with '#'
+ * @returns A path relative to that package.json (starts with `./`), a bare
+ * specifier (another package or a builtin), or null if the import is not
+ * defined
+ * @throws ERR_INVALID_PACKAGE_TARGET for a target Node.js rejects
+ */
+export function resolveImportsTarget(
+  imports: unknown,
+  request: string,
+): string | null {
+  if (!imports || typeof imports !== 'object') return null;
+  if (request === '#' || request.endsWith('/')) return null;
+
+  const table = imports as Record<string, unknown>;
+  const found = matchImportsKey(table, request);
+  if (!found) return null;
+
+  for (const conditions of IMPORTS_CONDITIONS) {
+    const target = resolveImportsValue(
+      table[found.key],
+      found.match,
+      conditions,
+    );
+    if (target != null) return target;
+  }
+  return null;
 }

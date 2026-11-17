@@ -1922,68 +1922,78 @@ function payloadFileSync(pointer) {
     throw new Error('UNEXPECTED-55');
   };
 
-  // package.json "imports" (`#name`): Node's resolver can't see package.json
-  // scopes in the snapshot. Same rules as resolvePackageImport() in
-  // lib/resolver.ts, see resolveImportsTargets() in bootstrap-shared.js.
-  function resolveSnapshotImport(request, parent, isMain, options) {
-    const notFound = (reason) => {
-      const error = new Error(
-        `Cannot find module '${request}' imported from ${parent.filename}: ${reason}`,
-      );
-      error.code = 'MODULE_NOT_FOUND';
-      return error;
-    };
-
-    let dir = path.dirname(parent.filename);
-    let packageJson = path.join(dir, 'package.json');
-    while (!fs.existsSync(packageJson)) {
-      const up = path.dirname(dir);
-      if (up === dir || !insideSnapshot(up)) {
-        throw notFound('no package.json in the snapshot');
-      }
-      dir = up;
-      packageJson = path.join(dir, 'package.json');
+  function findSnapshotPackageJson(dir) {
+    while (insideSnapshot(dir)) {
+      const packageJson = path.join(dir, 'package.json');
+      if (fs.existsSync(packageJson)) return packageJson;
+      if (dir === path.dirname(dir)) break;
+      dir = path.dirname(dir);
     }
+    return null;
+  }
 
-    let imports;
+  function isSnapshotFile(file) {
     try {
-      imports = JSON.parse(fs.readFileSync(packageJson, 'utf8')).imports;
-    } catch (error) {
-      throw notFound(`cannot read ${packageJson}: ${error.message}`);
+      return fs.statSync(file).isFile();
+    } catch (_) {
+      return false;
     }
-    const found =
-      imports && typeof imports === 'object'
-        ? REQUIRE_SHARED.resolveImportsTargets(imports, request)
-        : null;
-    if (!found) throw notFound(`not defined in "imports" of ${packageJson}`);
+  }
 
-    for (const target of found.targets) {
-      if (target.startsWith('./') || target.startsWith('../')) {
-        const file = path.join(dir, target);
-        if (fs.existsSync(file)) return file;
-      } else if (!target.startsWith('#') && !path.isAbsolute(target)) {
-        // bare specifier or builtin, e.g. "#dep": "some-package"
-        return Module._resolveFilename(target, parent, isMain, options);
-      }
+  // package.json "imports" (`#name`): Node's resolver can't see package.json
+  // scopes in the snapshot. Rules and error codes as in Node.js, see
+  // resolveImportsTarget() in lib/common.ts.
+  function resolveSnapshotImport(request, parent) {
+    const fail = (code, message) => Object.assign(new Error(message), { code });
+    const from = `imported from ${parent.filename}`;
+
+    const packageJson = findSnapshotPackageJson(path.dirname(parent.filename));
+    const imports =
+      packageJson && JSON.parse(fs.readFileSync(packageJson, 'utf8')).imports;
+    if (!imports) {
+      throw fail('MODULE_NOT_FOUND', `Cannot find module '${request}' ${from}`);
     }
-    throw notFound(
-      `no usable target for "${found.key}" in "imports" of ${packageJson} ` +
-        `(${found.targets.join(', ') || 'no condition matches'})`,
-    );
+
+    let target;
+    try {
+      target = common.resolveImportsTarget(imports, request);
+    } catch (error) {
+      error.message += ` defined for '${request}' in ${packageJson} ${from}`;
+      throw error;
+    }
+    if (target === null) {
+      throw fail(
+        'ERR_PACKAGE_IMPORT_NOT_DEFINED',
+        `Package import specifier "${request}" is not defined in package ${packageJson} ${from}`,
+      );
+    }
+
+    if (!target.startsWith('./')) {
+      // another package or a builtin, looked up from the package.json
+      const scope = new Module(packageJson, null);
+      scope.filename = packageJson;
+      scope.paths = Module._nodeModulePaths(path.dirname(packageJson));
+      return Module._resolveFilename(target, scope, false);
+    }
+
+    const file = path.join(path.dirname(packageJson), target);
+    if (!isSnapshotFile(file)) {
+      throw fail('MODULE_NOT_FOUND', `Cannot find module '${file}' ${from}`);
+    }
+    return file;
   }
 
   Module._resolveFilename = function _resolveFilename() {
     const [request, parent] = arguments;
     if (
+      typeof request === 'string' &&
       request.startsWith('#') &&
       parent &&
       typeof parent.filename === 'string' &&
       insideSnapshot(parent.filename)
     ) {
-      // The rest of this override only changes a result that was found
-      // through the project fallback (flagWasOn), which is not used here.
-      // Bare targets pass through it in their own Module._resolveFilename call.
-      return resolveSnapshotImport.apply(this, arguments);
+      // Skips the project fallback below; bare targets re-enter this override
+      return resolveSnapshotImport(request, parent);
     }
 
     let filename;

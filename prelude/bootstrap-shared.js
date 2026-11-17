@@ -919,97 +919,6 @@ function makeSymlinkResolver(symlinks, sep) {
   return resolveKey;
 }
 
-// /////////////////////////////////////////////////////////////////
-// PACKAGE.JSON "IMPORTS" //////////////////////////////////////////
-// /////////////////////////////////////////////////////////////////
-
-// Same condition order as at build time: `require` first, then `import`.
-var IMPORTS_CONDITIONS = [
-  ['default', 'require', 'node'],
-  ['default', 'import', 'node'],
-];
-
-// The key of `imports` that maps `request`: an exact key, else the longest
-// matching `*` pattern or legacy `dir/` key (on equal length the later one).
-// Keys with more than one `*` are not patterns, as in Node.js.
-function findImportsKey(imports, request) {
-  if (imports[request] !== undefined) return { key: request, match: '' };
-
-  var found = null;
-  var keys = Object.keys(imports);
-  for (var i = 0; i < keys.length; i++) {
-    var key = keys[i];
-    if (found && key.length < found.key.length) continue;
-
-    var match = '';
-    var star = key.indexOf('*');
-    if (key.endsWith('/')) {
-      if (request.startsWith(key)) match = request.slice(key.length);
-    } else if (star !== -1 && key.indexOf('*', star + 1) === -1) {
-      var suffix = key.slice(star + 1);
-      if (
-        request.length >= key.length &&
-        request.startsWith(key.slice(0, star)) &&
-        request.endsWith(suffix)
-      ) {
-        match = request.slice(star, request.length - suffix.length);
-      }
-    }
-    if (match) found = { key: key, match: match };
-  }
-  return found;
-}
-
-// Collects the target strings of one `imports` value. In a conditions object
-// the first key that is in `conditions` decides, even if it leads nowhere.
-function collectImportsTargets(target, conditions, targets) {
-  if (!target) return targets;
-  if (typeof target === 'string') {
-    if (!targets.includes(target)) targets.push(target);
-  } else if (Array.isArray(target)) {
-    for (var i = 0; i < target.length; i++) {
-      collectImportsTargets(target[i], conditions, targets);
-    }
-  } else if (typeof target === 'object') {
-    var keys = Object.keys(target);
-    for (var k = 0; k < keys.length; k++) {
-      if (conditions.includes(keys[k])) {
-        return collectImportsTargets(target[keys[k]], conditions, targets);
-      }
-    }
-  }
-  return targets;
-}
-
-// Maps a package.json "imports" specifier (`#name`) to its targets (relative
-// paths or bare specifiers). Returns null if no key matches, and no targets
-// if no condition matches.
-//
-// Runtime twin of resolvePackageImport() in lib/resolver.ts, which uses the
-// `resolve.exports` package (the prelude can't load npm packages). Both must
-// follow the same rules, otherwise the binary looks for files that were never
-// bundled. test/unit/package-imports.test.ts compares the two.
-function resolveImportsTargets(imports, request) {
-  var found = findImportsKey(imports, request);
-  if (!found) return null;
-
-  var targets = [];
-  for (var i = 0; i < IMPORTS_CONDITIONS.length && !targets.length; i++) {
-    targets = collectImportsTargets(
-      imports[found.key],
-      IMPORTS_CONDITIONS[i],
-      [],
-    );
-  }
-  if (found.match) {
-    targets = targets.map(function (target) {
-      if (target.includes('*')) return target.split('*').join(found.match);
-      return target.endsWith('/') ? target + found.match : target;
-    });
-  }
-  return { key: found.key, targets: targets };
-}
-
 module.exports = {
   pkgCacheDir: pkgCacheDir,
   patchDlopen: patchDlopen,
@@ -1021,7 +930,6 @@ module.exports = {
   pickDecompressorSync: pickDecompressorSync,
   pickDecompressorAsync: pickDecompressorAsync,
   makeSymlinkResolver: makeSymlinkResolver,
-  resolveImportsTargets: resolveImportsTargets,
   ERRNO: ERRNO,
   makeFsError: makeFsError,
   Dirent: Dirent,
