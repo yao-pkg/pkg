@@ -26,6 +26,7 @@ describe('resolvePackageImport', () => {
           '#dotdot': './x/../../outside.js',
           '#inner-dotdot': './x/../inside.js',
           '#fs': { node: 'fs', default: './fs-browser.js' },
+          '#worker': { worker: './w.js' },
         },
       }),
     );
@@ -65,7 +66,17 @@ describe('resolvePackageImport', () => {
     assert.equal(resolvePackageImport('#arr', root), path.join(root, 'arr.js'));
   });
 
-  it('rejects targets that leave the package', () => {
+  it('returns null when no condition matches', () => {
+    assert.equal(resolvePackageImport('#worker', root), null);
+  });
+
+  it('does not look past a node_modules directory', () => {
+    const dir = path.join(root, 'node_modules', 'no-scope');
+    fs.mkdirSync(dir, { recursive: true });
+    assert.equal(resolvePackageImport('#cjs', dir), null);
+  });
+
+  it('rejects invalid package targets', () => {
     assert.equal(resolvePackageImport('#up', root), null);
     assert.equal(resolvePackageImport('#abs', root), null);
     assert.equal(resolvePackageImport('#dotdot', root), null);

@@ -98,7 +98,14 @@ export function resolvePackageImport(
   basedir: string,
 ): string | null {
   const packageJsonPath = findNearestPackageJson(basedir);
-  if (!packageJsonPath) {
+  // Like Node, the scope lookup never crosses a node_modules directory.
+  if (
+    !packageJsonPath ||
+    path
+      .relative(path.dirname(packageJsonPath), basedir)
+      .split(path.sep)
+      .includes('node_modules')
+  ) {
     return null;
   }
 
@@ -137,9 +144,11 @@ export function resolvePackageImport(
 
   // Node rejects any other target, and "." / ".." / "node_modules" segments
   // (ERR_INVALID_PACKAGE_TARGET).
+  if (!target.startsWith('./')) {
+    return null;
+  }
   const segments = target.slice(2).split(/[\\/]/);
   if (
-    !target.startsWith('./') ||
     segments.some(
       (s) => s === '.' || s === '..' || s.toLowerCase() === 'node_modules',
     )

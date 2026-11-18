@@ -7,7 +7,8 @@
 // req-mjs: exports targets pointing at renamed .mjs files (MODULE_NOT_FOUND).
 // esm-imports: import-only "imports" map pointing at a renamed .mjs file.
 // cjs-imports: plain CJS "imports" map resolved from inside the snapshot,
-// from a subdirectory (walk-up) and from a nested package.json scope.
+// from a subdirectory (walk-up), from a nested package.json scope, and not
+// across a node_modules boundary.
 
 const path = require('path');
 const assert = require('assert');
@@ -22,7 +23,11 @@ const cases = [
   { id: 'esm-only', entry: './app/app-a.mjs', expected: 'esm-only ok' },
   { id: 'req-mjs', entry: './app/app-b.mjs', expected: 'req-mjs ok' },
   { id: 'esm-imports', entry: './app/app-c.mjs', expected: 'esm-imports ok' },
-  { id: 'cjs-imports', entry: './app/app-d.mjs', expected: 'cjs-imports ok' },
+  {
+    id: 'cjs-imports',
+    entry: './app/app-d.mjs',
+    expected: 'cjs-imports ok MODULE_NOT_FOUND',
+  },
 ];
 
 for (const testCase of cases) {
