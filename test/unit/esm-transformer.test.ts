@@ -192,15 +192,6 @@ describe('normalizeExportsForCJS', () => {
     );
   });
 
-  it('falls back to the default condition when there is no import', () => {
-    assert.deepEqual(
-      normalizeExportsForCJS({ '.': { default: './index.mjs' } }),
-      {
-        '.': { default: './index.js' },
-      },
-    );
-  });
-
   it('does not add require when a CJS-resolvable condition already exists', () => {
     // `default` is resolvable by require(), so the map is left as-is (extensions aside).
     assert.deepEqual(
@@ -218,6 +209,52 @@ describe('normalizeExportsForCJS', () => {
       {
         '.': { require: './i.js', import: './i.js' },
         './sub': { node: { require: './sub.js', import: './sub.js' } },
+      },
+    );
+  });
+
+  it('does not shadow an outer CJS fallback from a nested condition', () => {
+    // require() steps into "node", finds no match, and falls through to "default".
+    const exportsField = {
+      node: { import: './node.mjs' },
+      default: './index.cjs',
+    };
+    assert.deepEqual(normalizeExportsForCJS(exportsField), {
+      node: { import: './node.js' },
+      default: './index.cjs',
+    });
+  });
+
+  it('leaves an already CJS-resolvable map unchanged', () => {
+    const exportsField = {
+      '.': { types: './i.d.ts', require: './i.cjs', import: './i.js' },
+      './*': { require: './lib/*.cjs', default: './lib/*.js' },
+    };
+    assert.deepEqual(normalizeExportsForCJS(exportsField), exportsField);
+  });
+
+  it('adds require next to types for an import-only map', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({ types: './i.d.ts', import: './i.mjs' }),
+      { require: './i.js', types: './i.d.ts', import: './i.js' },
+    );
+  });
+
+  it('leaves conditions with neither import nor a CJS condition unchanged', () => {
+    assert.deepEqual(normalizeExportsForCJS({ browser: './b.js' }), {
+      browser: './b.js',
+    });
+  });
+
+  it('keeps null targets and rewrites pattern subpaths', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({
+        './*': { import: './lib/*.mjs' },
+        './internal/*': null,
+      }),
+      {
+        './*': { require: './lib/*.js', import: './lib/*.js' },
+        './internal/*': null,
       },
     );
   });

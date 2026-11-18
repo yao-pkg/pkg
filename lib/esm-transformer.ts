@@ -213,74 +213,100 @@ export function rewriteMjsRequirePaths(code: string): string {
   );
 }
 
-// CommonJS-resolvable conditions, in the order Node's require() resolver
-// honours them. If a conditions object exposes none of these, require() cannot
-// resolve it (Node throws ERR_PACKAGE_PATH_NOT_EXPORTED).
+// Conditions Node's require() resolver matches. A conditions object with none
+// of these fails with ERR_PACKAGE_PATH_NOT_EXPORTED.
 const CJS_EXPORT_CONDITIONS = ['require', 'node', 'node-addons', 'default'];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ExportsValue = any;
 
-/**
- * Make a package.json "exports" value resolvable through CommonJS `require()`
- * after pkg has transformed the package's ESM sources to CJS.
- *
- * pkg compiles every ESM module to CommonJS and renames the package's `.mjs`
- * files to `.js` in the snapshot. The "exports" field, however, is left as the
- * package author wrote it, so at runtime Node's CJS resolver (which always
- * prefers "exports" over "main") still sees `import`-only conditions and/or
- * targets pointing at the now-renamed `.mjs` files. That produces
- * ERR_PACKAGE_PATH_NOT_EXPORTED (import-only packages) or MODULE_NOT_FOUND
- * (targets pointing at a `.mjs` file that no longer exists).
- *
- * This rewrites the field to mirror the transformation pkg already applied:
- *  - every string target has its `.mjs` extension rewritten to `.js`, and
- *  - any conditions object that lacks a CJS-resolvable condition gets a
- *    synthetic `require` condition mirroring its `import` (or `default`) target,
- *    so `require()` resolves to the transformed file.
- *
- * @param exportsField - The raw "exports" value from package.json
- * @returns A new "exports" value resolvable via `require()`
- */
-export function normalizeExportsForCJS(
-  exportsField: ExportsValue,
+// Whether require() resolves `target`: Node tries matching conditions in key
+// order and falls through to the next one when a match resolves to nothing.
+function resolvesForCJS(target: ExportsValue): boolean {
+  if (typeof target === 'string') {
+    return true;
+  }
+  if (Array.isArray(target)) {
+    return target.some(resolvesForCJS);
+  }
+  if (target && typeof target === 'object') {
+    return Object.keys(target).some(
+      (key) =>
+        CJS_EXPORT_CONDITIONS.includes(key) && resolvesForCJS(target[key]),
+    );
+  }
+  return false;
+}
+
+function normalizeTarget(
+  target: ExportsValue,
+  hasFallback: boolean,
 ): ExportsValue {
-  if (typeof exportsField === 'string') {
-    return exportsField.replace(/\.mjs$/, '.js');
+  if (typeof target === 'string') {
+    return target.replace(/\.mjs$/, '.js');
   }
 
-  if (Array.isArray(exportsField)) {
-    return exportsField.map((entry) => normalizeExportsForCJS(entry));
+  if (Array.isArray(target)) {
+    return target.map((entry, i) =>
+      normalizeTarget(
+        entry,
+        hasFallback || target.slice(i + 1).some(resolvesForCJS),
+      ),
+    );
   }
 
-  if (exportsField && typeof exportsField === 'object') {
-    const keys = Object.keys(exportsField);
-    // A conditions object uses condition names as keys (e.g. "import",
-    // "require"); a subpath map uses "." / "./sub" keys. They never mix, so the
-    // presence of any condition key means this is a conditions object.
+  if (target && typeof target === 'object') {
+    const keys = Object.keys(target);
+    // Conditions use names as keys ("import"); subpath maps use "." / "./sub".
     const isConditions = keys.some((key) => !key.startsWith('.'));
 
     const result: ExportsValue = {};
-    for (const key of keys) {
-      result[key] = normalizeExportsForCJS(exportsField[key]);
-    }
+    keys.forEach((key, i) => {
+      const laterFallback =
+        isConditions &&
+        keys
+          .slice(i + 1)
+          .some(
+            (later) =>
+              CJS_EXPORT_CONDITIONS.includes(later) &&
+              resolvesForCJS(target[later]),
+          );
+      result[key] = normalizeTarget(
+        target[key],
+        isConditions && (hasFallback || laterFallback),
+      );
+    });
 
     if (
       isConditions &&
-      !keys.some((key) => CJS_EXPORT_CONDITIONS.includes(key))
+      !hasFallback &&
+      result.import !== undefined &&
+      !resolvesForCJS(result)
     ) {
-      // Import-only conditions object: add a `require` target mirroring the ESM
-      // one so the transformed file is reachable through require().
-      const fallback = result.import ?? result.default;
-      if (fallback !== undefined) {
-        return { require: fallback, ...result };
-      }
+      return { require: result.import, ...result };
     }
 
     return result;
   }
 
-  return exportsField;
+  return target;
+}
+
+/**
+ * Rewrite a package.json "exports" value so require() resolves it after pkg
+ * transformed the package's ESM to CJS (#281); Node's CJS resolver prefers
+ * "exports" over "main", so the untouched field fails at runtime.
+ *  - `.mjs` targets become `.js`, matching the packer's rename. This assumes
+ *    the file was transformed: one that failed to transform keeps its `.mjs`
+ *    name and the rewritten target misses it.
+ *  - A conditions object require() cannot resolve gets a `require` condition
+ *    mirroring its `import` target, unless a later condition already resolves
+ *    (Node falls through to it).
+ */
+export function normalizeExportsForCJS(
+  exportsField: ExportsValue,
+): ExportsValue {
+  return normalizeTarget(exportsField, false);
 }
 
 /**

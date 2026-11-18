@@ -1054,6 +1054,21 @@ class Walker {
           const pkgContent = JSON.parse(record.body.toString('utf8'));
           let modified = false;
 
+          // Normalize before inferring main below, so both read the same exports.
+          if (pkgContent.exports && !this.params.seaMode) {
+            const normalizedExports = normalizeExportsForCJS(
+              pkgContent.exports,
+            );
+            if (
+              JSON.stringify(normalizedExports) !==
+              JSON.stringify(pkgContent.exports)
+            ) {
+              log.debug(`Rewriting "exports" for require() in ${record.file}`);
+              pkgContent.exports = normalizedExports;
+              modified = true;
+            }
+          }
+
           // If package has exports but no main, add a synthetic main field
           if (pkgContent.exports && !pkgContent.main) {
             // Try to get main from marker.config first (set by catchPackageFilter in follow.ts)
@@ -1101,24 +1116,6 @@ class Walker {
                   }
                 }
               }
-            }
-          }
-
-          // If package has an "exports" field, rewrite it so the snapshot is
-          // resolvable through CommonJS require(). pkg transforms ESM to CJS and
-          // renames .mjs files to .js, but Node's CJS resolver always prefers
-          // "exports" over "main"; without this, import-only or .mjs-targeted
-          // exports fail at runtime (ERR_PACKAGE_PATH_NOT_EXPORTED / MODULE_NOT_FOUND).
-          if (pkgContent.exports && !this.params.seaMode) {
-            const normalizedExports = normalizeExportsForCJS(
-              pkgContent.exports,
-            );
-            if (
-              JSON.stringify(normalizedExports) !==
-              JSON.stringify(pkgContent.exports)
-            ) {
-              pkgContent.exports = normalizedExports;
-              modified = true;
             }
           }
 
