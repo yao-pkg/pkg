@@ -1054,7 +1054,7 @@ class Walker {
           const pkgContent = JSON.parse(record.body.toString('utf8'));
           let modified = false;
 
-          // Normalize before inferring main below, so both read the same exports.
+          // Normalize first so the synthetic main is inferred from CJS-resolvable exports.
           if (pkgContent.exports && !this.params.seaMode) {
             const normalizedExports = normalizeExportsForCJS(
               pkgContent.exports,

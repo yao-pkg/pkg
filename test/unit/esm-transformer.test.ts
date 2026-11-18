@@ -170,9 +170,7 @@ describe('normalizeExportsForCJS', () => {
   });
 
   it('adds a require condition for an import-only exports map (#281 case A)', () => {
-    // esm-only: { exports: { ".": { import: "./index.mjs" } } }
-    // Without a CJS-resolvable condition, require() throws
-    // ERR_PACKAGE_PATH_NOT_EXPORTED in the packaged binary.
+    // Otherwise require() throws ERR_PACKAGE_PATH_NOT_EXPORTED.
     assert.deepEqual(
       normalizeExportsForCJS({ '.': { import: './index.mjs' } }),
       {
@@ -182,8 +180,7 @@ describe('normalizeExportsForCJS', () => {
   });
 
   it('rewrites .mjs require targets that no longer exist (#281 case B)', () => {
-    // req-mjs: { exports: { ".": { require: "./index.mjs", import: "./index.mjs" } } }
-    // The .mjs file is renamed to .js in the snapshot, so the target must follow.
+    // The packer renames .mjs to .js in the snapshot.
     assert.deepEqual(
       normalizeExportsForCJS({
         '.': { require: './index.mjs', import: './index.mjs' },
@@ -256,6 +253,20 @@ describe('normalizeExportsForCJS', () => {
         './*': { require: './lib/*.js', import: './lib/*.js' },
         './internal/*': null,
       },
+    );
+  });
+
+  it('overrides an explicit require: null', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({ import: './i.mjs', require: null }),
+      { require: './i.js', import: './i.js' },
+    );
+  });
+
+  it('does not inject into an array entry when a later entry resolves', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS([{ import: './a.mjs' }, './b.mjs']),
+      [{ import: './a.js' }, './b.js'],
     );
   });
 

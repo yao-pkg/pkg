@@ -283,7 +283,11 @@ function normalizeTarget(
       result.import !== undefined &&
       !resolvesForCJS(result)
     ) {
-      return { require: result.import, ...result };
+      // Key first so require() matches it; value set after the spread to
+      // override an explicit `require: null`.
+      const injected = { require: result.import, ...result };
+      injected.require = result.import;
+      return injected;
     }
 
     return result;
@@ -293,15 +297,10 @@ function normalizeTarget(
 }
 
 /**
- * Rewrite a package.json "exports" value so require() resolves it after pkg
- * transformed the package's ESM to CJS (#281); Node's CJS resolver prefers
- * "exports" over "main", so the untouched field fails at runtime.
- *  - `.mjs` targets become `.js`, matching the packer's rename. This assumes
- *    the file was transformed: one that failed to transform keeps its `.mjs`
- *    name and the rewritten target misses it.
- *  - A conditions object require() cannot resolve gets a `require` condition
- *    mirroring its `import` target, unless a later condition already resolves
- *    (Node falls through to it).
+ * Make a package.json "exports" value resolvable by require() after pkg's
+ * ESM->CJS transform (#281): `.mjs` targets become `.js` (assumes the file was
+ * transformed), and conditions require() cannot resolve get a `require`
+ * mirroring `import`, unless a later condition already resolves.
  */
 export function normalizeExportsForCJS(
   exportsField: ExportsValue,
