@@ -58,10 +58,10 @@ export function follow(specifier: string, opts: FollowOptions) {
   // TODO async version
   return new Promise<string>((resolve, reject) => {
     // `resolve` doesn't know package.json "imports"; map `#x` to its target first.
-    const x =
-      (specifier.startsWith('#') &&
-        resolvePackageImport(specifier, opts.basedir || process.cwd())) ||
-      specifier;
+    const x = specifier.startsWith('#')
+      ? (resolvePackageImport(specifier, opts.basedir || process.cwd()) ??
+        specifier)
+      : specifier;
 
     // Try ESM-aware resolution first for non-relative specifiers
     // Skip if the specifier doesn't look like a valid npm package name

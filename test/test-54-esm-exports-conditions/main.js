@@ -6,7 +6,8 @@
 // esm-only: import-only exports (ERR_PACKAGE_PATH_NOT_EXPORTED).
 // req-mjs: exports targets pointing at renamed .mjs files (MODULE_NOT_FOUND).
 // esm-imports: import-only "imports" map pointing at a renamed .mjs file.
-// cjs-imports: plain CJS "imports" map, resolved from inside the snapshot.
+// cjs-imports: plain CJS "imports" map resolved from inside the snapshot,
+// from a subdirectory (walk-up) and from a nested package.json scope.
 
 const path = require('path');
 const assert = require('assert');

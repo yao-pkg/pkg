@@ -169,7 +169,7 @@ export async function generateSeaAssets(
     //   it and nothing modified it) or an intentional rewrite (patches,
     //   stripped shebang/BOM, package.json synthetic main, etc.).
     //
-    // The ESM→CJS transform and `type: module → commonjs` rewrite are
+    // The ESM→CJS transform and `type: module` removal are
     // the only mutations that could diverge body from disk, and both
     // are gated on `!seaMode` in walker.ts — so they never run here.
     //

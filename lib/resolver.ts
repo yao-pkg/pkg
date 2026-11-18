@@ -87,10 +87,8 @@ function resolveWithExports(
 }
 
 /**
- * Resolve a package.json "imports" specifier (`#util`) against the nearest
- * package.json, like Node does.
- * @param specifier - Specifier starting with '#'
- * @param basedir - Directory of the importing file
+ * Resolve a package.json "imports" specifier (`#util`) from `basedir` against
+ * the nearest package.json, like Node does.
  * @returns Absolute path for a relative target, the bare specifier for a
  *   package target (`"#dep": "lodash"`), or null if not mapped
  */
@@ -103,7 +101,13 @@ export function resolvePackageImport(
     return null;
   }
 
-  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  } catch (error) {
+    log.debug(`Cannot read "imports" from ${packageJsonPath}: ${error}`);
+    return null;
+  }
   if (!pkg.imports) {
     return null;
   }
@@ -124,9 +128,22 @@ export function resolvePackageImport(
     return null;
   }
 
-  return target.startsWith('./')
-    ? path.join(path.dirname(packageJsonPath), target)
-    : target;
+  const isPath = target.startsWith('.') || path.isAbsolute(target);
+  if (!isPath) {
+    return target;
+  }
+
+  // Node rejects targets that leave the package (ERR_INVALID_PACKAGE_TARGET).
+  if (!target.startsWith('./')) {
+    return null;
+  }
+  const packageDir = path.dirname(packageJsonPath);
+  const resolvedPath = path.join(packageDir, target);
+  const relative = path.relative(packageDir, resolvedPath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return resolvedPath;
 }
 
 /**

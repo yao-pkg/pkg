@@ -20,6 +20,10 @@ describe('resolvePackageImport', () => {
           '#cjs': { require: './cjs.js', import: './esm.mjs' },
           '#lib/*': './lib/*.js',
           '#dep': 'some-dep',
+          '#arr': ['./arr.js', './fallback.js'],
+          '#up': '../outside.js',
+          '#abs': '/etc/passwd',
+          '#dotdot': './x/../../outside.js',
         },
       }),
     );
@@ -53,5 +57,38 @@ describe('resolvePackageImport', () => {
 
   it('returns null for an unmapped specifier', () => {
     assert.equal(resolvePackageImport('#missing', root), null);
+  });
+
+  it('takes the first entry of an array target', () => {
+    assert.equal(resolvePackageImport('#arr', root), path.join(root, 'arr.js'));
+  });
+
+  it('rejects targets that leave the package', () => {
+    assert.equal(resolvePackageImport('#up', root), null);
+    assert.equal(resolvePackageImport('#abs', root), null);
+    assert.equal(resolvePackageImport('#dotdot', root), null);
+    assert.equal(resolvePackageImport('#lib/../../outside', root), null);
+  });
+});
+
+describe('resolvePackageImport without a usable package.json', () => {
+  let dir: string;
+
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-resolver-noimports-'));
+  });
+
+  after(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('returns null when package.json has no "imports"', () => {
+    fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x"}');
+    assert.equal(resolvePackageImport('#util', dir), null);
+  });
+
+  it('returns null for malformed package.json', () => {
+    fs.writeFileSync(path.join(dir, 'package.json'), '{ not json');
+    assert.equal(resolvePackageImport('#util', dir), null);
   });
 });

@@ -1975,20 +1975,27 @@ function payloadFileSync(pointer) {
 // can't see the snapshot; pkg-fetch only reroutes `read()` through fs.
 (() => {
   const reader = require('internal/modules/package_json_reader');
-  const { fileURLToPath } = require('url');
-  const ancestor = {
+  const original = {
     getNearestParentPackageJSON: reader.getNearestParentPackageJSON,
     getPackageScopeConfig: reader.getPackageScopeConfig,
   };
+  // Internal API: if a Node version renames these, keep its native behaviour.
+  if (
+    typeof original.getNearestParentPackageJSON !== 'function' ||
+    typeof original.getPackageScopeConfig !== 'function' ||
+    typeof reader.read !== 'function'
+  ) {
+    return;
+  }
+  const { fileURLToPath } = require('url');
 
+  // Same walk as Node: nearest package.json, never crossing a node_modules dir.
   function findSnapshotPackageJSON(file) {
     let dir = path.dirname(file);
-    while (insideSnapshot(dir)) {
+    while (insideSnapshot(dir) && path.basename(dir) !== 'node_modules') {
       const pjsonPath = path.join(dir, 'package.json');
       if (fs.existsSync(pjsonPath)) return pjsonPath;
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
+      dir = path.dirname(dir);
     }
     return undefined;
   }
@@ -2000,8 +2007,9 @@ function payloadFileSync(pointer) {
       ? findSnapshotPackageJSON(checkPath)
       : undefined;
     if (!pjsonPath) {
-      return ancestor.getNearestParentPackageJSON.apply(this, arguments);
+      return original.getNearestParentPackageJSON.apply(this, arguments);
     }
+    // read() returns a flat config; this API wants { data, exists, path }.
     const { exists, pjsonPath: found, ...data } = reader.read(pjsonPath);
     return { data, exists, path: found };
   };
@@ -2013,7 +2021,7 @@ function payloadFileSync(pointer) {
     const pjsonPath =
       file && insideSnapshot(file) ? findSnapshotPackageJSON(file) : undefined;
     if (!pjsonPath) {
-      return ancestor.getPackageScopeConfig.apply(this, arguments);
+      return original.getPackageScopeConfig.apply(this, arguments);
     }
     return reader.read(pjsonPath);
   };

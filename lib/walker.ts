@@ -1121,10 +1121,11 @@ class Walker {
             }
           }
 
-          // If package has "type": "module", we need to change it to "commonjs"
-          // because we transform all ESM files to CJS before bytecode compilation
+          // ESM files are transformed to CJS, so drop "type": "module". Drop
+          // rather than write "commonjs": an untransformed ESM .js still needs
+          // Node's module detection, which an explicit type turns off.
           if (pkgContent.type === 'module' && !this.params.seaMode) {
-            pkgContent.type = 'commonjs';
+            delete pkgContent.type;
             modified = true;
           }
 
