@@ -4,6 +4,7 @@ import {
   imports as resolveImports,
 } from 'resolve.exports';
 import fs from 'fs';
+import { isBuiltin } from 'module';
 import path from 'path';
 import { findNearestPackageJson, isESMFile } from './common';
 import { log } from './log';
@@ -124,26 +125,28 @@ export function resolvePackageImport(
     }
   }
   const target = Array.isArray(resolved) ? resolved[0] : resolved;
-  if (!target) {
+  // A builtin target ("#fs": { "node": "fs" }) needs nothing packaged.
+  if (!target || isBuiltin(target)) {
     return null;
   }
 
-  const isPath = target.startsWith('.') || path.isAbsolute(target);
-  if (!isPath) {
+  // Bare package target ("#dep": "lodash").
+  if (!target.startsWith('.') && !target.startsWith('/')) {
     return target;
   }
 
-  // Node rejects targets that leave the package (ERR_INVALID_PACKAGE_TARGET).
-  if (!target.startsWith('./')) {
+  // Node rejects any other target, and "." / ".." / "node_modules" segments
+  // (ERR_INVALID_PACKAGE_TARGET).
+  const segments = target.slice(2).split(/[\\/]/);
+  if (
+    !target.startsWith('./') ||
+    segments.some(
+      (s) => s === '.' || s === '..' || s.toLowerCase() === 'node_modules',
+    )
+  ) {
     return null;
   }
-  const packageDir = path.dirname(packageJsonPath);
-  const resolvedPath = path.join(packageDir, target);
-  const relative = path.relative(packageDir, resolvedPath);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    return null;
-  }
-  return resolvedPath;
+  return path.join(path.dirname(packageJsonPath), target);
 }
 
 /**

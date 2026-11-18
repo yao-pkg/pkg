@@ -24,6 +24,8 @@ describe('resolvePackageImport', () => {
           '#up': '../outside.js',
           '#abs': '/etc/passwd',
           '#dotdot': './x/../../outside.js',
+          '#inner-dotdot': './x/../inside.js',
+          '#fs': { node: 'fs', default: './fs-browser.js' },
         },
       }),
     );
@@ -68,6 +70,12 @@ describe('resolvePackageImport', () => {
     assert.equal(resolvePackageImport('#abs', root), null);
     assert.equal(resolvePackageImport('#dotdot', root), null);
     assert.equal(resolvePackageImport('#lib/../../outside', root), null);
+    // Node rejects any ".." segment, even one that stays inside.
+    assert.equal(resolvePackageImport('#inner-dotdot', root), null);
+  });
+
+  it('returns null for a builtin target', () => {
+    assert.equal(resolvePackageImport('#fs', root), null);
   });
 });
 

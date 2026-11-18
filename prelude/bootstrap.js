@@ -1974,12 +1974,17 @@ function payloadFileSync(pointer) {
 // "#imports" resolution finds the package scope through a native reader that
 // can't see the snapshot; pkg-fetch only reroutes `read()` through fs.
 (() => {
-  const reader = require('internal/modules/package_json_reader');
+  // Internal API: if a Node version moves or renames it, keep native behaviour.
+  let reader;
+  try {
+    reader = require('internal/modules/package_json_reader');
+  } catch (_) {
+    return;
+  }
   const original = {
     getNearestParentPackageJSON: reader.getNearestParentPackageJSON,
     getPackageScopeConfig: reader.getPackageScopeConfig,
   };
-  // Internal API: if a Node version renames these, keep its native behaviour.
   if (
     typeof original.getNearestParentPackageJSON !== 'function' ||
     typeof original.getPackageScopeConfig !== 'function' ||
@@ -1989,15 +1994,36 @@ function payloadFileSync(pointer) {
   }
   const { fileURLToPath } = require('url');
 
+  // The snapshot is immutable, so cache like Node's own reader does: these run
+  // on every module load.
+  const pjsonPathByDir = new Map();
+  const configByPath = new Map();
+
   // Same walk as Node: nearest package.json, never crossing a node_modules dir.
   function findSnapshotPackageJSON(file) {
-    let dir = path.dirname(file);
+    const start = path.dirname(file);
+    if (pjsonPathByDir.has(start)) return pjsonPathByDir.get(start);
+    let found;
+    let dir = start;
     while (insideSnapshot(dir) && path.basename(dir) !== 'node_modules') {
       const pjsonPath = path.join(dir, 'package.json');
-      if (fs.existsSync(pjsonPath)) return pjsonPath;
+      if (fs.existsSync(pjsonPath)) {
+        found = pjsonPath;
+        break;
+      }
       dir = path.dirname(dir);
     }
-    return undefined;
+    pjsonPathByDir.set(start, found);
+    return found;
+  }
+
+  function readConfig(pjsonPath) {
+    let config = configByPath.get(pjsonPath);
+    if (!config) {
+      config = reader.read(pjsonPath);
+      configByPath.set(pjsonPath, config);
+    }
+    return config;
   }
 
   reader.getNearestParentPackageJSON = function getNearestParentPackageJSON(
@@ -2010,12 +2036,13 @@ function payloadFileSync(pointer) {
       return original.getNearestParentPackageJSON.apply(this, arguments);
     }
     // read() returns a flat config; this API wants { data, exists, path }.
-    const { exists, pjsonPath: found, ...data } = reader.read(pjsonPath);
+    const { exists, pjsonPath: found, ...data } = readConfig(pjsonPath);
     return { data, exists, path: found };
   };
 
   reader.getPackageScopeConfig = function getPackageScopeConfig(resolved) {
-    const file = `${resolved}`.startsWith('file:')
+    // `resolved` is a URL object or a string.
+    const file = String(resolved).startsWith('file:')
       ? fileURLToPath(resolved)
       : undefined;
     const pjsonPath =
@@ -2023,7 +2050,7 @@ function payloadFileSync(pointer) {
     if (!pjsonPath) {
       return original.getPackageScopeConfig.apply(this, arguments);
     }
-    return reader.read(pjsonPath);
+    return readConfig(pjsonPath);
   };
 })();
 

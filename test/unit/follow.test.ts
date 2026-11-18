@@ -15,9 +15,16 @@ describe('follow with "#" specifiers', () => {
     );
     fs.writeFileSync(
       path.join(root, 'package.json'),
-      JSON.stringify({ name: 'app', imports: { '#util': './util.js' } }),
+      JSON.stringify({
+        name: 'app',
+        imports: { '#util': './util.js', '#dep': 'some-dep' },
+      }),
     );
     fs.writeFileSync(path.join(root, 'util.js'), 'module.exports = 1;');
+    const dep = path.join(root, 'node_modules', 'some-dep');
+    fs.mkdirSync(dep, { recursive: true });
+    fs.writeFileSync(path.join(dep, 'package.json'), '{"name":"some-dep"}');
+    fs.writeFileSync(path.join(dep, 'index.js'), 'module.exports = 2;');
   });
 
   after(() => {
@@ -28,6 +35,13 @@ describe('follow with "#" specifiers', () => {
     assert.equal(
       await follow('#util', { basedir: root }),
       path.join(root, 'util.js'),
+    );
+  });
+
+  it('resolves a bare package target from node_modules', async () => {
+    assert.equal(
+      await follow('#dep', { basedir: root }),
+      path.join(root, 'node_modules', 'some-dep', 'index.js'),
     );
   });
 
