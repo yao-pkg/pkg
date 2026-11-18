@@ -72,6 +72,7 @@ async function followPackageImport(
     } catch (error) {
       throw new Error(
         `${(error as Error).message} (target of '${x}' in ${result.packageJson})`,
+        { cause: error },
       );
     }
   }

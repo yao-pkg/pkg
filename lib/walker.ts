@@ -20,6 +20,7 @@ import {
   normalizePath,
   toNormalizedRealPath,
   isESMFile,
+  findNearestPackageJsonFromDir,
 } from './common';
 
 import { pc } from './colors';
@@ -925,25 +926,35 @@ class Walker {
     // 1. Inside node_modules (dependencies)
     // 2. Inside the base directory of the current marker (application being packaged)
     // This prevents including pkg's own package.json when used from source
-    for (const newPackage of newPackages) {
-      if (newPackage.marker) {
-        const file = newPackage.packageJson;
-        const isInNodeModules = file.includes(
-          `${path.sep}node_modules${path.sep}`,
-        );
-        const isInMarkerBase = marker.base && file.startsWith(marker.base);
-        // The runtime reads the package.json that declares a "#" import,
-        // also when it is above the entry file (e.g. `pkg dist/cli.js`)
-        const declaresImports = derivative.alias.startsWith('#');
+    const isPackageOfBundle = (file: string) =>
+      file.includes(`${path.sep}node_modules${path.sep}`) ||
+      Boolean(marker.base && file.startsWith(marker.base));
 
-        if (isInNodeModules || isInMarkerBase || declaresImports) {
-          await this.appendBlobOrContent({
-            file,
-            marker: newPackage.marker,
-            store: STORE_CONTENT,
-            reason: record.file,
-          });
-        }
+    for (const newPackage of newPackages) {
+      if (newPackage.marker && isPackageOfBundle(newPackage.packageJson)) {
+        await this.appendBlobOrContent({
+          file: newPackage.packageJson,
+          marker: newPackage.marker,
+          store: STORE_CONTENT,
+          reason: record.file,
+        });
+      }
+    }
+
+    // The runtime reads the package.json that declares a "#" import. Above
+    // the entry file (`pkg dist/cli.js`) it is skipped by the loop above, so
+    // it is stored here, with the marker of the importing file: it must not
+    // become a package of its own, which would add its "dependencies" and
+    // its "files" to the snapshot.
+    if (derivative.alias.startsWith('#')) {
+      const packageJson = findNearestPackageJsonFromDir(basedir);
+      if (packageJson && !isPackageOfBundle(packageJson)) {
+        await this.appendBlobOrContent({
+          file: normalizePath(packageJson),
+          marker,
+          store: STORE_CONTENT,
+          reason: record.file,
+        });
       }
     }
 
