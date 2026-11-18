@@ -19,12 +19,6 @@ declare module 'resolve.exports' {
     options?: ResolveOptions,
   ): string | string[] | undefined;
 
-  export function imports(
-    pkg: Record<string, unknown>,
-    entry?: string,
-    options?: ResolveOptions,
-  ): string | string[] | undefined;
-
   export function legacy(
     pkg: Record<string, unknown>,
     options?: ResolveOptions,

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { toNormalizedRealPath } from './common';
 import { resolveModule, resolvePackageImport } from './resolver';
+import type { PackageImportResult } from './resolver';
 
 import type { PackageJson } from './types';
 
@@ -60,9 +61,9 @@ function isValidPackageName(specifier: string): boolean {
  */
 async function followPackageImport(
   x: string,
+  result: PackageImportResult,
   opts: FollowOptions,
 ): Promise<string> {
-  const result = resolvePackageImport(x, opts.basedir || process.cwd());
   const dir = path.dirname(result.packageJson);
   let resolved = result.target;
 
@@ -78,7 +79,10 @@ async function followPackageImport(
   }
 
   // Reported after resolving, so a failure isn't blamed on this package's "main"
-  if (opts.catchReadFile) {
+  if (
+    opts.catchReadFile &&
+    path.normalize(result.packageJson) !== path.normalize(opts.ignoreFile || '')
+  ) {
     opts.catchReadFile(result.packageJson);
     if (opts.catchPackageFilter) {
       opts.catchPackageFilter(result.config, dir, dir);
@@ -89,7 +93,16 @@ async function followPackageImport(
 }
 
 export function follow(x: string, opts: FollowOptions) {
-  if (x.startsWith('#')) return followPackageImport(x, opts);
+  if (x.startsWith('#')) {
+    let result;
+    try {
+      result = resolvePackageImport(x, opts.basedir || process.cwd());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    // null: no "imports" in scope, so `#name` is looked up like a package
+    if (result) return followPackageImport(x, result, opts);
+  }
 
   // TODO async version
   return new Promise<string>((resolve, reject) => {

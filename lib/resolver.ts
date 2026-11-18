@@ -1,7 +1,6 @@
 import { sync as resolveSync } from 'resolve';
 import { exports as resolveExports } from 'resolve.exports';
 import fs from 'fs';
-import { isBuiltin } from 'module';
 import path from 'path';
 import {
   findNearestPackageJsonFromDir,
@@ -181,7 +180,7 @@ export function resolveModule(
 export interface PackageImportResult {
   /** Absolute file path for `file`, else the specifier ("some-pkg", "fs") */
   target: string;
-  kind: 'file' | 'bare' | 'builtin';
+  kind: 'file' | 'bare';
   /** The package.json that declares the "imports" field */
   packageJson: string;
   config: PackageJson;
@@ -194,23 +193,25 @@ export interface PackageImportResult {
  * as well.
  * @param specifier - Specifier starting with '#'
  * @param basedir - Directory of the importing file
- * @returns Resolution result
+ * @returns Resolution result, or null without an "imports" field in scope
  * @throws If the specifier can't be resolved; the message names the reason
  */
 export function resolvePackageImport(
   specifier: string,
   basedir: string,
-): PackageImportResult {
+): PackageImportResult | null {
   const notFound = (reason: string) =>
     new Error(`Cannot find module '${specifier}' from '${basedir}': ${reason}`);
 
   const packageJson = findNearestPackageJsonFromDir(path.resolve(basedir));
-  if (!packageJson) throw notFound('no package.json found');
+  if (!packageJson) return null;
 
   let config: PackageJson & { imports?: unknown };
   let target: string | null;
   try {
     config = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+    // like Node: without "imports", `#name` is looked up in node_modules
+    if (config.imports == null) return null;
     target = resolveImportsTarget(config.imports, specifier);
   } catch (error) {
     throw Object.assign(
@@ -223,8 +224,7 @@ export function resolvePackageImport(
   }
 
   if (!target.startsWith('./')) {
-    const kind = isBuiltin(target) ? 'builtin' : 'bare';
-    return { target, kind, packageJson, config };
+    return { target, kind: 'bare', packageJson, config };
   }
 
   const file = path.join(path.dirname(packageJson), target);

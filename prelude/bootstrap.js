@@ -1941,19 +1941,33 @@ function payloadFileSync(pointer) {
     }
   }
 
+  // the snapshot never changes, so this needs no invalidation
+  const snapshotImports = new Map();
+  function readSnapshotImports(packageJson) {
+    if (!snapshotImports.has(packageJson)) {
+      let config;
+      try {
+        config = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+      } catch (error) {
+        error.message += ` in ${packageJson}`;
+        throw error;
+      }
+      snapshotImports.set(packageJson, config.imports);
+    }
+    return snapshotImports.get(packageJson);
+  }
+
   // package.json "imports" (`#name`): Node's resolver can't see package.json
   // scopes in the snapshot. Rules and error codes as in Node.js, see
-  // resolveImportsTarget() in lib/common.ts.
+  // resolveImportsTarget() in lib/common.ts. Returns null without "imports"
+  // in scope: Node then looks `#name` up like any other module.
   function resolveSnapshotImport(request, parent) {
     const fail = (code, message) => Object.assign(new Error(message), { code });
     const from = `imported from ${parent.filename}`;
 
     const packageJson = findSnapshotPackageJson(path.dirname(parent.filename));
-    const imports =
-      packageJson && JSON.parse(fs.readFileSync(packageJson, 'utf8')).imports;
-    if (!imports) {
-      throw fail('MODULE_NOT_FOUND', `Cannot find module '${request}' ${from}`);
-    }
+    const imports = packageJson && readSnapshotImports(packageJson);
+    if (imports == null) return null;
 
     let target;
     try {
@@ -2012,7 +2026,8 @@ function payloadFileSync(pointer) {
     const [request, parent] = arguments;
     // Skips the project fallback below; bare targets re-enter this override
     if (isSnapshotImport(request, parent)) {
-      return resolveSnapshotImport(request, parent);
+      const resolved = resolveSnapshotImport(request, parent);
+      if (resolved !== null) return resolved;
     }
 
     let filename;

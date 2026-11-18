@@ -386,6 +386,9 @@ export function isESMFile(filePath: string): boolean {
 // bundled. The rules are those of Node.js (PACKAGE_IMPORTS_RESOLVE), with one
 // addition: pkg bundles CJS, so the `require` conditions are tried first and
 // the `import` conditions only if no `require` condition matches.
+// Not resolve.exports: the prelude can't load it, and its imports() differs
+// from Node. So "imports" uses Node's own condition list, while "exports"
+// (resolver.ts) gets resolve.exports' `node` + `require`/`import` only.
 const IMPORTS_CONDITIONS = [
   ['node', 'require', 'module-sync', 'node-addons'],
   ['node', 'import', 'module-sync', 'node-addons'],
@@ -518,8 +521,14 @@ export function resolveImportsTarget(
   imports: unknown,
   request: string,
 ): string | null {
+  if (request === '#' || request.endsWith('/')) {
+    // `#/x` is left alone: Node 22 rejects it, Node 24+ resolves it
+    throw Object.assign(
+      new Error(`Invalid module specifier "${request}" for "imports"`),
+      { code: 'ERR_INVALID_MODULE_SPECIFIER' },
+    );
+  }
   if (!imports || typeof imports !== 'object') return null;
-  if (request === '#' || request.endsWith('/')) return null;
 
   const table = imports as Record<string, unknown>;
   const found = matchImportsKey(table, request);

@@ -18,12 +18,12 @@ assert(__dirname === process.cwd());
 const target = process.argv[2] || 'host';
 const input = './bin/index.js';
 const output = './run-time/test-output.exe';
-const outputSea = './run-time/test-output-sea.exe';
 
 utils.mkdirp.sync(path.dirname(output));
 
+const resolved = 'plain,node,internal,bare,builtin,mjs\ncjs:util,scope\napp\n';
 const expected =
-  'plain,node,internal,bare,builtin,mjs\ncjs:util,scope\napp\n' +
+  resolved +
   'ERR_PACKAGE_IMPORT_NOT_DEFINED ERR_PACKAGE_IMPORT_NOT_DEFINED ' +
   'MODULE_NOT_FOUND ERR_INVALID_PACKAGE_TARGET\n';
 
@@ -54,22 +54,17 @@ assert(binary.includes('"#app/*"'));
 assert(!binary.includes('plain-source-marker'));
 assert(!binary.includes('unused-dependency-marker'));
 
-// SEA mode shares the walker, but resolves `#` imports in its own VFS layer,
-// which reports every failure as MODULE_NOT_FOUND: compare the resolved part
-
-utils.pkg.sync(
-  ['./package.json', '--sea', '--target', 'host', '--output', outputSea],
-  { stdio: 'pipe' },
+// SEA mode shares the walker but resolves `#` imports in its own VFS layer,
+// which reports every failure as MODULE_NOT_FOUND
+const testName = 'test-54-package-json-imports';
+const newcomers = utils.seaHostOutputs(testName);
+const before = utils.filesBefore(newcomers);
+utils.runSeaHostOnly('./package.json', testName);
+utils.assertSeaOutput(
+  testName,
+  resolved +
+    'MODULE_NOT_FOUND MODULE_NOT_FOUND MODULE_NOT_FOUND MODULE_NOT_FOUND\n',
 );
-const sea = utils.spawn.sync(outputSea, []).replace(/\r\n/g, '\n');
-assert.strictEqual(
-  sea.split('\n').slice(0, 3).join('\n'),
-  expected.split('\n').slice(0, 3).join('\n'),
-);
+utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });
 
-try {
-  utils.vacuum.sync(path.dirname(output));
-} catch (error) {
-  // Windows briefly keeps a lock on a SEA binary that just ran
-  if (process.platform !== 'win32' || error.code !== 'EBUSY') throw error;
-}
+utils.vacuum.sync(path.dirname(output));

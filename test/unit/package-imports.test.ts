@@ -65,6 +65,7 @@ const requests = [
   '#tie/x.ts',
   '#two/x/y',
   '#legacy/a.js',
+  '#legacy/',
   '#star//outside.js',
   '#star/../outside.js',
   '#star/./lib/a.js',
@@ -101,6 +102,12 @@ describe('resolvePackageImport', () => {
     );
   }
 
+  function mustResolve(request: string, dir: string) {
+    const result = resolvePackageImport(request, dir);
+    assert.ok(result, `no "imports" in scope of ${dir}`);
+    return result;
+  }
+
   /** The file plain `node` resolves `request` to, or the error code */
   function nodeResolve(request: string): string {
     try {
@@ -127,6 +134,7 @@ describe('resolvePackageImport', () => {
     for (const file of files) write(`app/${file}`);
     write('app/scope/package.json', { imports: { '#exact': './own.js' } });
     write('no-imports/package.json', { name: 'no-imports' });
+    write('no-imports/node_modules/#local/index.js');
     write('broken/package.json', '{ "imports": ');
   });
 
@@ -138,7 +146,7 @@ describe('resolvePackageImport', () => {
     it(`resolves ${request} like node`, () => {
       const expected = nodeResolve(request);
       if (path.isAbsolute(expected)) {
-        const result = resolvePackageImport(request, app());
+        const result = mustResolve(request, app());
         assert.equal(result.kind, 'file');
         assert.equal(result.target, expected);
       } else {
@@ -168,28 +176,38 @@ describe('resolvePackageImport', () => {
 
   it('falls back to the import condition (pkg bundles ESM as CJS)', () => {
     assert.equal(nodeResolve('#esm-only'), 'ERR_PACKAGE_IMPORT_NOT_DEFINED');
-    assert.equal(
-      resolvePackageImport('#esm-only', app()).target,
-      app('lib', 'b.js'),
-    );
+    assert.equal(mustResolve('#esm-only', app()).target, app('lib', 'b.js'));
   });
 
   it('returns bare and builtin targets unresolved', () => {
-    const bare = resolvePackageImport('#bare', app());
+    const bare = mustResolve('#bare', app());
     assert.equal(bare.kind, 'bare');
     assert.equal(bare.target, 'some-package');
 
-    const builtin = resolvePackageImport('#builtin', app());
-    assert.equal(builtin.kind, 'builtin');
+    const builtin = mustResolve('#builtin', app());
+    assert.equal(builtin.kind, 'bare');
     assert.equal(builtin.target, 'fs');
   });
 
+  it('leaves `#name` to the module lookup without "imports" in scope', async () => {
+    assert.equal(
+      resolvePackageImport('#exact', path.join(root, 'no-imports')),
+      null,
+    );
+    // what plain node does, see the runtime in prelude/bootstrap.js
+    const dir = path.join(root, 'no-imports');
+    assert.equal(
+      await follow('#local', { basedir: dir }),
+      path.join(dir, 'node_modules', '#local', 'index.js'),
+    );
+  });
+
   it('returns the declaring package.json of the nearest scope', () => {
-    const result = resolvePackageImport('#exact', app('lib', 'dir'));
+    const result = mustResolve('#exact', app('lib', 'dir'));
     assert.equal(result.packageJson, app('package.json'));
     assert.equal(result.config.name, 'app');
 
-    const scoped = resolvePackageImport('#exact', app('scope'));
+    const scoped = mustResolve('#exact', app('scope'));
     assert.equal(scoped.target, app('scope', 'own.js'));
     assert.equal(scoped.packageJson, app('scope', 'package.json'));
     assert.throws(() => resolvePackageImport('#bare', app('scope')));
@@ -203,7 +221,7 @@ describe('resolvePackageImport', () => {
       ['#directory', 'app', /dir is not a file/],
       ['#parent', 'app', /Invalid "imports" target "\.\.\/outside\.js" in/],
       ['#hash', 'app', /Invalid "imports" target "#exact" in/],
-      ['#exact', 'no-imports', /not defined in "imports" of/],
+      ['#legacy/', 'app', /Invalid module specifier "#legacy\/"/],
       ['#exact', 'broken', /JSON.* in .*broken/],
     ];
     for (const [specifier, dir, message] of cases) {
@@ -212,6 +230,16 @@ describe('resolvePackageImport', () => {
         message,
       );
     }
+  });
+
+  it('follow() skips the package.json it is told to ignore', async () => {
+    const reported: string[] = [];
+    await follow('#exact', {
+      basedir: app(),
+      ignoreFile: app('package.json'),
+      catchReadFile: (packageJson) => reported.push(packageJson),
+    });
+    assert.deepEqual(reported, []);
   });
 
   it('follow() reports the declaring package.json after resolving', async () => {
