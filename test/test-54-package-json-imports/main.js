@@ -2,6 +2,7 @@
 
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const utils = require('../utils.js');
@@ -11,7 +12,8 @@ assert(__dirname === process.cwd());
 
 // package.json "imports" (subpath imports, `#name`) in an ESM package, a CJS
 // package and the app. The entry is in a subdirectory, so the app's
-// package.json is above it.
+// package.json is above it. One target is an `.mjs` file, which the packer
+// stores as `.js`.
 
 const target = process.argv[2] || 'host';
 const input = './bin/index.js';
@@ -21,7 +23,7 @@ const outputSea = './run-time/test-output-sea.exe';
 utils.mkdirp.sync(path.dirname(output));
 
 const expected =
-  'plain,node,internal,bare,builtin\ncjs:util,scope\napp\n' +
+  'plain,node,internal,bare,builtin,mjs\ncjs:util,scope\napp\n' +
   'ERR_PACKAGE_IMPORT_NOT_DEFINED ERR_PACKAGE_IMPORT_NOT_DEFINED ' +
   'MODULE_NOT_FOUND ERR_INVALID_PACKAGE_TARGET\n';
 
@@ -44,6 +46,13 @@ assert.deepStrictEqual(
 
 const right = utils.spawn.sync(output, []);
 assert.strictEqual(right, expected);
+
+// The app's package.json is bundled for its "imports" only: neither its
+// "files" (as plain source) nor its "dependencies" come with it
+const binary = fs.readFileSync(output);
+assert(binary.includes('"#app/*"'));
+assert(!binary.includes('plain-source-marker'));
+assert(!binary.includes('unused-dependency-marker'));
 
 // SEA mode shares the walker, but resolves `#` imports in its own VFS layer,
 // which reports every failure as MODULE_NOT_FOUND: compare the resolved part
