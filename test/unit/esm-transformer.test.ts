@@ -276,4 +276,23 @@ describe('normalizeExportsForCJS', () => {
       './b.js',
     ]);
   });
+
+  it('normalizes an "imports" map keyed by #specifiers (#328)', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({
+        '#util': { import: './util.mjs' },
+        '#lib/*': './lib/*.mjs',
+      }),
+      {
+        '#util': { require: './util.js', import: './util.js' },
+        '#lib/*': './lib/*.js',
+      },
+    );
+  });
+
+  it('leaves bare package targets alone', () => {
+    assert.deepEqual(normalizeExportsForCJS({ '#dep': 'dep/index.mjs' }), {
+      '#dep': 'dep/index.mjs',
+    });
+  });
 });

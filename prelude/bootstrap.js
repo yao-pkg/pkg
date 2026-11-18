@@ -1968,6 +1968,58 @@ function payloadFileSync(pointer) {
 })();
 
 // /////////////////////////////////////////////////////////////////
+// PATCH PACKAGE.JSON SCOPE LOOKUP /////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// "#imports" resolution finds the package scope through a native reader that
+// can't see the snapshot; pkg-fetch only reroutes `read()` through fs.
+(() => {
+  const reader = require('internal/modules/package_json_reader');
+  const { fileURLToPath } = require('url');
+  const ancestor = {
+    getNearestParentPackageJSON: reader.getNearestParentPackageJSON,
+    getPackageScopeConfig: reader.getPackageScopeConfig,
+  };
+
+  function findSnapshotPackageJSON(file) {
+    let dir = path.dirname(file);
+    while (insideSnapshot(dir)) {
+      const pjsonPath = path.join(dir, 'package.json');
+      if (fs.existsSync(pjsonPath)) return pjsonPath;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return undefined;
+  }
+
+  reader.getNearestParentPackageJSON = function getNearestParentPackageJSON(
+    checkPath,
+  ) {
+    const pjsonPath = insideSnapshot(checkPath)
+      ? findSnapshotPackageJSON(checkPath)
+      : undefined;
+    if (!pjsonPath) {
+      return ancestor.getNearestParentPackageJSON.apply(this, arguments);
+    }
+    const { exists, pjsonPath: found, ...data } = reader.read(pjsonPath);
+    return { data, exists, path: found };
+  };
+
+  reader.getPackageScopeConfig = function getPackageScopeConfig(resolved) {
+    const file = `${resolved}`.startsWith('file:')
+      ? fileURLToPath(resolved)
+      : undefined;
+    const pjsonPath =
+      file && insideSnapshot(file) ? findSnapshotPackageJSON(file) : undefined;
+    if (!pjsonPath) {
+      return ancestor.getPackageScopeConfig.apply(this, arguments);
+    }
+    return reader.read(pjsonPath);
+  };
+})();
+
+// /////////////////////////////////////////////////////////////////
 // PATCH CHILD_PROCESS /////////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 

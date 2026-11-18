@@ -2,9 +2,11 @@
 
 'use strict';
 
-// Regression test for https://github.com/yao-pkg/pkg/issues/281
+// Regression test for https://github.com/yao-pkg/pkg/issues/281 and #328
 // esm-only: import-only exports (ERR_PACKAGE_PATH_NOT_EXPORTED).
 // req-mjs: exports targets pointing at renamed .mjs files (MODULE_NOT_FOUND).
+// esm-imports: import-only "imports" map pointing at a renamed .mjs file.
+// cjs-imports: plain CJS "imports" map, resolved from inside the snapshot.
 
 const path = require('path');
 const assert = require('assert');
@@ -18,6 +20,8 @@ const target = process.argv[2] || 'host';
 const cases = [
   { id: 'esm-only', entry: './app/app-a.mjs', expected: 'esm-only ok' },
   { id: 'req-mjs', entry: './app/app-b.mjs', expected: 'req-mjs ok' },
+  { id: 'esm-imports', entry: './app/app-c.mjs', expected: 'esm-imports ok' },
+  { id: 'cjs-imports', entry: './app/app-d.mjs', expected: 'cjs-imports ok' },
 ];
 
 for (const testCase of cases) {

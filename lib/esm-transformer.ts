@@ -243,7 +243,8 @@ function normalizeTarget(
   hasFallback: boolean,
 ): ExportsValue {
   if (typeof target === 'string') {
-    return target.replace(/\.mjs$/, '.js');
+    // Only relative targets; an "imports" target can be a bare package name.
+    return target.startsWith('./') ? target.replace(/\.mjs$/, '.js') : target;
   }
 
   if (Array.isArray(target)) {
@@ -257,8 +258,11 @@ function normalizeTarget(
 
   if (target && typeof target === 'object') {
     const keys = Object.keys(target);
-    // Conditions use names as keys ("import"); subpath maps use "." / "./sub".
-    const isConditions = keys.some((key) => !key.startsWith('.'));
+    // Conditions use names as keys ("import"); subpath maps use "." / "./sub",
+    // "imports" maps use "#sub".
+    const isConditions = keys.some(
+      (key) => !key.startsWith('.') && !key.startsWith('#'),
+    );
 
     const result: ExportsValue = {};
     keys.forEach((key, i) => {
@@ -297,10 +301,11 @@ function normalizeTarget(
 }
 
 /**
- * Make a package.json "exports" value resolvable by require() after pkg's
- * ESM->CJS transform (#281): `.mjs` targets become `.js` (assumes the file was
- * transformed), and conditions require() cannot resolve get a `require`
- * mirroring `import`, unless a later condition already resolves.
+ * Make a package.json "exports" or "imports" value resolvable by require()
+ * after pkg's ESM->CJS transform (#281, #328): relative `.mjs` targets become
+ * `.js` (assumes the file was transformed), and conditions require() cannot
+ * resolve get a `require` mirroring `import`, unless a later condition
+ * already resolves.
  */
 export function normalizeExportsForCJS(
   exportsField: ExportsValue,

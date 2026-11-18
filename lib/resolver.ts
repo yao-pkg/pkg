@@ -1,8 +1,11 @@
 import { sync as resolveSync } from 'resolve';
-import { exports as resolveExports } from 'resolve.exports';
+import {
+  exports as resolveExports,
+  imports as resolveImports,
+} from 'resolve.exports';
 import fs from 'fs';
 import path from 'path';
-import { isESMFile } from './common';
+import { findNearestPackageJson, isESMFile } from './common';
 import { log } from './log';
 
 import type { PackageJson } from './types';
@@ -81,6 +84,49 @@ function resolveWithExports(
     log.debug(`Failed to resolve with exports field: ${packageName}${subpath}`);
     return null;
   }
+}
+
+/**
+ * Resolve a package.json "imports" specifier (`#util`) against the nearest
+ * package.json, like Node does.
+ * @param specifier - Specifier starting with '#'
+ * @param basedir - Directory of the importing file
+ * @returns Absolute path for a relative target, the bare specifier for a
+ *   package target (`"#dep": "lodash"`), or null if not mapped
+ */
+export function resolvePackageImport(
+  specifier: string,
+  basedir: string,
+): string | null {
+  const packageJsonPath = findNearestPackageJson(basedir);
+  if (!packageJsonPath) {
+    return null;
+  }
+
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  if (!pkg.imports) {
+    return null;
+  }
+
+  // Prefer require like resolveWithExports; resolve.exports throws when no
+  // condition matches, so each attempt is caught on its own.
+  let resolved: string | string[] | undefined;
+  for (const preferRequire of [true, false]) {
+    try {
+      resolved = resolveImports(pkg, specifier, { require: preferRequire });
+      break;
+    } catch {
+      // try the next condition set
+    }
+  }
+  const target = Array.isArray(resolved) ? resolved[0] : resolved;
+  if (!target) {
+    return null;
+  }
+
+  return target.startsWith('./')
+    ? path.join(path.dirname(packageJsonPath), target)
+    : target;
 }
 
 /**

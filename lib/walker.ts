@@ -1055,17 +1055,19 @@ class Walker {
           let modified = false;
 
           // Normalize first so the synthetic main is inferred from CJS-resolvable exports.
-          if (pkgContent.exports && !this.params.seaMode) {
-            const normalizedExports = normalizeExportsForCJS(
-              pkgContent.exports,
-            );
-            if (
-              JSON.stringify(normalizedExports) !==
-              JSON.stringify(pkgContent.exports)
-            ) {
-              log.debug(`Rewriting "exports" for require() in ${record.file}`);
-              pkgContent.exports = normalizedExports;
-              modified = true;
+          if (!this.params.seaMode) {
+            for (const field of ['exports', 'imports'] as const) {
+              if (!pkgContent[field]) continue;
+              const normalized = normalizeExportsForCJS(pkgContent[field]);
+              if (
+                JSON.stringify(normalized) !== JSON.stringify(pkgContent[field])
+              ) {
+                log.debug(
+                  `Rewriting "${field}" for require() in ${record.file}`,
+                );
+                pkgContent[field] = normalized;
+                modified = true;
+              }
             }
           }
 

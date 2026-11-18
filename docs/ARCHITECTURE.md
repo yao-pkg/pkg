@@ -221,6 +221,7 @@ Each file is stored with one or more store types:
 2. **Initializes VFS** — Builds in-memory lookup from `VIRTUAL_FILESYSTEM` dictionary with optional path compression via `DICT`
 3. **Patches `fs` module** — Intercepts 20+ `fs` functions (`readFileSync`, `readFile`, `statSync`, `stat`, `readdirSync`, `readdir`, `existsSync`, `exists`, `accessSync`, `access`, `realpathSync`, `realpath`, `createReadStream`, `open`, `read`, `close`, etc.). Each patched function checks if the path is inside `/snapshot/` — if yes, reads from the VFS payload; if no, falls through to the real `fs`
 4. **Patches `Module` system** — Custom `_resolveFilename` and `_compile` that load modules from the VFS. Bytecode modules are executed via `vm.Script` with `cachedData` (the V8 bytecode) and `sourceless: true`
+   - Also overrides `getNearestParentPackageJSON` / `getPackageScopeConfig` in `internal/modules/package_json_reader` for snapshot paths. Node finds the package scope for `#imports` through a native reader that can't see the VFS (pkg-fetch only patches `read()`)
 5. **Patches `child_process`** — Via `REQUIRE_SHARED.patchChildProcess()`. Rewrites spawn/exec calls so that spawning `node` or the entrypoint correctly uses `process.execPath`
 6. **Patches `process.dlopen`** — Via `REQUIRE_SHARED.patchDlopen()`. Extracts `.node` files from VFS to `~/.cache/pkg/<sha256>/` before loading
 7. **Sets up `process.pkg`** — Via `REQUIRE_SHARED.setupProcessPkg()`. Provides `process.pkg.entrypoint`, `process.pkg.path.resolve()`, `process.pkg.mount()`

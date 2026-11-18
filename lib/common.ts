@@ -286,11 +286,11 @@ export function toNormalizedRealPath(requestPath: string) {
 
 /**
  * Find the nearest package.json file by walking up the directory tree
- * @param filePath - Starting file path
+ * @param startDir - Directory to start from
  * @returns Path to package.json or null if not found
  */
-function findNearestPackageJson(filePath: string): string | null {
-  let dir = path.dirname(filePath);
+export function findNearestPackageJson(startDir: string): string | null {
+  let dir = startDir;
   const { root } = path.parse(dir);
 
   while (dir !== root) {
@@ -363,7 +363,7 @@ export function isESMFile(filePath: string): boolean {
     }
 
     // Compute and cache
-    const packageJsonPath = findNearestPackageJson(filePath);
+    const packageJsonPath = findNearestPackageJson(dir);
     packageJsonCache.set(dir, packageJsonPath);
 
     if (packageJsonPath) {

@@ -2,7 +2,7 @@ import { sync, SyncOpts } from 'resolve';
 import fs from 'fs';
 import path from 'path';
 import { toNormalizedRealPath } from './common';
-import { resolveModule } from './resolver';
+import { resolveModule, resolvePackageImport } from './resolver';
 
 import type { PackageJson } from './types';
 
@@ -54,9 +54,15 @@ function isValidPackageName(specifier: string): boolean {
   return /^[a-z0-9_.-]+$/.test(packageName);
 }
 
-export function follow(x: string, opts: FollowOptions) {
+export function follow(specifier: string, opts: FollowOptions) {
   // TODO async version
   return new Promise<string>((resolve, reject) => {
+    // `resolve` doesn't know package.json "imports"; map `#x` to its target first.
+    const x =
+      (specifier.startsWith('#') &&
+        resolvePackageImport(specifier, opts.basedir || process.cwd())) ||
+      specifier;
+
     // Try ESM-aware resolution first for non-relative specifiers
     // Skip if the specifier doesn't look like a valid npm package name
     // (e.g., generated aliases like "connectNonLiteral")
