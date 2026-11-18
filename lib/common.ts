@@ -287,12 +287,18 @@ export function toNormalizedRealPath(requestPath: string) {
 /**
  * Find the nearest package.json file by walking up the directory tree
  * @param dir - Starting directory
+ * @param stopAtNodeModules - Stop at a `node_modules` directory, like Node's
+ *   package scope lookup for "imports"
  * @returns Path to package.json or null if not found
  */
-export function findNearestPackageJsonFromDir(dir: string): string | null {
+export function findNearestPackageJsonFromDir(
+  dir: string,
+  stopAtNodeModules = false,
+): string | null {
   const { root } = path.parse(dir);
 
   while (dir !== root) {
+    if (stopAtNodeModules && path.basename(dir) === 'node_modules') break;
     const packageJsonPath = path.join(dir, 'package.json');
     if (fs.existsSync(packageJsonPath)) {
       return packageJsonPath;

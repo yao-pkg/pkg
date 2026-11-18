@@ -1924,7 +1924,7 @@ function payloadFileSync(pointer) {
 
   // Not common.findNearestPackageJsonFromDir: this one stops at the snapshot root
   function findSnapshotPackageJson(dir) {
-    while (insideSnapshot(dir)) {
+    while (insideSnapshot(dir) && path.basename(dir) !== 'node_modules') {
       const packageJson = path.join(dir, 'package.json');
       if (fs.existsSync(packageJson)) return packageJson;
       if (dir === path.dirname(dir)) break;

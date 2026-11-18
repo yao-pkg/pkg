@@ -203,7 +203,10 @@ export function resolvePackageImport(
   const notFound = (reason: string) =>
     new Error(`Cannot find module '${specifier}' from '${basedir}': ${reason}`);
 
-  const packageJson = findNearestPackageJsonFromDir(path.resolve(basedir));
+  const packageJson = findNearestPackageJsonFromDir(
+    path.resolve(basedir),
+    true,
+  );
   if (!packageJson) return null;
 
   let config: PackageJson & { imports?: unknown };

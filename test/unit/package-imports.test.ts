@@ -213,6 +213,13 @@ describe('resolvePackageImport', () => {
     assert.throws(() => resolvePackageImport('#bare', app('scope')));
   });
 
+  it('does not look for the scope past node_modules', () => {
+    // node_modules/dep has no package.json: the app's "imports" don't apply
+    const dep = app('node_modules', 'dep');
+    fs.mkdirSync(dep, { recursive: true });
+    assert.equal(resolvePackageImport('#exact', dep), null);
+  });
+
   it('names the reason when the specifier cannot be resolved', () => {
     const cases: [string, string, RegExp][] = [
       ['#unknown', 'app', /'#unknown' from .*: not defined in "imports" of/],

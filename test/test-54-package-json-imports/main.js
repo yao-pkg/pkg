@@ -12,8 +12,10 @@ assert(__dirname === process.cwd());
 
 // package.json "imports" (subpath imports, `#name`) in an ESM package, a CJS
 // package and the app. The entry is in a subdirectory, so the app's
-// package.json is above it. One target is an `.mjs` file, which the packer
-// stores as `.js`.
+// package.json is above it. Two targets are `.mjs` files, which the packer
+// stores as `.js`; one of them only has an "import" condition (#328). A
+// package without package.json inside node_modules doesn't inherit the
+// "imports" of the package around it.
 
 const target = process.argv[2] || 'host';
 const input = './bin/index.js';
@@ -21,7 +23,10 @@ const output = './run-time/test-output.exe';
 
 utils.mkdirp.sync(path.dirname(output));
 
-const resolved = 'plain,node,internal,bare,builtin,mjs\ncjs:util,scope\napp\n';
+const resolvedWith = (noScope) =>
+  'plain,node,internal,bare,builtin,mjs,esm-only\n' +
+  `cjs:util,scope,${noScope}\napp\n`;
+const resolved = resolvedWith('MODULE_NOT_FOUND');
 const expected =
   resolved +
   'ERR_PACKAGE_IMPORT_NOT_DEFINED ERR_PACKAGE_IMPORT_NOT_DEFINED ' +
@@ -55,14 +60,15 @@ assert(!binary.includes('plain-source-marker'));
 assert(!binary.includes('unused-dependency-marker'));
 
 // SEA mode shares the walker but resolves `#` imports in its own VFS layer,
-// which reports every failure as MODULE_NOT_FOUND
+// which reports every failure as MODULE_NOT_FOUND and doesn't stop the scope
+// lookup at node_modules yet (no-scope resolves the outer "#util")
 const testName = 'test-54-package-json-imports';
 const newcomers = utils.seaHostOutputs(testName);
 const before = utils.filesBefore(newcomers);
 utils.runSeaHostOnly('./package.json', testName);
 utils.assertSeaOutput(
   testName,
-  resolved +
+  resolvedWith('util') +
     'MODULE_NOT_FOUND MODULE_NOT_FOUND MODULE_NOT_FOUND MODULE_NOT_FOUND\n',
 );
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });
