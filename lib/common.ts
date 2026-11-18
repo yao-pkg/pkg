@@ -303,11 +303,6 @@ export function findNearestPackageJsonFromDir(dir: string): string | null {
   return null;
 }
 
-/** Like findNearestPackageJsonFromDir, starting at the directory of a file */
-function findNearestPackageJson(filePath: string): string | null {
-  return findNearestPackageJsonFromDir(path.dirname(filePath));
-}
-
 // Caches for ESM detection performance optimization
 const packageJsonCache = new Map<string, string | null>();
 const esmPackageCache = new Map<string, boolean>();
@@ -367,7 +362,9 @@ export function isESMFile(filePath: string): boolean {
     }
 
     // Compute and cache
-    const packageJsonPath = findNearestPackageJson(filePath);
+    const packageJsonPath = findNearestPackageJsonFromDir(
+      path.dirname(filePath),
+    );
     packageJsonCache.set(dir, packageJsonPath);
 
     if (packageJsonPath) {
@@ -388,7 +385,7 @@ export function isESMFile(filePath: string): boolean {
 // resolveImportsTarget, so the binary looks for exactly the files that were
 // bundled. The rules are those of Node.js (PACKAGE_IMPORTS_RESOLVE), with one
 // addition: pkg bundles CJS, so the `require` conditions are tried first and
-// the `import` conditions only if they give nothing.
+// the `import` conditions only if no `require` condition matches.
 const IMPORTS_CONDITIONS = [
   ['node', 'require', 'module-sync', 'node-addons'],
   ['node', 'import', 'module-sync', 'node-addons'],
@@ -411,20 +408,14 @@ function parsesAsUrl(target: string) {
   }
 }
 
-/**
- * Node's PATTERN_KEY_COMPARE for two keys with a `*`: the longer part before
- * the `*` ranks first, then the longer key.
- */
+/** Node's PATTERN_KEY_COMPARE: longer part before `*` first, then longer key */
 function ranksBefore(key: string, other: string) {
   const base = key.indexOf('*');
   const otherBase = other.indexOf('*');
   return base !== otherBase ? base > otherBase : key.length > other.length;
 }
 
-/**
- * The key of `imports` for `request`: the exact key, else the best-ranked key
- * with a single `*` that matches. `match` is what the `*` stands for.
- */
+/** The exact key of `request`, else the best-ranked `*` key; `match` fills the `*` */
 function matchImportsKey(imports: Record<string, unknown>, request: string) {
   if (Object.hasOwn(imports, request) && !request.includes('*')) {
     return { key: request, match: null };
@@ -451,10 +442,7 @@ function matchImportsKey(imports: Record<string, unknown>, request: string) {
   return best;
 }
 
-/**
- * Node's PACKAGE_TARGET_RESOLVE. Returns a `./` path, a bare specifier, or
- * null/undefined when the target leads nowhere; throws for an invalid target.
- */
+/** Node's PACKAGE_TARGET_RESOLVE: null = excluded, undefined = no match */
 function resolveImportsValue(
   value: unknown,
   match: string | null,
@@ -463,8 +451,16 @@ function resolveImportsValue(
   if (typeof value === 'string') {
     const target = match === null ? value : value.split('*').join(match);
     if (!value.startsWith('./')) {
-      const bare = !/^(\.\.\/|\/|#)/.test(value) && !parsesAsUrl(value);
-      if (!bare) throw invalidImportsTarget(value);
+      if (/^(\.\.\/|\/|#)/.test(value) || parsesAsUrl(value)) {
+        throw invalidImportsTarget(value);
+      }
+      // Node's PACKAGE_RESOLVE rejects these after `*` is filled in
+      if (/^[./#]/.test(target)) {
+        throw Object.assign(
+          new Error(`Invalid module specifier "${target}" from "imports"`),
+          { code: 'ERR_INVALID_MODULE_SPECIFIER' },
+        );
+      }
       return target;
     }
     if (INVALID_IMPORTS_SEGMENT.test(target.slice(2))) {
@@ -474,23 +470,27 @@ function resolveImportsValue(
   }
 
   if (Array.isArray(value)) {
-    let lastError: Error | null | undefined;
+    if (value.length === 0) return null;
+    let error: Error | undefined;
+    let excluded = false;
     for (const item of value) {
       let resolved;
       try {
         resolved = resolveImportsValue(item, match, conditions);
-      } catch (error) {
-        const { code } = error as NodeJS.ErrnoException;
-        if (code !== 'ERR_INVALID_PACKAGE_TARGET') throw error;
-        lastError = error as Error;
+      } catch (itemError) {
+        const { code } = itemError as NodeJS.ErrnoException;
+        if (code !== 'ERR_INVALID_PACKAGE_TARGET') throw itemError;
+        error = itemError as Error;
+        excluded = false;
         continue;
       }
       if (resolved === undefined) continue;
       if (resolved !== null) return resolved;
-      lastError = null;
+      error = undefined;
+      excluded = true;
     }
-    if (lastError) throw lastError;
-    return lastError;
+    if (error) throw error;
+    return excluded ? null : undefined;
   }
 
   if (value === null) return null;
@@ -531,7 +531,8 @@ export function resolveImportsTarget(
       found.match,
       conditions,
     );
-    if (target != null) return target;
+    // `import` is only a fallback when `require` matched nothing, not on null
+    if (target !== undefined) return target;
   }
   return null;
 }

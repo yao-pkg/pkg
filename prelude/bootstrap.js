@@ -1922,6 +1922,7 @@ function payloadFileSync(pointer) {
     throw new Error('UNEXPECTED-55');
   };
 
+  // Not common.findNearestPackageJsonFromDir: this one stops at the snapshot root
   function findSnapshotPackageJson(dir) {
     while (insideSnapshot(dir)) {
       const packageJson = path.join(dir, 'package.json');
@@ -1973,29 +1974,44 @@ function payloadFileSync(pointer) {
       const scope = new Module(packageJson, null);
       scope.filename = packageJson;
       scope.paths = Module._nodeModulePaths(path.dirname(packageJson));
-      return Module._resolveFilename(target, scope, false);
+      try {
+        return Module._resolveFilename(target, scope, false);
+      } catch (error) {
+        error.message += ` (target of '${request}' in ${packageJson})`;
+        throw error;
+      }
     }
 
     const file = path.join(path.dirname(packageJson), target);
     if (isSnapshotFile(file)) return file;
 
     // the packer stores an `.mjs` file that was transformed to CJS as `.js`
-    const renamed = file.endsWith('.mjs') && `${file.slice(0, -4)}.js`;
-    if (renamed && isSnapshotFile(renamed)) return renamed;
+    if (file.endsWith('.mjs')) {
+      const renamed = `${file.slice(0, -4)}.js`;
+      if (isSnapshotFile(renamed)) return renamed;
+    }
 
-    throw fail('MODULE_NOT_FOUND', `Cannot find module '${file}' ${from}`);
+    throw fail(
+      'MODULE_NOT_FOUND',
+      `Cannot find module '${file}' (target of '${request}' in ${packageJson}) ${from}. ` +
+        'Please recompile adding it as asset or script.',
+    );
   }
 
-  Module._resolveFilename = function _resolveFilename() {
-    const [request, parent] = arguments;
-    if (
+  function isSnapshotImport(request, parent) {
+    return (
       typeof request === 'string' &&
       request.startsWith('#') &&
       parent &&
       typeof parent.filename === 'string' &&
       insideSnapshot(parent.filename)
-    ) {
-      // Skips the project fallback below; bare targets re-enter this override
+    );
+  }
+
+  Module._resolveFilename = function _resolveFilename() {
+    const [request, parent] = arguments;
+    // Skips the project fallback below; bare targets re-enter this override
+    if (isSnapshotImport(request, parent)) {
       return resolveSnapshotImport(request, parent);
     }
 

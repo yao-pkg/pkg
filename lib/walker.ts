@@ -941,11 +941,7 @@ class Walker {
       }
     }
 
-    // The runtime reads the package.json that declares a "#" import. Above
-    // the entry file (`pkg dist/cli.js`) it is skipped by the loop above, so
-    // it is stored here, with the marker of the importing file: it must not
-    // become a package of its own, which would add its "dependencies" and
-    // its "files" to the snapshot.
+    // The runtime reads a "#" import's package.json; above the entry the loop skips it, and a marker of its own would bundle its "files"
     if (derivative.alias.startsWith('#')) {
       const packageJson = findNearestPackageJsonFromDir(basedir);
       if (packageJson && !isPackageOfBundle(packageJson)) {

@@ -179,16 +179,11 @@ export function resolveModule(
 }
 
 export interface PackageImportResult {
-  /** Absolute path of the resolved file, or the bare/builtin target specifier */
+  /** Absolute file path for `file`, else the specifier ("some-pkg", "fs") */
   target: string;
-  /**
-   * `file`: a file of the declaring package, `bare`: another package
-   * (e.g. "#dep": "some-pkg"), `builtin`: a Node.js builtin ("#fs": "fs")
-   */
   kind: 'file' | 'bare' | 'builtin';
-  /** package.json that declares the "imports" field */
+  /** The package.json that declares the "imports" field */
   packageJson: string;
-  /** Parsed content of `packageJson` */
   config: PackageJson;
 }
 
@@ -218,7 +213,10 @@ export function resolvePackageImport(
     config = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
     target = resolveImportsTarget(config.imports, specifier);
   } catch (error) {
-    throw notFound(`${(error as Error).message} in ${packageJson}`);
+    throw Object.assign(
+      notFound(`${(error as Error).message} in ${packageJson}`),
+      { cause: error },
+    );
   }
   if (target === null) {
     throw notFound(`not defined in "imports" of ${packageJson}`);

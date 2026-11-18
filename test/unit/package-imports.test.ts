@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
+import { follow } from '../../lib/follow';
 import { resolvePackageImport } from '../../lib/resolver';
 
 // resolvePackageImport() must pick the file that plain `node` picks. The
@@ -33,6 +34,15 @@ const imports = {
   '#array-missing-first': ['./lib/missing.js', './lib/b.js'],
   '#browser': { browser: './lib/a.js' },
   '#null': null,
+  // null excludes: no fallback to a later condition or to `import`
+  '#cond-null': { node: null, default: './lib/b.js' },
+  '#array-null': [null],
+  '#array-empty': { node: [], default: './lib/b.js' },
+  '#require-null': { require: null, import: './lib/a.js' },
+  '#dot': '.',
+  '#dotdot': '..',
+  // a bare `*` target is checked after the `*` is filled in
+  '#star/*': '*',
   '#missing': './lib/missing.js',
   '#directory': './lib/dir',
   '#parent': '../outside.js',
@@ -43,7 +53,9 @@ const imports = {
 };
 
 const requests = [
-  ...Object.keys(imports).filter((key) => !/[*/]$|\*/.test(key)),
+  ...Object.keys(imports).filter(
+    (key) => !key.includes('*') && !key.endsWith('/'),
+  ),
   '#dir/b',
   '#dir/deep/c',
   '#dir/../a',
@@ -53,6 +65,9 @@ const requests = [
   '#tie/x.ts',
   '#two/x/y',
   '#legacy/a.js',
+  '#star//outside.js',
+  '#star/../outside.js',
+  '#star/./lib/a.js',
   '#unknown',
   '#',
 ];
@@ -69,6 +84,8 @@ const files = [
   'lib/long/x.js',
   'scope/own.js',
   'outside.js',
+  // makes '#node-modules' fail on the segment rule, not on a missing file
+  'node_modules/dep/index.js',
 ];
 
 describe('resolvePackageImport', () => {
@@ -142,25 +159,11 @@ describe('resolvePackageImport', () => {
       'resolved',
       'ERR_PACKAGE_IMPORT_NOT_DEFINED',
       'ERR_INVALID_PACKAGE_TARGET',
+      'ERR_INVALID_MODULE_SPECIFIER',
       'MODULE_NOT_FOUND',
     ]) {
       assert.ok(outcomes.has(outcome), `no request with outcome ${outcome}`);
     }
-  });
-
-  it('ranks patterns and conditions like node', () => {
-    const target = (request: string) =>
-      path
-        .relative(app(), resolvePackageImport(request, app()).target)
-        .replace(/\\/g, '/');
-
-    assert.equal(target('#dir/exact'), 'lib/a.js');
-    assert.equal(target('#abbc'), 'lib/one/bc.js');
-    assert.equal(target('#tie/x.js'), 'lib/long/x.js');
-    assert.equal(target('#tie/x.ts'), 'lib/short/x.ts');
-    assert.equal(target('#nested'), 'lib/b.js');
-    assert.equal(target('#default-first'), 'lib/b.js');
-    assert.equal(target('#array-invalid-first'), 'lib/b.js');
   });
 
   it('falls back to the import condition (pkg bundles ESM as CJS)', () => {
@@ -209,5 +212,29 @@ describe('resolvePackageImport', () => {
         message,
       );
     }
+  });
+
+  it('follow() reports the declaring package.json after resolving', async () => {
+    const reported: string[] = [];
+    const file = await follow('#exact', {
+      basedir: app(),
+      catchReadFile: (packageJson) => reported.push(packageJson),
+      catchPackageFilter: (config) => reported.push(config.name as string),
+    });
+    assert.equal(file, app('lib', 'a.js'));
+    assert.deepEqual(reported, [app('package.json'), 'app']);
+  });
+
+  it('follow() names the "#" import when its bare target is missing', async () => {
+    const reported: string[] = [];
+    await assert.rejects(
+      follow('#bare', {
+        basedir: app(),
+        catchReadFile: (packageJson) => reported.push(packageJson),
+      }),
+      /some-package.*\(target of '#bare' in .*package\.json\)/s,
+    );
+    // not reported, so the walker doesn't blame the failure on its "main"
+    assert.deepEqual(reported, []);
   });
 });
