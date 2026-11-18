@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  normalizeExportsForCJS,
   rewriteMjsRequirePaths,
   transformESMtoCJS,
 } from '../../lib/esm-transformer';
@@ -160,5 +161,119 @@ describe('transformESMtoCJS', () => {
     assert.equal(res.isTransformed, false);
     // Original source is returned unchanged on failure.
     assert.equal(res.code, 'let x = ;');
+  });
+});
+
+describe('normalizeExportsForCJS', () => {
+  it('rewrites a string target .mjs to .js', () => {
+    assert.equal(normalizeExportsForCJS('./index.mjs'), './index.js');
+  });
+
+  it('adds a require condition for an import-only exports map (#281 case A)', () => {
+    // Otherwise require() throws ERR_PACKAGE_PATH_NOT_EXPORTED.
+    assert.deepEqual(
+      normalizeExportsForCJS({ '.': { import: './index.mjs' } }),
+      {
+        '.': { require: './index.js', import: './index.js' },
+      },
+    );
+  });
+
+  it('rewrites .mjs require targets that no longer exist (#281 case B)', () => {
+    // The packer renames .mjs to .js in the snapshot.
+    assert.deepEqual(
+      normalizeExportsForCJS({
+        '.': { require: './index.mjs', import: './index.mjs' },
+      }),
+      { '.': { require: './index.js', import: './index.js' } },
+    );
+  });
+
+  it('does not add require when a CJS-resolvable condition already exists', () => {
+    // `default` is resolvable by require(), so the map is left as-is (extensions aside).
+    assert.deepEqual(
+      normalizeExportsForCJS({ import: './e.mjs', default: './d.mjs' }),
+      { import: './e.js', default: './d.js' },
+    );
+  });
+
+  it('recurses through subpath maps and nested conditions', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({
+        '.': { import: './i.mjs' },
+        './sub': { node: { import: './sub.mjs' } },
+      }),
+      {
+        '.': { require: './i.js', import: './i.js' },
+        './sub': { node: { require: './sub.js', import: './sub.js' } },
+      },
+    );
+  });
+
+  it('does not shadow an outer CJS fallback from a nested condition', () => {
+    // require() steps into "node", finds no match, and falls through to "default".
+    const exportsField = {
+      node: { import: './node.mjs' },
+      default: './index.cjs',
+    };
+    assert.deepEqual(normalizeExportsForCJS(exportsField), {
+      node: { import: './node.js' },
+      default: './index.cjs',
+    });
+  });
+
+  it('leaves an already CJS-resolvable map unchanged', () => {
+    const exportsField = {
+      '.': { types: './i.d.ts', require: './i.cjs', import: './i.js' },
+      './*': { require: './lib/*.cjs', default: './lib/*.js' },
+    };
+    assert.deepEqual(normalizeExportsForCJS(exportsField), exportsField);
+  });
+
+  it('adds require next to types for an import-only map', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({ types: './i.d.ts', import: './i.mjs' }),
+      { require: './i.js', types: './i.d.ts', import: './i.js' },
+    );
+  });
+
+  it('leaves conditions with neither import nor a CJS condition unchanged', () => {
+    assert.deepEqual(normalizeExportsForCJS({ browser: './b.js' }), {
+      browser: './b.js',
+    });
+  });
+
+  it('keeps null targets and rewrites pattern subpaths', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({
+        './*': { import: './lib/*.mjs' },
+        './internal/*': null,
+      }),
+      {
+        './*': { require: './lib/*.js', import: './lib/*.js' },
+        './internal/*': null,
+      },
+    );
+  });
+
+  it('overrides an explicit require: null', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS({ import: './i.mjs', require: null }),
+      { require: './i.js', import: './i.js' },
+    );
+  });
+
+  it('does not inject into an array entry when a later entry resolves', () => {
+    assert.deepEqual(
+      normalizeExportsForCJS([{ import: './a.mjs' }, './b.mjs']),
+      [{ import: './a.js' }, './b.js'],
+    );
+  });
+
+  it('handles array targets', () => {
+    assert.deepEqual(normalizeExportsForCJS(['./a.mjs', './b.mjs']), [
+      './a.js',
+      './b.js',
+    ]);
   });
 });

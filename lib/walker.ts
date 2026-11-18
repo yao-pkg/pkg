@@ -26,7 +26,11 @@ import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
-import { transformESMtoCJS, rewriteMjsRequirePaths } from './esm-transformer';
+import {
+  transformESMtoCJS,
+  rewriteMjsRequirePaths,
+  normalizeExportsForCJS,
+} from './esm-transformer';
 import {
   ConfigDictionary,
   FileRecord,
@@ -1049,6 +1053,21 @@ class Walker {
         try {
           const pkgContent = JSON.parse(record.body.toString('utf8'));
           let modified = false;
+
+          // Normalize first so the synthetic main is inferred from CJS-resolvable exports.
+          if (pkgContent.exports && !this.params.seaMode) {
+            const normalizedExports = normalizeExportsForCJS(
+              pkgContent.exports,
+            );
+            if (
+              JSON.stringify(normalizedExports) !==
+              JSON.stringify(pkgContent.exports)
+            ) {
+              log.debug(`Rewriting "exports" for require() in ${record.file}`);
+              pkgContent.exports = normalizedExports;
+              modified = true;
+            }
+          }
 
           // If package has exports but no main, add a synthetic main field
           if (pkgContent.exports && !pkgContent.main) {

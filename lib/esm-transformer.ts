@@ -213,6 +213,101 @@ export function rewriteMjsRequirePaths(code: string): string {
   );
 }
 
+// Conditions Node's require() resolver matches. A conditions object with none
+// of these fails with ERR_PACKAGE_PATH_NOT_EXPORTED.
+const CJS_EXPORT_CONDITIONS = ['require', 'node', 'node-addons', 'default'];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ExportsValue = any;
+
+// Whether require() resolves `target`: Node tries matching conditions in key
+// order and falls through to the next one when a match resolves to nothing.
+function resolvesForCJS(target: ExportsValue): boolean {
+  if (typeof target === 'string') {
+    return true;
+  }
+  if (Array.isArray(target)) {
+    return target.some(resolvesForCJS);
+  }
+  if (target && typeof target === 'object') {
+    return Object.keys(target).some(
+      (key) =>
+        CJS_EXPORT_CONDITIONS.includes(key) && resolvesForCJS(target[key]),
+    );
+  }
+  return false;
+}
+
+function normalizeTarget(
+  target: ExportsValue,
+  hasFallback: boolean,
+): ExportsValue {
+  if (typeof target === 'string') {
+    return target.replace(/\.mjs$/, '.js');
+  }
+
+  if (Array.isArray(target)) {
+    return target.map((entry, i) =>
+      normalizeTarget(
+        entry,
+        hasFallback || target.slice(i + 1).some(resolvesForCJS),
+      ),
+    );
+  }
+
+  if (target && typeof target === 'object') {
+    const keys = Object.keys(target);
+    // Conditions use names as keys ("import"); subpath maps use "." / "./sub".
+    const isConditions = keys.some((key) => !key.startsWith('.'));
+
+    const result: ExportsValue = {};
+    keys.forEach((key, i) => {
+      const laterFallback =
+        isConditions &&
+        keys
+          .slice(i + 1)
+          .some(
+            (later) =>
+              CJS_EXPORT_CONDITIONS.includes(later) &&
+              resolvesForCJS(target[later]),
+          );
+      result[key] = normalizeTarget(
+        target[key],
+        isConditions && (hasFallback || laterFallback),
+      );
+    });
+
+    if (
+      isConditions &&
+      !hasFallback &&
+      result.import !== undefined &&
+      !resolvesForCJS(result)
+    ) {
+      // Key first so require() matches it; value set after the spread to
+      // override an explicit `require: null`.
+      const injected = { require: result.import, ...result };
+      injected.require = result.import;
+      return injected;
+    }
+
+    return result;
+  }
+
+  return target;
+}
+
+/**
+ * Make a package.json "exports" value resolvable by require() after pkg's
+ * ESM->CJS transform (#281): `.mjs` targets become `.js` (assumes the file was
+ * transformed), and conditions require() cannot resolve get a `require`
+ * mirroring `import`, unless a later condition already resolves.
+ */
+export function normalizeExportsForCJS(
+  exportsField: ExportsValue,
+): ExportsValue {
+  return normalizeTarget(exportsField, false);
+}
+
 /**
  * Transform ESM code to CommonJS using esbuild
  * This allows ESM modules to be compiled to bytecode via vm.Script
