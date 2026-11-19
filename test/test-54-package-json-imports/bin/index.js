@@ -17,4 +17,5 @@ console.log(
   errorCode(() => require('#browser-only')),
   errorCode(() => require('#missing-file')),
   errorCode(() => require('#invalid-target')),
+  errorCode(() => require('#app/')),
 );

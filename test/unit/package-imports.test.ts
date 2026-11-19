@@ -43,6 +43,8 @@ const imports = {
   '#dotdot': '..',
   // a bare `*` target is checked after the `*` is filled in
   '#star/*': '*',
+  // a bad `*` match is not a bad target: no fallback to the next entry
+  '#array-star/*': ['./lib/*/b.js', './lib/b.js'],
   '#missing': './lib/missing.js',
   '#directory': './lib/dir',
   '#parent': '../outside.js',
@@ -69,6 +71,8 @@ const requests = [
   '#star//outside.js',
   '#star/../outside.js',
   '#star/./lib/a.js',
+  '#star/\\outside.js',
+  '#array-star/..',
   '#unknown',
   '#',
 ];
@@ -150,7 +154,19 @@ describe('resolvePackageImport', () => {
         assert.equal(result.kind, 'file');
         assert.equal(result.target, expected);
       } else {
-        assert.throws(() => resolvePackageImport(request, app()));
+        assert.throws(
+          () => resolvePackageImport(request, app()),
+          (error: Error & { cause?: { code?: string } }) => {
+            if (expected.startsWith('ERR_INVALID_')) {
+              return error.cause?.code === expected;
+            }
+            if (expected === 'ERR_PACKAGE_IMPORT_NOT_DEFINED') {
+              return /not defined in "imports"/.test(error.message);
+            }
+            // MODULE_NOT_FOUND: pkg also refuses path-like bare targets earlier
+            return true;
+          },
+        );
       }
     });
   }
@@ -229,6 +245,8 @@ describe('resolvePackageImport', () => {
       ['#parent', 'app', /Invalid "imports" target "\.\.\/outside\.js" in/],
       ['#hash', 'app', /Invalid "imports" target "#exact" in/],
       ['#legacy/', 'app', /Invalid module specifier "#legacy\/"/],
+      // Node looks for a package "C:"; on Windows pkg would read a host path
+      ['#star/C:/outside.js', 'app', /Invalid module specifier "C:\/outside/],
       ['#exact', 'broken', /JSON.* in .*broken/],
     ];
     for (const [specifier, dir, message] of cases) {

@@ -30,7 +30,7 @@ const resolved = resolvedWith('MODULE_NOT_FOUND');
 const expected =
   resolved +
   'ERR_PACKAGE_IMPORT_NOT_DEFINED ERR_PACKAGE_IMPORT_NOT_DEFINED ' +
-  'MODULE_NOT_FOUND ERR_INVALID_PACKAGE_TARGET\n';
+  'MODULE_NOT_FOUND ERR_INVALID_PACKAGE_TARGET ERR_INVALID_MODULE_SPECIFIER\n';
 
 const left = utils.spawn.sync('node', [input]);
 assert.strictEqual(left, expected);
@@ -38,15 +38,19 @@ assert.strictEqual(left, expected);
 const log = utils.pkg.sync(['--target', target, '--output', output, input], {
   stdio: 'pipe',
 });
-// the entry's four broken imports are expected to be reported
+// the entry's five broken imports are expected to be reported
 const unresolved = (log.stdout + log.stderr).match(
   /Cannot find module '#[^']+'/g,
 );
 assert.deepStrictEqual(
   [...new Set(unresolved)].sort(),
-  ['#browser-only', '#invalid-target', '#missing-file', '#undefined'].map(
-    (specifier) => `Cannot find module '${specifier}'`,
-  ),
+  [
+    '#app/',
+    '#browser-only',
+    '#invalid-target',
+    '#missing-file',
+    '#undefined',
+  ].map((specifier) => `Cannot find module '${specifier}'`),
 );
 
 const right = utils.spawn.sync(output, []);
@@ -68,8 +72,7 @@ const before = utils.filesBefore(newcomers);
 utils.runSeaHostOnly('./package.json', testName);
 utils.assertSeaOutput(
   testName,
-  resolvedWith('util') +
-    'MODULE_NOT_FOUND MODULE_NOT_FOUND MODULE_NOT_FOUND MODULE_NOT_FOUND\n',
+  resolvedWith('util') + 'MODULE_NOT_FOUND '.repeat(4) + 'MODULE_NOT_FOUND\n',
 );
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });
 

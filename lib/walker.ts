@@ -941,7 +941,8 @@ class Walker {
       }
     }
 
-    // The runtime reads a "#" import's package.json; above the entry the loop skips it, and a marker of its own would bundle its "files"
+    // The runtime needs the package.json declaring a "#" import, even above the entry.
+    // It keeps this marker: a marker of its own would bundle its "files" too.
     if (derivative.alias.startsWith('#')) {
       const packageJson = findNearestPackageJsonFromDir(basedir, true);
       if (packageJson && !isPackageOfBundle(packageJson)) {

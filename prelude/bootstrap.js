@@ -2024,7 +2024,8 @@ function payloadFileSync(pointer) {
 
   Module._resolveFilename = function _resolveFilename() {
     const [request, parent] = arguments;
-    // Skips the project fallback below; bare targets re-enter this override
+    // Node can't read package.json scopes in the snapshot; a bare target
+    // re-enters here as a non-# request
     if (isSnapshotImport(request, parent)) {
       const resolved = resolveSnapshotImport(request, parent);
       if (resolved !== null) return resolved;

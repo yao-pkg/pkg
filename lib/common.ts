@@ -385,16 +385,7 @@ export function isESMFile(filePath: string): boolean {
 // PACKAGE.JSON "IMPORTS" //////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
-// The rules for package.json "imports" specifiers (`#name`). The walker
-// (resolvePackageImport in resolver.ts) and the prelude (resolveSnapshotImport
-// in bootstrap.js, which gets this file as REQUIRE_COMMON) both call
-// resolveImportsTarget, so the binary looks for exactly the files that were
-// bundled. The rules are those of Node.js (PACKAGE_IMPORTS_RESOLVE), with one
-// addition: pkg bundles CJS, so the `require` conditions are tried first and
-// the `import` conditions only if no `require` condition matches.
-// Not resolve.exports: the prelude can't load it, and its imports() differs
-// from Node. So "imports" uses Node's own condition list, while "exports"
-// (resolver.ts) gets resolve.exports' `node` + `require`/`import` only.
+// Node's conditions; `import` only if no `require` one matches (pkg bundles CJS)
 const IMPORTS_CONDITIONS = [
   ['node', 'require', 'module-sync', 'node-addons'],
   ['node', 'import', 'module-sync', 'node-addons'],
@@ -406,6 +397,13 @@ function invalidImportsTarget(target: unknown) {
   return Object.assign(
     new Error(`Invalid "imports" target ${JSON.stringify(target)}`),
     { code: 'ERR_INVALID_PACKAGE_TARGET' },
+  );
+}
+
+function invalidModuleSpecifier(specifier: string) {
+  return Object.assign(
+    new Error(`Invalid module specifier "${specifier}" in "imports"`),
+    { code: 'ERR_INVALID_MODULE_SPECIFIER' },
   );
 }
 
@@ -463,17 +461,18 @@ function resolveImportsValue(
       if (/^(\.\.\/|\/|#)/.test(value) || parsesAsUrl(value)) {
         throw invalidImportsTarget(value);
       }
-      // Node's PACKAGE_RESOLVE rejects these after `*` is filled in
-      if (/^[./#]/.test(target)) {
-        throw Object.assign(
-          new Error(`Invalid module specifier "${target}" from "imports"`),
-          { code: 'ERR_INVALID_MODULE_SPECIFIER' },
-        );
+      // checked after `*` is filled in; `\` and `C:` are paths on Windows
+      if (/^[./#]|^[a-z]:|\\/i.test(target)) {
+        throw invalidModuleSpecifier(target);
       }
       return target;
     }
-    if (INVALID_IMPORTS_SEGMENT.test(target.slice(2))) {
+    if (INVALID_IMPORTS_SEGMENT.test(value.slice(2))) {
       throw invalidImportsTarget(value);
+    }
+    // not a bad target: an array must not fall back to its next entry
+    if (match !== null && INVALID_IMPORTS_SEGMENT.test(match)) {
+      throw invalidModuleSpecifier(target);
     }
     return target;
   }
@@ -529,10 +528,7 @@ export function resolveImportsTarget(
 ): string | null {
   if (request === '#' || request.endsWith('/')) {
     // `#/x` is left alone: Node 22 rejects it, Node 24+ resolves it
-    throw Object.assign(
-      new Error(`Invalid module specifier "${request}" for "imports"`),
-      { code: 'ERR_INVALID_MODULE_SPECIFIER' },
-    );
+    throw invalidModuleSpecifier(request);
   }
   if (!imports || typeof imports !== 'object') return null;
 
