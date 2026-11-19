@@ -385,6 +385,17 @@ export function isESMFile(filePath: string): boolean {
 // PACKAGE.JSON "IMPORTS" //////////////////////////////////////////
 // /////////////////////////////////////////////////////////////////
 
+// A port of Node's PACKAGE_IMPORTS_RESOLVE rather than `imports()` from
+// resolve.exports:
+// - this file ships in the binary (REQUIRE_COMMON) and has no npm deps, so
+//   the walker and the runtime share one resolver and pick the same file
+// - resolve.exports 2.0.3 differs from Node: `#abbc` with `#ab*` and `#a*bc`
+//   picks `#a*bc` (Node ranks by the part before `*`); targets aren't
+//   validated (`"#x/*": "*"` maps `#x/../a.js` to `../a.js`, outside the
+//   package); arrays come back whole instead of resolved; errors lack
+//   Node's codes
+// test/unit/package-imports.test.ts checks every case against Node.
+
 // Node's conditions; `import` only if no `require` one matches (pkg bundles CJS)
 const IMPORTS_CONDITIONS = [
   ['node', 'require', 'module-sync', 'node-addons'],

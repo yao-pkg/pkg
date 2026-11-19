@@ -72,7 +72,7 @@ const before = utils.filesBefore(newcomers);
 utils.runSeaHostOnly('./package.json', testName);
 utils.assertSeaOutput(
   testName,
-  resolvedWith('util') + 'MODULE_NOT_FOUND '.repeat(4) + 'MODULE_NOT_FOUND\n',
+  resolvedWith('util') + Array(5).fill('MODULE_NOT_FOUND').join(' ') + '\n',
 );
 utils.filesAfter(before, newcomers, { tolerateWindowsEbusy: true });
 

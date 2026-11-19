@@ -2001,9 +2001,14 @@ function payloadFileSync(pointer) {
       }
     }
 
-    // `.mjs` targets were rewritten to `.js` by the walker, like "exports"
     const file = path.join(path.dirname(packageJson), target);
     if (isSnapshotFile(file)) return file;
+
+    // the packer stores an `.mjs` file that was transformed to CJS as `.js`
+    if (file.endsWith('.mjs')) {
+      const renamed = `${file.slice(0, -4)}.js`;
+      if (isSnapshotFile(renamed)) return renamed;
+    }
 
     throw fail(
       'MODULE_NOT_FOUND',
