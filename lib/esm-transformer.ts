@@ -297,7 +297,7 @@ function normalizeTarget(
 }
 
 /**
- * Make a package.json "exports" value resolvable by require() after pkg's
+ * Make a package.json "exports" value (or one "imports" target) resolvable by require() after pkg's
  * ESM->CJS transform (#281): `.mjs` targets become `.js` (assumes the file was
  * transformed), and conditions require() cannot resolve get a `require`
  * mirroring `import`, unless a later condition already resolves.

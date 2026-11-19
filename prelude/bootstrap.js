@@ -1991,19 +1991,19 @@ function payloadFileSync(pointer) {
       try {
         return Module._resolveFilename(target, scope, false);
       } catch (error) {
-        error.message += ` (target of '${request}' in ${packageJson})`;
+        // first line only, so it stays above Node's "Require stack:"
+        error.message = error.message.replace(
+          /^.*/,
+          (line) =>
+            `${line} (target of '${request}' in ${packageJson}) ${from}`,
+        );
         throw error;
       }
     }
 
+    // `.mjs` targets were rewritten to `.js` by the walker, like "exports"
     const file = path.join(path.dirname(packageJson), target);
     if (isSnapshotFile(file)) return file;
-
-    // the packer stores an `.mjs` file that was transformed to CJS as `.js`
-    if (file.endsWith('.mjs')) {
-      const renamed = `${file.slice(0, -4)}.js`;
-      if (isSnapshotFile(renamed)) return renamed;
-    }
 
     throw fail(
       'MODULE_NOT_FOUND',

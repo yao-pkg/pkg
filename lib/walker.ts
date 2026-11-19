@@ -877,8 +877,9 @@ class Walker {
       const { toplevel } = marker;
       const mainNotFound =
         newPackages.length > 0 && !newPackages[0].marker?.config?.main;
+      // a package's own "#" import can't fail without breaking it at runtime
       const debug =
-        !toplevel ||
+        (!toplevel && !derivative.alias.startsWith('#')) ||
         derivative.mayExclude ||
         (mainNotFound && derivative.fromDependencies);
       const level = debug ? 'debug' : 'warn';
@@ -1082,6 +1083,27 @@ class Walker {
             ) {
               log.debug(`Rewriting "exports" for require() in ${record.file}`);
               pkgContent.exports = normalizedExports;
+              modified = true;
+            }
+          }
+
+          if (
+            pkgContent.imports &&
+            typeof pkgContent.imports === 'object' &&
+            !this.params.seaMode
+          ) {
+            const normalizedImports = Object.fromEntries(
+              Object.entries(pkgContent.imports).map(([key, target]) => [
+                key,
+                normalizeExportsForCJS(target),
+              ]),
+            );
+            if (
+              JSON.stringify(normalizedImports) !==
+              JSON.stringify(pkgContent.imports)
+            ) {
+              log.debug(`Rewriting "imports" for require() in ${record.file}`);
+              pkgContent.imports = normalizedImports;
               modified = true;
             }
           }
