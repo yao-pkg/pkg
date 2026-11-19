@@ -1922,17 +1922,6 @@ function payloadFileSync(pointer) {
     throw new Error('UNEXPECTED-55');
   };
 
-  // Not common.findNearestPackageJsonFromDir: this one stops at the snapshot root
-  function findSnapshotPackageJson(dir) {
-    while (insideSnapshot(dir) && path.basename(dir) !== 'node_modules') {
-      const packageJson = path.join(dir, 'package.json');
-      if (fs.existsSync(packageJson)) return packageJson;
-      if (dir === path.dirname(dir)) break;
-      dir = path.dirname(dir);
-    }
-    return null;
-  }
-
   function isSnapshotFile(file) {
     try {
       return fs.statSync(file).isFile();
@@ -1965,7 +1954,10 @@ function payloadFileSync(pointer) {
     const fail = (code, message) => Object.assign(new Error(message), { code });
     const from = `imported from ${parent.filename}`;
 
-    const packageJson = findSnapshotPackageJson(path.dirname(parent.filename));
+    const packageJson = common.findNearestPackageJsonFromDir(
+      path.dirname(parent.filename),
+      true,
+    );
     const imports = packageJson && readSnapshotImports(packageJson);
     if (imports == null) return null;
 
@@ -2029,8 +2021,7 @@ function payloadFileSync(pointer) {
 
   Module._resolveFilename = function _resolveFilename() {
     const [request, parent] = arguments;
-    // Node can't read package.json scopes in the snapshot; a bare target
-    // re-enters here as a non-# request
+    // a bare target re-enters here as a non-# request
     if (isSnapshotImport(request, parent)) {
       const resolved = resolveSnapshotImport(request, parent);
       if (resolved !== null) return resolved;

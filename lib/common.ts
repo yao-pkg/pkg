@@ -531,7 +531,8 @@ function resolveImportsValue(
  * @returns A path relative to that package.json (starts with `./`), a bare
  * specifier (another package or a builtin), or null if the import is not
  * defined
- * @throws ERR_INVALID_PACKAGE_TARGET for a target Node.js rejects
+ * @throws ERR_INVALID_PACKAGE_TARGET or ERR_INVALID_MODULE_SPECIFIER, as
+ * Node.js does
  */
 export function resolveImportsTarget(
   imports: unknown,

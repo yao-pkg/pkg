@@ -37,6 +37,10 @@ const imports = {
   // null excludes: no fallback to a later condition or to `import`
   '#cond-null': { node: null, default: './lib/b.js' },
   '#array-null': [null],
+  // null after an invalid target excludes; an invalid one after null throws
+  '#array-invalid-null': ['../outside.js', null],
+  '#array-null-invalid': [null, '../outside.js'],
+  '#number': 1,
   '#array-empty': { node: [], default: './lib/b.js' },
   '#require-null': { require: null, import: './lib/a.js' },
   '#dot': '.',

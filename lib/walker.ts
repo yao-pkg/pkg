@@ -381,6 +381,14 @@ async function findCommonJunctionPoint(file: string, realFile: string) {
   }
 }
 
+async function declaresImports(packageJson: string) {
+  try {
+    return JSON.parse(await fs.readFile(packageJson, 'utf8')).imports != null;
+  } catch {
+    return false;
+  }
+}
+
 class Walker {
   private params: WalkerParams;
 
@@ -875,8 +883,11 @@ class Walker {
 
     if (failure) {
       const { toplevel } = marker;
+      // a "#" failure names its target and package.json; don't mask it
       const mainNotFound =
-        newPackages.length > 0 && !newPackages[0].marker?.config?.main;
+        !derivative.alias.startsWith('#') &&
+        newPackages.length > 0 &&
+        !newPackages[0].marker?.config?.main;
       // a failed "#" import breaks its package at runtime, so warn
       const debug =
         (!toplevel && !derivative.alias.startsWith('#')) ||
@@ -946,7 +957,12 @@ class Walker {
     // It keeps this marker: a marker of its own would bundle its "files" too.
     if (derivative.alias.startsWith('#')) {
       const packageJson = findNearestPackageJsonFromDir(basedir, true);
-      if (packageJson && !isPackageOfBundle(packageJson)) {
+      // without "imports" it played no part (`#name` came from node_modules)
+      if (
+        packageJson &&
+        !isPackageOfBundle(packageJson) &&
+        (await declaresImports(packageJson))
+      ) {
         await this.appendBlobOrContent({
           file: normalizePath(packageJson),
           marker,

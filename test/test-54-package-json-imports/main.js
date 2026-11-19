@@ -38,7 +38,7 @@ assert.strictEqual(left, expected);
 const log = utils.pkg.sync(['--target', target, '--output', output, input], {
   stdio: 'pipe',
 });
-// the entry's five broken imports are expected to be reported
+// the entry's five broken imports and cjs-imports' one are expected to be reported
 const unresolved = (log.stdout + log.stderr).match(
   /Cannot find module '#[^']+'/g,
 );
@@ -50,6 +50,7 @@ assert.deepStrictEqual(
     '#invalid-target',
     '#missing-file',
     '#undefined',
+    '#undefined-dep',
   ].map((specifier) => `Cannot find module '${specifier}'`),
 );
 
