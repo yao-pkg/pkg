@@ -2,7 +2,8 @@ import { sync, SyncOpts } from 'resolve';
 import fs from 'fs';
 import path from 'path';
 import { toNormalizedRealPath } from './common';
-import { resolveModule } from './resolver';
+import { resolveModule, resolvePackageImport } from './resolver';
+import type { PackageImportResult } from './resolver';
 
 import type { PackageJson } from './types';
 
@@ -54,7 +55,55 @@ function isValidPackageName(specifier: string): boolean {
   return /^[a-z0-9_.-]+$/.test(packageName);
 }
 
+/**
+ * Resolve a package.json "imports" specifier (subpath import like
+ * `#ansi-styles` in chalk 5+)
+ */
+async function followPackageImport(
+  x: string,
+  result: PackageImportResult,
+  opts: FollowOptions,
+): Promise<string> {
+  const dir = path.dirname(result.packageJson);
+  let resolved = result.target;
+
+  if (result.kind === 'bare') {
+    try {
+      resolved = await follow(result.target, { ...opts, basedir: dir });
+    } catch (error) {
+      throw new Error(
+        `${(error as Error).message} (target of '${x}' in ${result.packageJson})`,
+        { cause: error },
+      );
+    }
+  }
+
+  // Reported after resolving, so a failure isn't blamed on this package's "main"
+  if (
+    opts.catchReadFile &&
+    path.normalize(result.packageJson) !== path.normalize(opts.ignoreFile || '')
+  ) {
+    opts.catchReadFile(result.packageJson);
+    if (opts.catchPackageFilter) {
+      opts.catchPackageFilter(result.config, dir, dir);
+    }
+  }
+
+  return resolved;
+}
+
 export function follow(x: string, opts: FollowOptions) {
+  if (x.startsWith('#')) {
+    let result;
+    try {
+      result = resolvePackageImport(x, opts.basedir || process.cwd());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    // null: no "imports" in scope, so `#name` is looked up like a package
+    if (result) return followPackageImport(x, result, opts);
+  }
+
   // TODO async version
   return new Promise<string>((resolve, reject) => {
     // Try ESM-aware resolution first for non-relative specifiers

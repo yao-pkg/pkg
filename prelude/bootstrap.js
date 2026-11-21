@@ -1922,7 +1922,111 @@ function payloadFileSync(pointer) {
     throw new Error('UNEXPECTED-55');
   };
 
+  function isSnapshotFile(file) {
+    try {
+      return fs.statSync(file).isFile();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // the snapshot never changes, so this needs no invalidation
+  const snapshotImports = new Map();
+  function readSnapshotImports(packageJson) {
+    if (!snapshotImports.has(packageJson)) {
+      let config;
+      try {
+        config = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+      } catch (error) {
+        error.message += ` in ${packageJson}`;
+        throw error;
+      }
+      snapshotImports.set(packageJson, config.imports);
+    }
+    return snapshotImports.get(packageJson);
+  }
+
+  // package.json "imports" (`#name`): Node's resolver can't see package.json
+  // scopes in the snapshot. Rules and error codes as in Node.js, see
+  // resolveImportsTarget() in lib/common.ts. Returns null without "imports"
+  // in scope: Node then looks `#name` up like any other module.
+  function resolveSnapshotImport(request, parent) {
+    const fail = (code, message) => Object.assign(new Error(message), { code });
+    const from = `imported from ${parent.filename}`;
+
+    const packageJson = common.findNearestPackageJsonFromDir(
+      path.dirname(parent.filename),
+      true,
+    );
+    const imports = packageJson && readSnapshotImports(packageJson);
+    if (imports == null) return null;
+
+    let target;
+    try {
+      target = common.resolveImportsTarget(imports, request);
+    } catch (error) {
+      error.message += ` defined for '${request}' in ${packageJson} ${from}`;
+      throw error;
+    }
+    if (target === null) {
+      throw fail(
+        'ERR_PACKAGE_IMPORT_NOT_DEFINED',
+        `Package import specifier "${request}" is not defined in package ${packageJson} ${from}`,
+      );
+    }
+
+    if (!target.startsWith('./')) {
+      // another package or a builtin, looked up from the package.json
+      const scope = new Module(packageJson, null);
+      scope.filename = packageJson;
+      scope.paths = Module._nodeModulePaths(path.dirname(packageJson));
+      try {
+        return Module._resolveFilename(target, scope, false);
+      } catch (error) {
+        // first line only, so it stays above Node's "Require stack:"
+        error.message = error.message.replace(
+          /^.*/,
+          (line) =>
+            `${line} (target of '${request}' in ${packageJson}) ${from}`,
+        );
+        throw error;
+      }
+    }
+
+    const file = path.join(path.dirname(packageJson), target);
+    if (isSnapshotFile(file)) return file;
+
+    // the packer stores an `.mjs` file that was transformed to CJS as `.js`
+    if (file.endsWith('.mjs')) {
+      const renamed = `${file.slice(0, -4)}.js`;
+      if (isSnapshotFile(renamed)) return renamed;
+    }
+
+    throw fail(
+      'MODULE_NOT_FOUND',
+      `Cannot find module '${file}' (target of '${request}' in ${packageJson}) ${from}. ` +
+        'Please recompile adding it as asset or script.',
+    );
+  }
+
+  function isSnapshotImport(request, parent) {
+    return (
+      typeof request === 'string' &&
+      request.startsWith('#') &&
+      parent &&
+      typeof parent.filename === 'string' &&
+      insideSnapshot(parent.filename)
+    );
+  }
+
   Module._resolveFilename = function _resolveFilename() {
+    const [request, parent] = arguments;
+    // a bare target re-enters here as a non-# request
+    if (isSnapshotImport(request, parent)) {
+      const resolved = resolveSnapshotImport(request, parent);
+      if (resolved !== null) return resolved;
+    }
+
     let filename;
     let flagWasOn = false;
     try {

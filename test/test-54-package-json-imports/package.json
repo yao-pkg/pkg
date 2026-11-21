@@ -1,0 +1,19 @@
+{
+  "name": "test-54-package-json-imports",
+  "version": "1.0.0",
+  "bin": "bin/index.js",
+  "files": [
+    "lib"
+  ],
+  "dependencies": {
+    "unused-dependency": "1.0.0"
+  },
+  "imports": {
+    "#app/*": "./lib/*.js",
+    "#browser-only": {
+      "browser": "./lib/name.js"
+    },
+    "#missing-file": "./lib/missing.js",
+    "#invalid-target": "../outside.js"
+  }
+}

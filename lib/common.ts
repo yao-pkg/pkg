@@ -286,14 +286,19 @@ export function toNormalizedRealPath(requestPath: string) {
 
 /**
  * Find the nearest package.json file by walking up the directory tree
- * @param filePath - Starting file path
+ * @param dir - Starting directory
+ * @param stopAtNodeModules - Stop at a `node_modules` directory, like Node's
+ *   package scope lookup for "imports"
  * @returns Path to package.json or null if not found
  */
-function findNearestPackageJson(filePath: string): string | null {
-  let dir = path.dirname(filePath);
+export function findNearestPackageJsonFromDir(
+  dir: string,
+  stopAtNodeModules = false,
+): string | null {
   const { root } = path.parse(dir);
 
   while (dir !== root) {
+    if (stopAtNodeModules && path.basename(dir) === 'node_modules') break;
     const packageJsonPath = path.join(dir, 'package.json');
     if (fs.existsSync(packageJsonPath)) {
       return packageJsonPath;
@@ -363,7 +368,9 @@ export function isESMFile(filePath: string): boolean {
     }
 
     // Compute and cache
-    const packageJsonPath = findNearestPackageJson(filePath);
+    const packageJsonPath = findNearestPackageJsonFromDir(
+      path.dirname(filePath),
+    );
     packageJsonCache.set(dir, packageJsonPath);
 
     if (packageJsonPath) {
@@ -372,4 +379,183 @@ export function isESMFile(filePath: string): boolean {
   }
 
   return false;
+}
+
+// /////////////////////////////////////////////////////////////////
+// PACKAGE.JSON "IMPORTS" //////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////
+
+// A port of Node's PACKAGE_IMPORTS_RESOLVE rather than `imports()` from
+// resolve.exports:
+// - this file ships in the binary (REQUIRE_COMMON) and has no npm deps, so
+//   the walker and the runtime share one resolver and pick the same file
+// - resolve.exports 2.0.3 differs from Node: `#abbc` with `#ab*` and `#a*bc`
+//   picks `#a*bc` (Node ranks by the part before `*`); targets aren't
+//   validated (`"#x/*": "*"` maps `#x/../a.js` to `../a.js`, outside the
+//   package); arrays come back whole instead of resolved; errors lack
+//   Node's codes
+// test/unit/package-imports.test.ts checks every case against Node.
+
+// Node's conditions; `import` only if no `require` one matches (pkg bundles CJS)
+const IMPORTS_CONDITIONS = [
+  ['node', 'require', 'module-sync', 'node-addons'],
+  ['node', 'import', 'module-sync', 'node-addons'],
+];
+
+const INVALID_IMPORTS_SEGMENT = /(^|[\\/])(\.\.?|node_modules)([\\/]|$)/i;
+
+function invalidImportsTarget(target: unknown) {
+  return Object.assign(
+    new Error(`Invalid "imports" target ${JSON.stringify(target)}`),
+    { code: 'ERR_INVALID_PACKAGE_TARGET' },
+  );
+}
+
+function invalidModuleSpecifier(specifier: string) {
+  return Object.assign(
+    new Error(`Invalid module specifier "${specifier}" in "imports"`),
+    { code: 'ERR_INVALID_MODULE_SPECIFIER' },
+  );
+}
+
+function parsesAsUrl(target: string) {
+  try {
+    return Boolean(new URL(target));
+  } catch {
+    return false;
+  }
+}
+
+/** Node's PATTERN_KEY_COMPARE: longer part before `*` first, then longer key */
+function ranksBefore(key: string, other: string) {
+  const base = key.indexOf('*');
+  const otherBase = other.indexOf('*');
+  return base !== otherBase ? base > otherBase : key.length > other.length;
+}
+
+/** The exact key of `request`, else the best-ranked `*` key; `match` fills the `*` */
+function matchImportsKey(imports: Record<string, unknown>, request: string) {
+  if (Object.hasOwn(imports, request) && !request.includes('*')) {
+    return { key: request, match: null };
+  }
+
+  let best: { key: string; match: string } | null = null;
+  for (const key of Object.keys(imports)) {
+    const star = key.indexOf('*');
+    if (star === -1 || key.lastIndexOf('*') !== star) continue;
+
+    const suffix = key.slice(star + 1);
+    if (
+      request.length >= key.length &&
+      request.startsWith(key.slice(0, star)) &&
+      request.endsWith(suffix) &&
+      (!best || ranksBefore(key, best.key))
+    ) {
+      best = {
+        key,
+        match: request.slice(star, request.length - suffix.length),
+      };
+    }
+  }
+  return best;
+}
+
+/** Node's PACKAGE_TARGET_RESOLVE: null = excluded, undefined = no match */
+function resolveImportsValue(
+  value: unknown,
+  match: string | null,
+  conditions: string[],
+): string | null | undefined {
+  if (typeof value === 'string') {
+    const target = match === null ? value : value.split('*').join(match);
+    if (!value.startsWith('./')) {
+      if (/^(\.\.\/|\/|#)/.test(value) || parsesAsUrl(value)) {
+        throw invalidImportsTarget(value);
+      }
+      // checked after `*` is filled in; `\` and `C:` are paths on Windows
+      if (/^[./#]|^[a-z]:|\\/i.test(target)) {
+        throw invalidModuleSpecifier(target);
+      }
+      return target;
+    }
+    if (INVALID_IMPORTS_SEGMENT.test(value.slice(2))) {
+      throw invalidImportsTarget(value);
+    }
+    // not a bad target: an array must not fall back to its next entry
+    if (match !== null && INVALID_IMPORTS_SEGMENT.test(match)) {
+      throw invalidModuleSpecifier(target);
+    }
+    return target;
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    let error: Error | undefined;
+    let excluded = false;
+    for (const item of value) {
+      let resolved;
+      try {
+        resolved = resolveImportsValue(item, match, conditions);
+      } catch (itemError) {
+        const { code } = itemError as NodeJS.ErrnoException;
+        if (code !== 'ERR_INVALID_PACKAGE_TARGET') throw itemError;
+        error = itemError as Error;
+        excluded = false;
+        continue;
+      }
+      if (resolved === undefined) continue;
+      if (resolved !== null) return resolved;
+      error = undefined;
+      excluded = true;
+    }
+    if (error) throw error;
+    return excluded ? null : undefined;
+  }
+
+  if (value === null) return null;
+  if (typeof value !== 'object') throw invalidImportsTarget(value);
+
+  for (const [condition, branch] of Object.entries(value)) {
+    if (condition === 'default' || conditions.includes(condition)) {
+      const resolved = resolveImportsValue(branch, match, conditions);
+      if (resolved !== undefined) return resolved;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Map a package.json "imports" specifier to its target
+ * @param imports - "imports" field of the nearest package.json
+ * @param request - Specifier starting with '#'
+ * @returns A path relative to that package.json (starts with `./`), a bare
+ * specifier (another package or a builtin), or null if the import is not
+ * defined
+ * @throws ERR_INVALID_PACKAGE_TARGET or ERR_INVALID_MODULE_SPECIFIER, as
+ * Node.js does
+ */
+export function resolveImportsTarget(
+  imports: unknown,
+  request: string,
+): string | null {
+  if (request === '#' || request.endsWith('/')) {
+    // `#/x` is left alone: Node 22 rejects it, Node 24+ resolves it
+    throw invalidModuleSpecifier(request);
+  }
+  if (!imports || typeof imports !== 'object') return null;
+
+  const table = imports as Record<string, unknown>;
+  const found = matchImportsKey(table, request);
+  if (!found) return null;
+
+  for (const conditions of IMPORTS_CONDITIONS) {
+    const target = resolveImportsValue(
+      table[found.key],
+      found.match,
+      conditions,
+    );
+    // `import` is only a fallback when `require` matched nothing, not on null
+    if (target !== undefined) return target;
+  }
+  return null;
 }

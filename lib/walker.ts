@@ -20,6 +20,7 @@ import {
   normalizePath,
   toNormalizedRealPath,
   isESMFile,
+  findNearestPackageJsonFromDir,
 } from './common';
 
 import { pc } from './colors';
@@ -377,6 +378,14 @@ async function findCommonJunctionPoint(file: string, realFile: string) {
         'Reached root directory without finding a common junction point',
       );
     }
+  }
+}
+
+async function declaresImports(packageJson: string) {
+  try {
+    return JSON.parse(await fs.readFile(packageJson, 'utf8')).imports != null;
+  } catch {
+    return false;
   }
 }
 
@@ -874,10 +883,14 @@ class Walker {
 
     if (failure) {
       const { toplevel } = marker;
+      // a "#" failure names its target and package.json; don't mask it
       const mainNotFound =
-        newPackages.length > 0 && !newPackages[0].marker?.config?.main;
+        !derivative.alias.startsWith('#') &&
+        newPackages.length > 0 &&
+        !newPackages[0].marker?.config?.main;
+      // a failed "#" import breaks its package at runtime, so warn
       const debug =
-        !toplevel ||
+        (!toplevel && !derivative.alias.startsWith('#')) ||
         derivative.mayExclude ||
         (mainNotFound && derivative.fromDependencies);
       const level = debug ? 'debug' : 'warn';
@@ -925,23 +938,44 @@ class Walker {
     // 1. Inside node_modules (dependencies)
     // 2. Inside the base directory of the current marker (application being packaged)
     // This prevents including pkg's own package.json when used from source
-    for (const newPackage of newPackages) {
-      if (newPackage.marker) {
-        const file = newPackage.packageJson;
-        const isInNodeModules = file.includes(
-          `${path.sep}node_modules${path.sep}`,
-        );
-        const isInMarkerBase = marker.base && file.startsWith(marker.base);
+    const isPackageOfBundle = (file: string) =>
+      file.includes(`${path.sep}node_modules${path.sep}`) ||
+      Boolean(marker.base && file.startsWith(marker.base));
 
-        if (isInNodeModules || isInMarkerBase) {
-          await this.appendBlobOrContent({
-            file,
-            marker: newPackage.marker,
-            store: STORE_CONTENT,
-            reason: record.file,
-          });
-        }
+    for (const newPackage of newPackages) {
+      if (newPackage.marker && isPackageOfBundle(newPackage.packageJson)) {
+        await this.appendBlobOrContent({
+          file: newPackage.packageJson,
+          marker: newPackage.marker,
+          store: STORE_CONTENT,
+          reason: record.file,
+        });
       }
+    }
+
+    // The runtime needs the package.json declaring a "#" import, even above the entry.
+    // It keeps this marker: a marker of its own would bundle its "files" too.
+    if (derivative.alias.startsWith('#')) {
+      const packageJson = findNearestPackageJsonFromDir(basedir, true);
+      // without "imports" it played no part (`#name` came from node_modules)
+      if (
+        packageJson &&
+        !isPackageOfBundle(packageJson) &&
+        (await declaresImports(packageJson))
+      ) {
+        await this.appendBlobOrContent({
+          file: normalizePath(packageJson),
+          marker,
+          store: STORE_CONTENT,
+          reason: record.file,
+        });
+      }
+    }
+
+    // package.json "imports" can map to a builtin ("#fs": "fs"). Only
+    // the declaring package.json (added above) goes into the snapshot then
+    if (isBuiltin(newFile)) {
+      return;
     }
 
     // Keep the original logic for determining the marker for the resolved file

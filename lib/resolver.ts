@@ -2,7 +2,11 @@ import { sync as resolveSync } from 'resolve';
 import { exports as resolveExports } from 'resolve.exports';
 import fs from 'fs';
 import path from 'path';
-import { isESMFile } from './common';
+import {
+  findNearestPackageJsonFromDir,
+  isESMFile,
+  resolveImportsTarget,
+} from './common';
 import { log } from './log';
 
 import type { PackageJson } from './types';
@@ -171,4 +175,64 @@ export function resolveModule(
     resolved,
     isESM: false, // CJS resolution
   };
+}
+
+export interface PackageImportResult {
+  /** Absolute file path for `file`, else the specifier ("some-pkg", "fs") */
+  target: string;
+  kind: 'file' | 'bare';
+  /** The package.json that declares the "imports" field */
+  packageJson: string;
+  config: PackageJson;
+}
+
+/**
+ * Resolve a package.json "imports" specifier (subpath import, e.g.
+ * `#ansi-styles`) against the nearest package.json of `basedir`. The rules
+ * are in `resolveImportsTarget` (common.ts), which the packaged binary uses
+ * as well.
+ * @param specifier - Specifier starting with '#'
+ * @param basedir - Directory of the importing file
+ * @returns Resolution result, or null without an "imports" field in scope
+ * @throws If the specifier can't be resolved; the message names the reason
+ */
+export function resolvePackageImport(
+  specifier: string,
+  basedir: string,
+): PackageImportResult | null {
+  const notFound = (reason: string) =>
+    new Error(`Cannot find module '${specifier}' from '${basedir}': ${reason}`);
+
+  const packageJson = findNearestPackageJsonFromDir(
+    path.resolve(basedir),
+    true,
+  );
+  if (!packageJson) return null;
+
+  let config: PackageJson & { imports?: unknown };
+  let target: string | null;
+  try {
+    config = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+    // like Node: without "imports", `#name` is looked up in node_modules
+    if (config.imports == null) return null;
+    target = resolveImportsTarget(config.imports, specifier);
+  } catch (error) {
+    throw Object.assign(
+      notFound(`${(error as Error).message} in ${packageJson}`),
+      { cause: error },
+    );
+  }
+  if (target === null) {
+    throw notFound(`not defined in "imports" of ${packageJson}`);
+  }
+
+  if (!target.startsWith('./')) {
+    return { target, kind: 'bare', packageJson, config };
+  }
+
+  const file = path.join(path.dirname(packageJson), target);
+  if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
+    throw notFound(`${file} is not a file ("imports" of ${packageJson})`);
+  }
+  return { target: file, kind: 'file', packageJson, config };
 }
