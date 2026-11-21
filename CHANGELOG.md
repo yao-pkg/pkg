@@ -1,5 +1,18 @@
 # Changelog
 
+## [6.26.0](https://github.com/yao-pkg/pkg/compare/v6.25.0...v6.26.0) (2026-11-21)
+
+### Features
+
+- bump fetch 3.6.8 with nodejs 22.23.5, 24.22.3, 26.13.1 ([#327](https://github.com/yao-pkg/pkg/issues/327)) ([ff27399](https://github.com/yao-pkg/pkg/commit/ff273991d58e7aedb052e95f455bbddf4bf218cc))
+
+### Bug Fixes
+
+- resolve ESM-only exports conditions when packaging ([#281](https://github.com/yao-pkg/pkg/issues/281)) ([#283](https://github.com/yao-pkg/pkg/issues/283)) ([6056784](https://github.com/yao-pkg/pkg/commit/60567842704e21a511a84dfb57a92e9a95b69c78))
+- **sea:** patch child_process in worker threads ([#325](https://github.com/yao-pkg/pkg/issues/325)) ([20bd9a4](https://github.com/yao-pkg/pkg/commit/20bd9a4a59004ed8d7b0abafc47e20043606370a))
+- **sea:** support alpine (musl) targets ([#324](https://github.com/yao-pkg/pkg/issues/324)) ([ec34ac4](https://github.com/yao-pkg/pkg/commit/ec34ac4baa67ddf5fbc684102f46d035623e69de))
+- support package.json "imports" (subpath imports like [#name](https://github.com/yao-pkg/pkg/issues/name)) ([#322](https://github.com/yao-pkg/pkg/issues/322)) ([c71fa01](https://github.com/yao-pkg/pkg/commit/c71fa013c7bab5434a6a7b70347e6b6c5ba292b7)), closes [#328](https://github.com/yao-pkg/pkg/issues/328)
+
 ## [6.25.0](https://github.com/yao-pkg/pkg/compare/v6.24.0...v6.25.0) (2026-11-02)
 
 ### Bug Fixes
