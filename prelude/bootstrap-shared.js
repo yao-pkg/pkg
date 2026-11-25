@@ -349,14 +349,17 @@ function patchChildProcess(entrypoint) {
 
   // Copies instead of mutating: Node never touches the caller's options.
   function withPkgEnv(options) {
-    var source = (options && options.env) || process.env;
+    // Node spreads options before reading env, so an inherited env is ignored
+    var copy = Object.assign({}, options);
+    var source = copy.env || process.env;
     // see https://github.com/vercel/pkg/issues/897#issuecomment-1049370335
     if (source.PKG_EXECPATH !== undefined) return options;
     var env = {};
     // for-in, like Node, so inherited env keys are kept
     for (var key in source) env[key] = source[key];
     env.PKG_EXECPATH = EXECPATH;
-    return Object.assign({}, options, { env: env });
+    copy.env = env;
+    return copy;
   }
 
   // The normalizers below mirror Node's normalizeSpawnArguments,
@@ -404,7 +407,6 @@ function patchChildProcess(entrypoint) {
     } else if (options != null && !isOptionsObject(options)) {
       return null;
     }
-    if (callback != null && typeof callback !== 'function') return null;
     return [file, args ? args.slice() : [], withPkgEnv(options), callback];
   }
 
@@ -414,11 +416,10 @@ function patchChildProcess(entrypoint) {
     var options = input[1];
     var callback = input[2];
     if (typeof command !== 'string') return null;
+    // Node spreads any other value: exec(cmd, 'str') is valid
     if (typeof options === 'function') {
       callback = options;
       options = undefined;
-    } else if (options != null && !isOptionsObject(options)) {
-      return null;
     }
     return [command, withPkgEnv(options), callback];
   }
@@ -483,39 +484,39 @@ function patchChildProcess(entrypoint) {
   }
 
   childProcess.spawn = function spawn() {
-    var args = normalizeSpawnArgs(arguments);
-    if (args) modifyShort(args);
-    return ancestor.spawn.apply(childProcess, args || arguments);
+    var normalized = normalizeSpawnArgs(arguments);
+    if (normalized) modifyShort(normalized);
+    return ancestor.spawn.apply(childProcess, normalized || arguments);
   };
 
   childProcess.spawnSync = function spawnSync() {
-    var args = normalizeSpawnArgs(arguments);
-    if (args) modifyShort(args);
-    return ancestor.spawnSync.apply(childProcess, args || arguments);
+    var normalized = normalizeSpawnArgs(arguments);
+    if (normalized) modifyShort(normalized);
+    return ancestor.spawnSync.apply(childProcess, normalized || arguments);
   };
 
   childProcess.execFile = function execFile() {
-    var args = normalizeExecFileArgs(arguments);
-    if (args) modifyShort(args);
-    return ancestor.execFile.apply(childProcess, args || arguments);
+    var normalized = normalizeExecFileArgs(arguments);
+    if (normalized) modifyShort(normalized);
+    return ancestor.execFile.apply(childProcess, normalized || arguments);
   };
 
   childProcess.execFileSync = function execFileSync() {
-    var args = normalizeExecFileArgs(arguments);
-    if (args) modifyShort(args);
-    return ancestor.execFileSync.apply(childProcess, args || arguments);
+    var normalized = normalizeExecFileArgs(arguments);
+    if (normalized) modifyShort(normalized);
+    return ancestor.execFileSync.apply(childProcess, normalized || arguments);
   };
 
   childProcess.exec = function exec() {
-    var args = normalizeExecArgs(arguments);
-    if (args) modifyLong(args, 0);
-    return ancestor.exec.apply(childProcess, args || arguments);
+    var normalized = normalizeExecArgs(arguments);
+    if (normalized) modifyLong(normalized, 0);
+    return ancestor.exec.apply(childProcess, normalized || arguments);
   };
 
   childProcess.execSync = function execSync() {
-    var args = normalizeExecArgs(arguments);
-    if (args) modifyLong(args, 0);
-    return ancestor.execSync.apply(childProcess, args || arguments);
+    var normalized = normalizeExecArgs(arguments);
+    if (normalized) modifyLong(normalized, 0);
+    return ancestor.execSync.apply(childProcess, normalized || arguments);
   };
 }
 
