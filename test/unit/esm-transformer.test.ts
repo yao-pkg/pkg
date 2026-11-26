@@ -3,49 +3,8 @@ import { describe, it } from 'node:test';
 
 import {
   normalizeExportsForCJS,
-  rewriteMjsRequirePaths,
   transformESMtoCJS,
 } from '../../lib/esm-transformer';
-
-describe('rewriteMjsRequirePaths', () => {
-  it('rewrites relative ./foo.mjs to ./foo.js', () => {
-    const src = 'const x = require("./foo.mjs");';
-    assert.equal(rewriteMjsRequirePaths(src), 'const x = require("./foo.js");');
-  });
-
-  it('handles single and double quotes', () => {
-    assert.equal(
-      rewriteMjsRequirePaths("require('./a.mjs');"),
-      "require('./a.js');",
-    );
-    assert.equal(
-      rewriteMjsRequirePaths('require("./a.mjs");'),
-      'require("./a.js");',
-    );
-  });
-
-  it('handles parent-relative paths', () => {
-    assert.equal(
-      rewriteMjsRequirePaths('require("../x/y.mjs");'),
-      'require("../x/y.js");',
-    );
-  });
-
-  it('leaves bare-specifier .mjs requires alone (not relative)', () => {
-    // Only `./…` and `../…` paths are rewritten; bare specifiers refer to
-    // installed packages and must not be touched.
-    const src = 'require("some-pkg/foo.mjs");';
-    assert.equal(rewriteMjsRequirePaths(src), src);
-  });
-
-  it('rewrites every occurrence in a multi-require file', () => {
-    const src = 'require("./a.mjs");\nrequire("./b.mjs");\nrequire("./c.cjs");';
-    assert.equal(
-      rewriteMjsRequirePaths(src),
-      'require("./a.js");\nrequire("./b.js");\nrequire("./c.cjs");',
-    );
-  });
-});
 
 describe('transformESMtoCJS', () => {
   it('short-circuits on non-JS files (returns input untransformed)', () => {
@@ -165,8 +124,8 @@ describe('transformESMtoCJS', () => {
 });
 
 describe('normalizeExportsForCJS', () => {
-  it('rewrites a string target .mjs to .js', () => {
-    assert.equal(normalizeExportsForCJS('./index.mjs'), './index.js');
+  it('preserves a string .mjs target', () => {
+    assert.equal(normalizeExportsForCJS('./index.mjs'), './index.mjs');
   });
 
   it('adds a require condition for an import-only exports map (#281 case A)', () => {
@@ -174,26 +133,22 @@ describe('normalizeExportsForCJS', () => {
     assert.deepEqual(
       normalizeExportsForCJS({ '.': { import: './index.mjs' } }),
       {
-        '.': { require: './index.js', import: './index.js' },
+        '.': { require: './index.mjs', import: './index.mjs' },
       },
     );
   });
 
-  it('rewrites .mjs require targets that no longer exist (#281 case B)', () => {
-    // The packer renames .mjs to .js in the snapshot.
-    assert.deepEqual(
-      normalizeExportsForCJS({
-        '.': { require: './index.mjs', import: './index.mjs' },
-      }),
-      { '.': { require: './index.js', import: './index.js' } },
-    );
+  it('keeps separate .js and .mjs siblings in conditional exports', () => {
+    const exportsField = {
+      '.': { require: './feature.js', import: './feature.mjs' },
+    };
+    assert.deepEqual(normalizeExportsForCJS(exportsField), exportsField);
   });
 
   it('does not add require when a CJS-resolvable condition already exists', () => {
-    // `default` is resolvable by require(), so the map is left as-is (extensions aside).
     assert.deepEqual(
       normalizeExportsForCJS({ import: './e.mjs', default: './d.mjs' }),
-      { import: './e.js', default: './d.js' },
+      { import: './e.mjs', default: './d.mjs' },
     );
   });
 
@@ -204,8 +159,8 @@ describe('normalizeExportsForCJS', () => {
         './sub': { node: { import: './sub.mjs' } },
       }),
       {
-        '.': { require: './i.js', import: './i.js' },
-        './sub': { node: { require: './sub.js', import: './sub.js' } },
+        '.': { require: './i.mjs', import: './i.mjs' },
+        './sub': { node: { require: './sub.mjs', import: './sub.mjs' } },
       },
     );
   });
@@ -216,10 +171,7 @@ describe('normalizeExportsForCJS', () => {
       node: { import: './node.mjs' },
       default: './index.cjs',
     };
-    assert.deepEqual(normalizeExportsForCJS(exportsField), {
-      node: { import: './node.js' },
-      default: './index.cjs',
-    });
+    assert.deepEqual(normalizeExportsForCJS(exportsField), exportsField);
   });
 
   it('leaves an already CJS-resolvable map unchanged', () => {
@@ -233,7 +185,7 @@ describe('normalizeExportsForCJS', () => {
   it('adds require next to types for an import-only map', () => {
     assert.deepEqual(
       normalizeExportsForCJS({ types: './i.d.ts', import: './i.mjs' }),
-      { require: './i.js', types: './i.d.ts', import: './i.js' },
+      { require: './i.mjs', types: './i.d.ts', import: './i.mjs' },
     );
   });
 
@@ -243,14 +195,14 @@ describe('normalizeExportsForCJS', () => {
     });
   });
 
-  it('keeps null targets and rewrites pattern subpaths', () => {
+  it('keeps null targets and adds require to import-only patterns', () => {
     assert.deepEqual(
       normalizeExportsForCJS({
         './*': { import: './lib/*.mjs' },
         './internal/*': null,
       }),
       {
-        './*': { require: './lib/*.js', import: './lib/*.js' },
+        './*': { require: './lib/*.mjs', import: './lib/*.mjs' },
         './internal/*': null,
       },
     );
@@ -259,21 +211,21 @@ describe('normalizeExportsForCJS', () => {
   it('overrides an explicit require: null', () => {
     assert.deepEqual(
       normalizeExportsForCJS({ import: './i.mjs', require: null }),
-      { require: './i.js', import: './i.js' },
+      { require: './i.mjs', import: './i.mjs' },
     );
   });
 
   it('does not inject into an array entry when a later entry resolves', () => {
     assert.deepEqual(
       normalizeExportsForCJS([{ import: './a.mjs' }, './b.mjs']),
-      [{ import: './a.js' }, './b.js'],
+      [{ import: './a.mjs' }, './b.mjs'],
     );
   });
 
   it('handles array targets', () => {
     assert.deepEqual(normalizeExportsForCJS(['./a.mjs', './b.mjs']), [
-      './a.js',
-      './b.js',
+      './a.mjs',
+      './b.mjs',
     ]);
   });
 });
