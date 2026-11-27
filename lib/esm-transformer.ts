@@ -195,24 +195,6 @@ function replaceImportMetaObject(code: string): string {
   return code.replace(/const import_meta\s*=\s*\{\s*\};/, shimImplementation);
 }
 
-/**
- * Rewrite relative `.mjs` require paths to `.js` in CJS output
- *
- * When esbuild transforms ESM to CJS, it converts `import './foo.mjs'` to `require('./foo.mjs')`.
- * Since the packer renames `.mjs` files to `.js` in the snapshot, the require paths must be
- * updated to match. This handles the rewriting at build time.
- *
- * @param code - The CJS code after esbuild transformation
- * @returns Code with relative .mjs require paths rewritten to .js
- */
-export function rewriteMjsRequirePaths(code: string): string {
-  // Match require("./path.mjs") or require('../path.mjs') with relative paths only
-  return code.replace(
-    /require\((["'])(\.\.?\/[^"']*?)\.mjs\1\)/g,
-    'require($1$2.js$1)',
-  );
-}
-
 // Conditions Node's require() resolver matches. A conditions object with none
 // of these fails with ERR_PACKAGE_PATH_NOT_EXPORTED.
 const CJS_EXPORT_CONDITIONS = ['require', 'node', 'node-addons', 'default'];
@@ -242,10 +224,6 @@ function normalizeTarget(
   target: ExportsValue,
   hasFallback: boolean,
 ): ExportsValue {
-  if (typeof target === 'string') {
-    return target.replace(/\.mjs$/, '.js');
-  }
-
   if (Array.isArray(target)) {
     return target.map((entry, i) =>
       normalizeTarget(
@@ -297,10 +275,8 @@ function normalizeTarget(
 }
 
 /**
- * Make a package.json "exports" value resolvable by require() after pkg's
- * ESM->CJS transform (#281): `.mjs` targets become `.js` (assumes the file was
- * transformed), and conditions require() cannot resolve get a `require`
- * mirroring `import`, unless a later condition already resolves.
+ * Add a require condition mirroring import when the package exports have no
+ * CommonJS fallback. Keep target paths intact in the snapshot.
  */
 export function normalizeExportsForCJS(
   exportsField: ExportsValue,

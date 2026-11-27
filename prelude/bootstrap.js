@@ -1930,6 +1930,14 @@ function payloadFileSync(pointer) {
     }
   }
 
+  function commonJSFilename(file) {
+    if (file.endsWith('.mjs') && !insideMountpoint(file)) {
+      const entity = findVirtualFileSystemEntry(file);
+      if (entity && entity.commonjs) return toOriginal(entity.commonjs);
+    }
+    return file;
+  }
+
   // the snapshot never changes, so this needs no invalidation
   const snapshotImports = new Map();
   function readSnapshotImports(packageJson) {
@@ -1994,13 +2002,7 @@ function payloadFileSync(pointer) {
     }
 
     const file = path.join(path.dirname(packageJson), target);
-    if (isSnapshotFile(file)) return file;
-
-    // the packer stores an `.mjs` file that was transformed to CJS as `.js`
-    if (file.endsWith('.mjs')) {
-      const renamed = `${file.slice(0, -4)}.js`;
-      if (isSnapshotFile(renamed)) return renamed;
-    }
+    if (isSnapshotFile(file)) return commonJSFilename(file);
 
     throw fail(
       'MODULE_NOT_FOUND',
@@ -2062,7 +2064,7 @@ function payloadFileSync(pointer) {
       }
     }
 
-    return filename;
+    return commonJSFilename(filename);
   };
 
   Module.runMain = function runMain() {

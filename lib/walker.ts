@@ -27,11 +27,7 @@ import { pc } from './colors';
 import { follow } from './follow';
 import { log, wasReported } from './log';
 import * as detector from './detector';
-import {
-  transformESMtoCJS,
-  rewriteMjsRequirePaths,
-  normalizeExportsForCJS,
-} from './esm-transformer';
+import { transformESMtoCJS, normalizeExportsForCJS } from './esm-transformer';
 import {
   ConfigDictionary,
   FileRecord,
@@ -74,7 +70,6 @@ const strictVerify = Boolean(process.env.PKG_STRICT_VER);
 const win32 = process.platform === 'win32';
 
 // Extensions to try when resolving modules
-// Includes .mjs to support ESM files that get transformed to .js
 const MODULE_RESOLVE_EXTENSIONS = ['.js', '.json', '.node', '.mjs'];
 
 /**
@@ -872,7 +867,6 @@ class Walker {
         // it is not enough because 'typos.json'
         // is not taken in require('./typos')
         // in 'normalize-package-data/lib/fixer.js'
-        // Also include .mjs to support ESM files that get transformed to .js
         extensions: MODULE_RESOLVE_EXTENSIONS,
         catchReadFile,
         catchPackageFilter,
@@ -1188,7 +1182,7 @@ class Walker {
             );
             if (result.isTransformed) {
               record.body = Buffer.from(result.code, 'utf8');
-              // Mark .mjs files as transformed so packer can rename them to .js
+              // The classic loader needs to execute transformed .mjs files as CommonJS.
               if (record.file.endsWith('.mjs')) {
                 record.wasTransformed = true;
               }
@@ -1207,16 +1201,6 @@ class Walker {
         const derivatives2: Derivative[] = [];
         stepDetect(record, marker, derivatives2);
         await this.stepDerivatives(record, marker, derivatives2);
-
-        // After dependencies are resolved, rewrite .mjs require paths to .js
-        // since the packer renames .mjs files to .js in the snapshot.
-        // Skip in SEA mode — ESM-to-CJS transform is not applied there.
-        if (!this.params.seaMode && record.wasTransformed && record.body) {
-          record.body = Buffer.from(
-            rewriteMjsRequirePaths(record.body.toString('utf8')),
-            'utf8',
-          );
-        }
       }
     }
 

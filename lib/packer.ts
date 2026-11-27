@@ -75,15 +75,12 @@ export default function packer({
   records,
   entrypoint,
   bytecode,
+  symLinks,
 }: PackerOptions) {
   const stripes: Stripe[] = [];
+  const mjsTargets: Record<string, string> = {};
 
-  // If the entrypoint was a .mjs file that got transformed, update its extension
-  if (records[entrypoint]?.wasTransformed && entrypoint.endsWith('.mjs')) {
-    entrypoint = `${entrypoint.slice(0, -4)}.js`;
-  }
-
-  for (let snap in records) {
+  for (const snap in records) {
     if (records[snap]) {
       const record = records[snap];
       const { file } = record;
@@ -92,10 +89,13 @@ export default function packer({
         continue;
       }
 
-      // If .mjs file was transformed to CJS, rename it to .js in the snapshot
-      // This prevents Node.js from treating it as an ES module
-      if (record.wasTransformed && snap.endsWith('.mjs')) {
-        snap = `${snap.slice(0, -4)}.js`;
+      if (record.wasTransformed) {
+        // Node needs a CommonJS filename to load the transformed code. Keep
+        // the original specifier resolvable, even when a real sibling owns .js.
+        let target = `${snap.slice(0, -4)}.js`;
+        while (records[target] || symLinks[target]) target += '.cjs';
+        mjsTargets[snap] = target;
+        if (snap === entrypoint) entrypoint = target;
       }
 
       assert(record[STORE_STAT], 'packer: no STORE_STAT');
@@ -198,5 +198,5 @@ export default function packer({
     '%DOCOMPRESS%' +
     `\n);`;
 
-  return { prelude, entrypoint, stripes };
+  return { prelude, entrypoint, stripes, mjsTargets };
 }

@@ -297,7 +297,12 @@ function nativePrebuildInstall(target: Target, nodeFile: string) {
 }
 
 interface ProducerOptions {
-  backpack: { entrypoint: string; stripes: Stripe[]; prelude: string };
+  backpack: {
+    entrypoint: string;
+    stripes: Stripe[];
+    prelude: string;
+    mjsTargets?: Record<string, string>;
+  };
   bakes: string[];
   slash: string;
   target: Target;
@@ -383,22 +388,33 @@ export default function producer({
     entrypoint = snapshotify(entrypoint, slash);
     stripes = stripes.slice();
 
-    const vfs: Record<string, Record<string, [number, number]>> = {};
+    const vfs: Record<
+      string,
+      { [store: number]: [number, number]; commonjs?: string }
+    > = {};
 
+    const snapshotKey = (snap: string) =>
+      makeKey(doCompress, snapshotify(snap, slash), slash);
     for (const stripe of stripes) {
-      let { snap } = stripe;
-      snap = snapshotify(snap, slash);
-      const vfsKey = makeKey(doCompress, snap, slash);
+      const vfsKey = snapshotKey(stripe.snap);
       if (!vfs[vfsKey]) vfs[vfsKey] = {};
+    }
+
+    for (const [original, targetSnap] of Object.entries(
+      backpack.mjsTargets || {},
+    )) {
+      const originalKey = snapshotKey(original);
+      const targetKey = snapshotKey(targetSnap);
+      // Both names share the same payload offsets. Only the module loader
+      // needs the CommonJS filename; fs sees the original as a regular file.
+      vfs[originalKey].commonjs = targetKey;
+      vfs[targetKey] = vfs[originalKey];
     }
 
     const snapshotSymLinks: SymLinks = {};
 
     for (const [key, value] of Object.entries(symLinks)) {
-      const k = snapshotify(key, slash);
-      const v = snapshotify(value, slash);
-      const vfsKey = makeKey(doCompress, k, slash);
-      snapshotSymLinks[vfsKey] = makeKey(doCompress, v, slash);
+      snapshotSymLinks[snapshotKey(key)] = snapshotKey(value);
     }
 
     let meter: streamMeter.StreamMeter;
@@ -467,9 +483,7 @@ export default function producer({
       if (count === 2) {
         if (prevStripe && !prevStripe.skip) {
           const { store } = prevStripe;
-          let { snap } = prevStripe;
-          snap = snapshotify(snap, slash);
-          const vfsKey = makeKey(doCompress, snap, slash);
+          const vfsKey = snapshotKey(prevStripe.snap);
           vfs[vfsKey][store] = [track, meter.bytes];
           track += meter.bytes;
         }
