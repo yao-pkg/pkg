@@ -1,5 +1,11 @@
 # Changelog
 
+## [6.26.1](https://github.com/yao-pkg/pkg/compare/v6.26.0...v6.26.1) (2026-11-27)
+
+### Bug Fixes
+
+- match Node's argument handling in patched child_process ([#335](https://github.com/yao-pkg/pkg/issues/335)) ([feda456](https://github.com/yao-pkg/pkg/commit/feda456fed803a48fe03d586a7b7d546b0180a0a)), closes [#334](https://github.com/yao-pkg/pkg/issues/334)
+
 ## [6.26.0](https://github.com/yao-pkg/pkg/compare/v6.25.0...v6.26.0) (2026-11-21)
 
 ### Features
